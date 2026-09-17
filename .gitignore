@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+node_modules/
+
+# local data never belongs in the repo
+.runcoach/
+*.db
+*.db-wal
+*.db-shm
+.env
+# the full model answers of the last run; the tracked summary is evals/RESULTS.md
+evals/last-run.json
+
+# coverage output (the CI gate does not produce it; a local run should not ship it)
+.coverage
+.coverage.*
+htmlcov/

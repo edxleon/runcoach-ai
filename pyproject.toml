@@ -1,0 +1,56 @@
+[project]
+name = "runcoach-ai"
+version = "0.1.0"
+description = "Local-first AI running coach for Garmin data, powered by your existing Claude subscription."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = [
+    # Unofficial, reverse-engineered Garmin client that handles the account
+    # session: it tracks an API nobody promised to keep stable, so a minor bump
+    # can rename endpoints or change the login flow. Capped on purpose — raise
+    # the bound deliberately, after `tests/test_api_contract.py` still passes.
+    "garminconnect>=0.2.25,<0.4",
+    "mcp>=1.27,<2",
+    "tzdata; sys_platform == 'win32'",
+]
+
+[project.urls]
+Homepage = "https://github.com/edxleon/runcoach-ai"
+Repository = "https://github.com/edxleon/runcoach-ai"
+Issues = "https://github.com/edxleon/runcoach-ai/issues"
+
+[project.scripts]
+runcoach = "runcoach.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "pyyaml>=6", "ruff>=0.14"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/runcoach"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+# The `# noqa:` markers in the source refer to these rules — without the section
+# they documented a config that did not exist. Every suppressed code is selected
+# here, so each marker is load-bearing and `ruff check` is a real gate.
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+src = ["src", "tests", "evals", "scripts"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "F",    # pyflakes
+    "B",    # flake8-bugbear
+    "BLE",  # flake8-blind-except  (every catch-all carries a `# noqa: BLE001` with its reason)
+    "N",    # pep8-naming          (suppressed at BaseHTTPRequestHandler's do_GET/do_POST)
+    "I",    # isort
+    "W",    # pycodestyle warnings
+]
