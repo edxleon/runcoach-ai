@@ -1,0 +1,21 @@
+{
+  "kind": "train-today",
+  "ref": "",
+  "day": "2026-09-18",
+  "headline": "Train, but easy: 40-50 min continuous Z2 with a hard HR cap of 148 bpm.",
+  "bullets": [
+    "Recovery says GO, spacing says EASY: HRV BALANCED, sleep 79, Body Battery 66, resting HR 48 vs 48.7 baseline, ACWR 1.17. The brake is yesterday's session alone - TE 3.9/2.6 with 6 min in Z5 - not fatigue.",
+    "HRV 49 ms last night against a 52.6 ms 7-day mean, resting HR flat at baseline. Nothing pushes below easy, nothing justifies a second hard day.",
+    "45 min easy run, flat route, HR cap 148 bpm (derived: 0.83 x Z5 bound 178 from 2026-09-17, cross-check 0.85 x LTHR 173; +/- 5 bpm). Week stands at 386 load vs ~650 in the three weeks before - this fills volume, not intensity.",
+    "No intervals, no threshold, no strides today. Next hard stimulus is the planned long run 2026-09-20, threshold 3x10 min on 2026-09-22 - 48 h clear of yesterday and of each other.",
+    "Stop if HR climbs over 148 at conversational pace on flat ground, or at any pain or stiffness - walk the rest home."
+  ],
+  "verdict": "EASY confirmed: 45 min Z2, cap 148 bpm.",
+  "job_id": "j-20260918-060445-0e60",
+  "model": "claude-opus-5[1m]",
+  "cost_usd": 0.2274415,
+  "generated_at": "2026-09-18T06:05:22+02:00",
+  "ctx": null,
+  "parent": null,
+  "data_through": "2026-09-17"
+}
