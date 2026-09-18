@@ -1,0 +1,51 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Least privilege: nothing in this workflow writes to the repo, packages or
+# releases. Job-level grants stay opt-in from here.
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        # `requires-python = ">=3.12"` is a promise about every version above it;
+        # one unpinned interpreter per OS tested none of them in particular.
+        python: ["3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      # Actions are pinned to commit SHAs, not tags: a tag is mutable, and these
+      # three run with access to the workflow token before any test does.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      # The matrix is only real if the interpreter actually changes with it.
+      # `.python-version` pins the local dev interpreter and could quietly win
+      # over the matrix, which would leave one leg testing the other's version
+      # and the README claiming two. So every `uv run` names the version, and
+      # this step fails the job if what arrives is not what was asked for.
+      - name: The interpreter is the one this leg is for
+        run: |
+          uv run --python ${{ matrix.python }} python -c "import sys; got = '%d.%d' % sys.version_info[:2]; want = '${{ matrix.python }}'; print('running', got); raise SystemExit(0 if got == want else f'expected {want}, got {got}')"
+
+      - name: Lint
+        run: uv run --python ${{ matrix.python }} ruff check
+      - name: Python tests (no database server, no network, no Garmin account)
+        run: uv run --python ${{ matrix.python }} pytest -q
+      - name: Frontend logic tests
+        run: node --test "web-tests/*.test.mjs"
+      - name: Eval suite is well-formed (dry run, no model calls)
+        run: uv run --python ${{ matrix.python }} python evals/run_evals.py --dry-run
+      - name: Nothing personal in the tree
+        run: uv run --python ${{ matrix.python }} python scripts/pii_gate.py
