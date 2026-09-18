@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>runcoach</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#12151c">
+<meta name="color-scheme" content="dark light">
+<script src="/static/theme-boot.js"></script>
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/manifest.json">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M3 21h5l4-11 5 16 4-9h8' fill='none' stroke='%2364d2a3' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/static/tokens.css">
+<link rel="stylesheet" href="/static/cards.css">
+<style>
+/* Page-specific layout. Colours, spacing and the shared components come from
+   tokens.css — this block only holds what is particular to this page: the
+   verdict, the zone card, the run list, the charts. */
+
+/* ── Verdict: the one answer looked for in the morning ── */
+#verdict { display: grid; gap: 10px; }
+.reasons { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+/* NO grid here (deliberately). With `grid-template-columns: 14px 1fr` and the
+   bullet in `::before` occupying the narrow column, every SECOND child of an
+   <li> slid into row 2, column 1 and was squeezed to 14 px — a sentence made
+   of `<b>…</b>` plus a text node (two items) then wrapped word by word on a
+   phone. A rule like `li > * { grid-column: 2 }` would only have rescued
+   element children, not bare text. With an indent and an absolutely placed
+   bullet the list is indifferent to the number and kind of its children. */
+.reasons li { position: relative; padding-left: 22px; font-size: 14px; }
+.reasons li::before { content: "·"; color: var(--muted); font-weight: 700;
+                      position: absolute; left: 0; top: 0;
+                      width: 14px; text-align: center; }
+.goal-line { font-size: 12px; color: var(--muted); }
+.about { text-align: center; opacity: .7; }
+
+/* ── Bars (sleep phases, intensity bands) ──
+   The colours live in tokens.css — there they are measured with a palette
+   validator; here they would only be a string of numbers without evidence. */
+.bar { display: flex; height: 12px; border-radius: 999px; overflow: hidden;
+       background: var(--surface2); gap: 2px; }
+.bar > span { display: block; min-width: 2px; }
+.bar-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px;
+              font-size: 11px; color: var(--muted); }
+.bar-legend i { display: inline-block; width: 8px; height: 8px; border-radius: 2px;
+                margin-right: 4px; vertical-align: -1px; }
+.b-easy { background: var(--band-easy); } .b-moderate { background: var(--band-moderate); }
+.b-hard { background: var(--band-hard); }
+.deep { background: var(--sl-deep); } .light { background: var(--sl-light); }
+.rem { background: var(--sl-rem); } .awake { background: var(--sl-awake); }
+
+/* ── Runs ── */
+.runs { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line);
+        border-radius: var(--r); overflow: hidden; }
+.run { background: var(--surface); }
+.run-head { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; width: 100%;
+            text-align: left; padding: 11px 12px; align-items: center; }
+.run-mid { min-width: 0; }
+.sport { display: flex; align-items: center; justify-content: center; color: var(--muted); }
+.sport svg { width: 18px; height: 18px; fill: none; stroke: currentColor;
+             stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.sport-running { color: var(--accent); }
+/* Week header: the rhythm runners think in. Deliberately NOT sticky — stuck
+   to the top it clipped the row above it, and with 30 entries the gain
+   ("which week am I in?") is smaller than the visual break. */
+.wk-head { display: flex; justify-content: space-between; gap: 8px;
+           padding: 7px 12px; background: var(--surface2);
+           font-size: 11px; color: var(--muted); font-weight: 600;
+           letter-spacing: .03em; }
+.run-title { font-size: 14px; font-weight: 600; display: flex; gap: 8px;
+             align-items: center; flex-wrap: wrap; }
+.run-sub { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums;
+           margin-top: 3px; }
+.run-right { font-size: 12px; color: var(--muted); text-align: right;
+             font-variant-numeric: tabular-nums; }
+.tag { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px;
+       background: var(--accent-tint); color: var(--accent); }
+/* Garmin's auto-segmentation ("2×20:41" for one continuous 35-minute block)
+   gets NO accent colour — as a green badge it had an authority that the
+   number of reps does not deserve. */
+.tag-garmin { background: var(--surface2); color: var(--muted); font-weight: 500; }
+/* Intensity band on the left edge: a week readable at a glance, instead of a
+   recovery jog and a threshold run differing only in their average HR. */
+.run { border-left: 3px solid transparent; }
+.run-band-easy     { border-left-color: var(--band-easy); }
+.run-band-moderate { border-left-color: var(--band-moderate); }
+.run-band-hard     { border-left-color: var(--band-hard); }
+/* Strength: one line, subdued — duration and average HR are all Garmin has. */
+.run-strength .run-head { padding: 7px 12px; }
+.run-strength .run-title { font-weight: 500; color: var(--muted); font-size: 13px; }
+.trend-sentence { font-size: 15px; line-height: 1.45; }
+.trend-sentence b { font-variant-numeric: tabular-nums; }
+.tab { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tab th { text-align: left; font-size: 11px; font-weight: 600; color: var(--muted);
+          text-transform: uppercase; letter-spacing: .04em; padding: 4px 6px 4px 0; }
+.tab td { padding: 5px 6px 5px 0; border-top: 1px solid var(--line); }
+.tab .num { text-align: right; font-variant-numeric: tabular-nums; }
+/* Week strip: seven columns, done = filled in the band colour, planned =
+   outline, missed = dashed, today = accent frame. */
+.week-strip { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.w-day { display: flex; flex-direction: column; gap: 2px; min-height: 64px; padding: 6px 4px;
+         border-radius: 8px; border: 1px solid var(--line); background: var(--surface2);
+         font-size: 11px; line-height: 1.25; overflow: hidden; }
+.w-d { font-weight: 700; color: var(--muted); font-size: 11px; }
+.w-t { font-weight: 600; overflow-wrap: anywhere; }
+.w-t.muted { color: var(--muted); font-weight: 500; }
+.w-s { color: var(--muted); font-size: 10px; }
+.w-run { border-color: transparent; }
+.w-easy     { background: color-mix(in srgb, var(--band-easy) 16%, var(--surface)); }
+.w-moderate { background: color-mix(in srgb, var(--band-moderate) 18%, var(--surface)); }
+.w-hard     { background: color-mix(in srgb, var(--band-hard) 18%, var(--surface)); }
+.w-planned { background: var(--surface); border-style: solid; border-color: var(--accent); }
+.w-missed { background: var(--surface); border-style: dashed; color: var(--muted); }
+.w-today { box-shadow: 0 0 0 2px var(--accent); }
+/* Minutes above easy: bars below the target line subdued, the line dashed.
+   ONE bar, TWO numbers: the pale body is everything above the easy zones
+   (Z3+Z4+Z5), the solid foot inside it is the part above threshold (Z4+Z5).
+   Same hue on purpose — it is one quantity and its subset, not two series.
+   Drawn in the same colour at the same weight (the first attempt) the inner
+   segment was simply invisible while the axis caption promised it. */
+.chart.intensity .barfill { fill: var(--accent); opacity: .34; }
+.chart.intensity .barfill.bar-muted { fill: var(--muted); opacity: .30; }
+.chart.intensity .barquality { fill: var(--accent); opacity: 1; }
+.chart .barfill.bar-muted { fill: var(--muted); opacity: .55; }
+.chart .target { stroke: var(--down); stroke-width: 1; stroke-dasharray: 4 3; }
+.today-card-done .k { color: var(--muted); }
+.run-detail { padding: 0 12px 12px; display: grid; gap: 10px; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px; }
+.kv dt { color: var(--muted); } .kv dd { margin: 0; font-variant-numeric: tabular-nums; }
+
+/* ── Charts ── */
+.chart { width: 100%; height: auto; display: block; }
+.chart .grid { stroke: var(--line); stroke-width: 1; }
+.chart .step { fill: none; stroke: var(--accent); stroke-width: 2;
+               stroke-linejoin: round; }
+/* The jump marker gets a ring in the surface colour — a dot in the line's
+   colour ON the line is invisible (the text spoke of "12 marked jumps" and
+   none could be seen). */
+.chart .dot { fill: var(--accent); stroke: var(--surface); stroke-width: 1.6; }
+.chart .wip-bg { fill: var(--surface2); }
+.chart .wip-line { stroke: var(--neutral); stroke-width: 2.5; }
+.chart text { fill: var(--muted); font-size: 10px;
+              font-family: system-ui, sans-serif; }
+.chart .barfill { fill: var(--accent); }
+.chart .barfill.wip { fill: url(#wip); }
+.chart .barlabel { fill: var(--text); font-size: 10px; font-weight: 600; }
+
+.job-warn { font-size: 12px; color: var(--warn); padding: 0 0 8px 2px; }
+.coach-hint { font-size: 13px; color: var(--warn); padding: 9px 12px;
+              border-radius: var(--r); background: var(--warn-tint); }
+.coach-hint code { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<header class="app">
+  <span class="wordmark mono">runcoach</span>
+  <span class="demo-badge" id="demo-badge" hidden title="Synthetic sample data — not a real athlete">demo data</span>
+  <button class="head-right" id="refresh" title="Sync with Garmin and reload"
+          aria-label="Sync with Garmin and reload">
+    <span id="fresh-dot" class="dot"></span><span id="fresh">–</span>
+    <svg class="reload" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v5h-5"/></svg>
+  </button>
+</header>
+
+<div id="pull" aria-hidden="true"></div>
+
+<main class="app">
+  <div id="stale"></div>
+  <div id="health"></div>
+
+  <section id="view-today" class="view">
+    <div class="card" id="verdict"></div>
+    <div class="card" id="week"></div>
+    <div id="signals"></div>
+    <div class="card" id="sleep"></div>
+    <div class="card" id="zones"></div>
+    <div class="card" id="actions-today"></div>
+  </section>
+
+  <section id="view-runs" class="view">
+    <div id="runs-head"></div>
+    <div class="runs" id="runs"></div>
+  </section>
+
+  <section id="view-trend" class="view">
+    <div class="card" id="trend-head"></div>
+    <div class="card" id="vo2"></div>
+    <div class="card" id="threshold"></div>
+    <div class="card" id="hard-minutes"></div>
+    <div class="card" id="aerobic"></div>
+    <div class="card" id="predictions"></div>
+    <div class="card" id="factors"></div>
+    <div class="card" id="volume"></div>
+    <div class="card" id="distribution"></div>
+    <div class="card" id="acwr"></div>
+  </section>
+
+  <section id="view-coach" class="view">
+    <div id="coach-hint"></div>
+    <div class="card" id="coach-actions"></div>
+    <div id="coach-jobs"></div>
+    <div id="coach-cards"></div>
+    <div class="card" id="coach-cost"></div>
+  </section>
+
+  <div class="note about" id="about"></div>
+</main>
+
+<nav class="tabbar" id="tabs" aria-label="Sections of the app">
+  <button data-view="today" aria-current="page">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2"/></svg>
+    Today</button>
+  <button data-view="runs">
+    <svg viewBox="0 0 24 24"><path d="M3 12h4l2.5-6 4 12 2.5-6h5"/></svg>
+    Runs</button>
+  <button data-view="trend">
+    <svg viewBox="0 0 24 24"><path d="M4 17l5-5 3.5 3.5L20 8"/><path d="M20 8h-4"/><path d="M20 8v4"/></svg>
+    Trend</button>
+  <button data-view="coach">
+    <svg viewBox="0 0 24 24"><path d="M5 5h14v10H9l-4 4z"/></svg>
+    Coach</button>
+</nav>
+
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>

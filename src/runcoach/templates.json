@@ -1,0 +1,30 @@
+[
+  {
+    "id": "train-today",
+    "title": "Should I train today?",
+    "hint": "Readiness + today's session and HR cap",
+    "params": ["day"],
+    "prompt": "For {day}, answer: train or rest - and if train, WHAT exactly (volume, intensity, heart-rate cap).\n\nFetch the data yourself with the runcoach tools (get_training_readiness, get_recovery_summary, get_training_load, get_recent_activities; sync_garmin first if today's data is missing). Derive the HR cap from the Garmin zone bounds of a recent run (analyze_workout prints them) and the lactate threshold (get_training_load prints it); honour what the Garmin calendar has planned for today unless the data argues against it; never invent a max-HR formula, and do not print a zone table - only the cap with its source.\n\nThe rule-based verdict is the starting point, not the conclusion: if the signals contradict it, say so and justify it in numbers - only the CONFLICT, not how the verdict is built. No reassurance, no filler.\n\nShort contract: headline = decision + cap in ONE sentence. At most 5 bullets: (1) verdict vs today's signals - only the conflict, in numbers; (2) the one trend that carries the decision (e.g. weekly HRV mean vs last night); (3) today's session, concretely (workout, volume, cap); (4) what is NOT happening + the criterion for resuming it; (5) abort criteria. Any derivation that does not change the decision is dropped."
+  },
+  {
+    "id": "analyze-run",
+    "title": "Analyze this run",
+    "hint": "Structure, zones, context",
+    "params": ["activity_id"],
+    "prompt": "Analyze the Garmin activity with id {activity_id} via analyze_workout (pass activity_id).\n\nAnswer: (1) What kind of session was it - structure from the splits, not from its name (for intervals: count x duration, average HR work vs recovery; the split structure is Garmin's auto-detection - if the athlete states a different structure, the athlete is right). (2) Did it hit what it was meant to hit (zone distribution, time above the Z4/Z5 bound)? (3) How does it fit into the last 4 weeks (load, performance condition, temperature as context; use get_recent_activities and get_training_load)? (4) What follows for the next hard session?\n\nIf detail data is missing (no splits, no zone detail), say so instead of interpolating.\n\nUse the activity id as `ref` in the card."
+  },
+  {
+    "id": "why-vo2max",
+    "title": "Why is VO2max moving?",
+    "hint": "Factors instead of guesses",
+    "params": [],
+    "prompt": "Examine how VO2max developed over the last 8 weeks and WHICH factors mechanically fit.\n\nFetch the data with get_vo2max_history, get_training_load and get_intensity_distribution (28 and 84 days), plus get_recent_activities.\n\nImportant: Garmin's VO2max is carry-forward - on days without a real measurement the last value is repeated. Treat the series as steps and interpret only the jumps, not the plateau in between. Compare the last 28 days with the 28 before: distance, Z5 minutes, easy share, average temperature. If the older block was not read in full, do not sell the comparison as a change.\n\nSay clearly what the data supports and what it does not (correlation is not causation, n=1). No training-theory platitudes - refer to the athlete's numbers."
+  },
+  {
+    "id": "week-review",
+    "title": "Review my training week",
+    "hint": "Volume, polarisation, ACWR",
+    "params": [],
+    "prompt": "Review the last training week: volume and load compared with the 4 weeks before, ACWR with its source (Garmin or computed), intensity distribution (80/20 - how much sits in the grey zone Z3?), recovery signals (HRV status, resting HR against the baseline, sleep).\n\nFetch the data with the runcoach tools. Conclude with: does the ratio of stimulus and recovery fit, and what is the ONE thing that should be different next week - justified from the numbers."
+  }
+]

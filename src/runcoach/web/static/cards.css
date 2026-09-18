@@ -1,0 +1,118 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   Coach cards + job strip (cards.js). Tokens only — no hard colours. Phone
+   first: everything wraps, nothing scrolls sideways.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.coach-card { background: var(--surface); border: 1px solid var(--line);
+              border-radius: var(--r, 10px); box-shadow: var(--shadow, none);
+              padding: 0; overflow: hidden; margin: 0 0 12px; min-width: 0; }
+.coach-card:last-child { margin-bottom: 0; }
+.card-head { display: grid; gap: 6px; width: 100%; text-align: left;
+             padding: 14px 34px 14px 14px; position: relative;
+             font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+.card-head h3 { margin: 0; font-size: 15px; line-height: 1.35; font-weight: 600;
+                overflow-wrap: anywhere; }
+.card-meta { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+/* The verdict is a sentence and may wrap — as a single-line pill it was cut
+   off at the right edge. */
+.card-verdict { justify-self: start; display: inline-block; font-size: 12px;
+                font-weight: 600; line-height: 1.4; padding: 3px 10px;
+                border-radius: 999px; color: var(--accent);
+                background: var(--accent-tint); }
+.chev { position: absolute; right: 14px; top: 14px; color: var(--muted); font-size: 13px; }
+.card-body { padding: 12px 14px 14px; display: grid; gap: 10px;
+             border-top: 1px solid var(--line); }
+.card-body p { margin: 0; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+.card-more summary { cursor: pointer; font-size: 12px; font-weight: 600;
+                     color: var(--accent); list-style: none; }
+.card-more summary::-webkit-details-marker { display: none; }
+.card-more summary::before { content: "▸ "; }
+.card-more[open] summary::before { content: "▾ "; }
+.card-more p { margin-top: 8px; }
+/* Full text: keep line breaks, no Markdown. */
+.card-text { white-space: pre-wrap; font-size: 14px; line-height: 1.5;
+             overflow-wrap: anywhere; }
+.card-delta { font-size: 13px; line-height: 1.45; border-left: 2px solid var(--accent);
+              padding-left: 8px; overflow-wrap: anywhere; }
+.card-metaline { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+
+/* Feedback + follow-up: one row that wraps cleanly at 390 px. */
+.card-fb, .card-followup { display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+                           min-width: 0; }
+.fb-btn { font: inherit; font-size: 16px; line-height: 1; padding: 5px 9px;
+          border-radius: 999px; border: 1px solid transparent; background: none;
+          color: inherit; cursor: pointer; opacity: .55; }
+.fb-btn.active { opacity: 1; border-color: var(--accent); background: var(--accent-tint); }
+.fb-text, .fu-text { flex: 1 1 140px; min-width: 0; font: inherit; font-size: 13px;
+                     padding: 7px 10px; border-radius: var(--r-sm, 6px);
+                     border: 1px solid var(--line); background: var(--surface2);
+                     color: var(--text); }
+.fb-send, .fu-send { font: inherit; font-size: 12px; font-weight: 600; color: var(--accent);
+                     background: none; border: 1px solid var(--line);
+                     border-radius: var(--r-sm, 6px); padding: 6px 10px; cursor: pointer; }
+.fb-send:disabled, .fu-send:disabled, .fb-text:disabled, .fu-text:disabled { opacity: .5; }
+.fb-saved, .card-followup-pending { flex-basis: 100%; }
+.card-followup-pending { color: var(--accent); }
+
+/* Answers: indented below the parent card, with an accent edge. */
+.card-children { display: grid; gap: 8px; margin: 0 12px 12px 14px; padding-left: 10px;
+                 border-left: 2px solid var(--accent-tint); }
+.card-child { margin: 0; box-shadow: none; }
+.card-child .card-head { padding: 10px 30px 10px 12px; }
+.card-child .card-head h3 { font-size: 14px; }
+.card-child .card-body { padding: 10px 12px 12px; }
+
+/* Filter pills by kind */
+.card-filter { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.card-pill { font: inherit; font-size: 12px; font-weight: 600; padding: 5px 11px;
+             border-radius: 999px; border: 1px solid var(--line);
+             background: var(--surface); color: var(--muted); cursor: pointer; }
+.card-pill.active { color: var(--accent); border-color: var(--accent);
+                    background: var(--accent-tint); }
+
+/* Job strip */
+.job-strip { margin-bottom: 12px; }
+.job-strip .job-line { display: grid; gap: 4px; padding: 8px 0;
+                       border-bottom: 1px solid var(--line); font-size: 13px; min-width: 0; }
+.job-strip .job-line:last-child { border-bottom: 0; padding-bottom: 0; }
+.job-row-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-width: 0; }
+.job-row-head .pill { flex: none; }
+.job-title { flex: 1 1 140px; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+             white-space: nowrap; }
+.job-when { white-space: nowrap; }
+.job-reason { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.job-reason-error { color: var(--down); }
+.job-strip .job-log-btn { font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+                          border: 1px solid var(--line); color: var(--muted);
+                          background: none; border-radius: 999px; padding: 3px 10px; }
+.job-strip .job-log-btn[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); }
+.job-log { margin: 4px 0 0; padding: 8px 10px; max-height: 220px; overflow: auto;
+           font-size: 11px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere;
+           background: var(--surface2); border-radius: var(--r-sm, 6px); color: var(--muted); }
+.job-strip .job-cancel { font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+                         border: 1px solid var(--down); color: var(--down);
+                         background: var(--down-tint); border-radius: 999px;
+                         padding: 3px 10px; margin: 0; min-height: 0; }
+.job-strip .job-cancel.armed { background: var(--warn-tint); color: var(--warn);
+                               border-color: var(--warn); }
+.job-strip .job-cancel:disabled { opacity: .5; cursor: default; }
+.job-strip .live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+                       background: currentColor; animation: cardPulse 1.6s ease-in-out infinite; }
+@keyframes cardPulse { 0%,100% { opacity: .35; } 50% { opacity: 1; } }
+
+/* Today tab: the coach line below the verdict. */
+.today-card { margin-top: 12px; padding: 10px 12px; border-radius: var(--r-sm, 6px);
+              background: var(--accent-tint); display: grid; gap: 4px;
+              font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+.today-card .k { font-size: 11px; color: var(--muted); }
+.today-card b { font-weight: 600; }
+.today-card a { color: var(--accent); font-size: 12px; font-weight: 600; text-decoration: none; }
+
+/* The delete button sits with the card tools but reads as the destructive one:
+   pushed to the far end, quiet until hovered. `armOrFire` turns the first tap
+   into "Sure?" — a card cannot be brought back, and deleting the newest of a
+   kind also drops the memory the next run of that kind builds on. */
+.fb-del { margin-left: auto; background: none; border: 1px solid var(--line);
+          color: var(--muted); border-radius: var(--r-s, 6px); padding: 3px 9px;
+          font-size: 12px; cursor: pointer; }
+.fb-del:hover, .fb-del:focus-visible { color: var(--warn); border-color: var(--warn); }
