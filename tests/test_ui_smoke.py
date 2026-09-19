@@ -3,7 +3,9 @@ demo server. Red on: an uncaught error in the console, the chassis' visible
 "Page error" marker, or a page whose module never ran (`data-area` missing).
 
 Unit tests cannot see a SyntaxError or ReferenceError in an inline module — the
-page just stays blank. Skipped when no Chrome/Chromium is installed.
+page just stays blank. Skipped when no Chrome/Chromium is installed, and on
+macOS CI runners, where headless Chrome does not return at all (see
+`_unusable_browser`).
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -33,7 +36,29 @@ def _chrome() -> str | None:
 
 
 CHROME = _chrome()
-pytestmark = pytest.mark.skipif(CHROME is None, reason="no Chrome/Chromium found")
+def _unusable_browser() -> str | None:
+    """Why this file cannot run here, or `None` if it can.
+
+    GitHub's macOS runners ship Chrome but headless Chrome never returns on
+    them: every `--dump-dom` call sat until the 90 s timeout, six in a row,
+    while the identical commit passed on Linux and Windows. It is a property of
+    the runner (no window server session, cold profile, no GPU), not of macOS -
+    a developer on a real Mac still gets the coverage, because CI is unset
+    there.
+
+    Skipping is honest here and would not be for a logic test: what this file
+    guards (an inline module that never ran, a CSP violation, a console error)
+    is identical on all three systems, so Linux and Windows already answer the
+    question. Pretending otherwise would buy a red badge nobody can act on."""
+    if CHROME is None:
+        return "no Chrome/Chromium found"
+    if sys.platform == "darwin" and os.environ.get("CI"):
+        return "headless Chrome does not return on GitHub's macOS runners"
+    return None
+
+
+pytestmark = pytest.mark.skipif(_unusable_browser() is not None,
+                                reason=_unusable_browser() or "")
 
 
 @pytest.fixture(scope="module")
@@ -56,7 +81,11 @@ def base_url(tmp_path_factory):
 
 def render(url: str, profile: Path, *extra: str) -> tuple[str, str]:
     proc = subprocess.run(
-        [CHROME, "--headless=new", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
+        # `--no-sandbox` and `--disable-dev-shm-usage`: the standard pair for a
+        # containerised runner, where the sandbox has no user namespace and
+        # /dev/shm is 64 MB. Harmless on a desktop.
+        [CHROME, "--headless=new", "--disable-gpu", "--no-sandbox",
+         "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
          f"--user-data-dir={profile}", "--enable-logging=stderr", "--v=0",
          "--window-size=430,1400", "--virtual-time-budget=8000", *extra, "--dump-dom", url],
         capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90)
