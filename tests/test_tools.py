@@ -24,9 +24,9 @@ def _reset_sync_cooldown():
     depend on `tools`, whether it used it or not."""
     from runcoach import tools
 
-    tools._last_sync[0] = 0.0
+    tools._last_sync[0] = None
     yield
-    tools._last_sync[0] = 0.0
+    tools._last_sync[0] = None
 
 
 EXPECTED_MCP_TOOLS = {

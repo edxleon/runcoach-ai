@@ -46,9 +46,9 @@ def _reset_sync_cooldown():
     depend on `tools`, whether it used it or not."""
     from runcoach import tools
 
-    tools._last_sync[0] = 0.0
+    tools._last_sync[0] = None
     yield
-    tools._last_sync[0] = 0.0
+    tools._last_sync[0] = None
 
 
 # ── one definition of "hard" ─────────────────────────────────────────────────
@@ -484,7 +484,7 @@ def test_sync_garmin_is_rate_limited(store, monkeypatch):
     assert len(logins) == 1, "a second login inside the cooldown"
 
     # Once the window has passed, a real sync happens again.
-    tools._last_sync[0] -= tools.SYNC_COOLDOWN_S + 1
+    tools._last_sync[0] -= tools.SYNC_COOLDOWN_S + 1  # wind the clock back
     tools.sync_garmin(store, days=1)
     assert len(logins) == 2
 
@@ -1684,3 +1684,35 @@ def test_the_readme_counts_the_tests_that_actually_exist():
     if js_tests is not None:
         assert f"{js_tests} frontend tests" in readme, (
             f"the README does not cite {js_tests} frontend tests")
+
+
+def test_the_first_sync_after_a_reboot_is_not_refused(store, monkeypatch):
+    """`time.monotonic()` counts from an arbitrary point - on Linux, machine
+    boot. With `0.0` as the "never synced" sentinel, `now - 0.0` is the UPTIME,
+    so the cooldown only behaved on a machine that had been running longer than
+    it. On a freshly booted one the day's FIRST sync came back "Synced 43 s ago
+    - the data you just read is current", which is not a throttle, it is a false
+    statement to the athlete and to the agent.
+
+    Every developer machine here had been up for days (845_992 s), so the
+    sentinel worked by accident. CI's runners boot per job and found it in the
+    first green-to-red minute."""
+    from conftest import FakeGarmin
+    from runcoach import sync as sync_mod
+
+    logins: list = []
+    monkeypatch.setattr(garmin, "login",
+                        lambda tokenstore=None: logins.append(1) or FakeGarmin())
+    monkeypatch.setattr(sync_mod.time, "sleep", lambda _s: None)
+
+    # A machine that booted 43 seconds ago, which is inside the cooldown.
+    monkeypatch.setattr(tools.time, "monotonic", lambda: 43.0)
+    tools._last_sync[0] = None
+
+    out = tools.sync_garmin(store, days=1)
+    assert "was skipped" not in out, f"the first sync after a reboot was refused: {out}"
+    assert len(logins) == 1
+
+    # ...and the cooldown still throttles the SECOND one, on the same clock.
+    again = tools.sync_garmin(store, days=1)
+    assert "was skipped" in again and len(logins) == 1

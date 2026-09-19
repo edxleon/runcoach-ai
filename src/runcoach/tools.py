@@ -414,7 +414,16 @@ def get_vo2max_history(store: Store) -> str:
 #: again" repeated in a prompt meant tens of fresh logins and hundreds of API
 #: calls inside one job, which is how an account gets throttled.
 SYNC_COOLDOWN_S = 60
-_last_sync: list[float] = [0.0]
+#: `None`, not `0.0`, for "never synced in this process".
+#:
+#: `time.monotonic()` counts from an arbitrary point - on Linux, machine boot.
+#: With `0.0` as the sentinel, `now - 0.0` is the UPTIME, so the guard only
+#: worked on a machine that had been running longer than the cooldown. On a
+#: freshly booted one the FIRST sync of the day was refused with "Synced 43 s
+#: ago - the data you just read is current", which is not a throttle, it is a
+#: false statement. CI found it; every developer machine had been up for days
+#: and could not.
+_last_sync: list[float | None] = [None]
 _sync_lock = threading.Lock()
 
 
@@ -430,8 +439,9 @@ def sync_garmin(store: Store, days: int = 1) -> str:
     if not _sync_lock.acquire(blocking=False):
         return "A sync is already running. Use the data you have; it will be current in a moment."
     try:
-        waited = time.monotonic() - _last_sync[0]
-        if waited < SYNC_COOLDOWN_S:
+        last = _last_sync[0]
+        waited = None if last is None else time.monotonic() - last
+        if waited is not None and waited < SYNC_COOLDOWN_S:
             return (f"Synced {round(waited)} s ago - Garmin rate-limits repeated pulls, so this "
                     f"one was skipped. The data you just read is current.")
         _last_sync[0] = time.monotonic()
