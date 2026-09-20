@@ -19,10 +19,11 @@ permissions:
 
 jobs:
   test:
-    # The slowest leg (Windows) takes three minutes, so fifteen is five times
-    # the headroom and still catches a hang early. Without it the default is six
-    # HOURS per leg — and this suite has already had one: headless Chrome on the
-    # macOS runners never returns, it only ever hit a timeout inside the test.
+    # The slowest leg (Windows) measures three to four minutes, so fifteen is
+    # around four times the headroom and still catches a hang early. Without it
+    # the default is six HOURS per leg — and this suite has already had one:
+    # headless Chrome on the macOS runners never returns, it only ever hit a
+    # timeout inside the test.
     timeout-minutes: 15
     strategy:
       fail-fast: false
