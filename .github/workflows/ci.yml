@@ -66,3 +66,28 @@ jobs:
         run: uv run --python ${{ matrix.python }} python evals/run_evals.py --dry-run
       - name: Nothing personal in the tree
         run: uv run --python ${{ matrix.python }} python scripts/pii_gate.py
+
+  # The suite above proves the code from inside the checkout. This job proves
+  # the PACKAGE from outside it: build the wheel, `uv tool install` it into a
+  # throw-away tool dir the way a user would, and drive the installed
+  # executable through the README's quick start - demo over HTTP, doctor,
+  # sync, login without a terminal, the MCP handshake. It is the "other
+  # computer" the author does not have: a machine that has never seen the
+  # source tree. Standard-library Python drives it, so it runs on whatever
+  # interpreter the runner has, and the installed tool brings its own.
+  install:
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install the wheel as a user and use it as one
+        run: uv run --no-project python scripts/install_check.py
