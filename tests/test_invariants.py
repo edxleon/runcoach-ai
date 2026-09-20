@@ -1792,3 +1792,21 @@ def test_the_front_end_avoids_the_constructs_a_linter_would_ban():
         for m in rx.finditer(src)
     ]
     assert not offenders, "\n  ".join(["banned in the shipped modules:"] + offenders)
+
+
+# ── login says what it needs instead of tracing back ─────────────────────────
+
+def test_login_without_a_terminal_says_so(monkeypatch, capsys):
+    """`runcoach login < /dev/null` - or from a cron, a CI job, a pipe - used to
+    end in a traceback from `input()`. Found by running every README command
+    in a directory that had never seen the tool. The right answer to "I ran
+    this in the wrong place" is one sentence naming the right place."""
+    from runcoach import auth
+
+    monkeypatch.setattr("builtins.input", lambda *_a: (_ for _ in ()).throw(EOFError()))
+    rc = auth.interactive_login()
+    err = capsys.readouterr().err
+    assert rc == 1 and "interactive" in err and "Traceback" not in err, err
+
+    monkeypatch.setattr("builtins.input", lambda *_a: (_ for _ in ()).throw(KeyboardInterrupt()))
+    assert auth.interactive_login() == 1 and "cancelled" in capsys.readouterr().err

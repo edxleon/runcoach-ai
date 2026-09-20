@@ -38,8 +38,20 @@ def interactive_login() -> int:
     store = paths.garmin_dir()
     store.mkdir(parents=True, exist_ok=True)
 
-    email = input("Garmin e-mail: ").strip()
-    password = getpass.getpass("Garmin password (not stored): ")
+    # `input()` raises EOFError when there is no terminal - a pipe, a cron, a
+    # CI job, `< /dev/null` - and KeyboardInterrupt on Ctrl+C. Both used to end
+    # in a traceback, which is the wrong answer to "I ran this in the wrong
+    # place": say what the command needs instead.
+    try:
+        email = input("Garmin e-mail: ").strip()
+        password = getpass.getpass("Garmin password (not stored): ")
+    except EOFError:
+        print("\n`runcoach login` is interactive: run it in a terminal where it can ask "
+              "for e-mail, password and the MFA code.", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("\nLogin cancelled.", file=sys.stderr)
+        return 1
     if not email or not password:
         print("E-mail and password are required.", file=sys.stderr)
         return 1
@@ -48,6 +60,9 @@ def interactive_login() -> int:
                     prompt_mfa=lambda: input("MFA code (e-mail/SMS/app): ").strip())
     try:
         client.login()
+    except (EOFError, KeyboardInterrupt):
+        print("\nLogin cancelled before the MFA code was entered.", file=sys.stderr)
+        return 1
     except Exception as exc:  # noqa: BLE001 — garminconnect raises many shapes
         print(f"Login failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 2
