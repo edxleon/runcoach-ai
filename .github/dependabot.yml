@@ -20,3 +20,9 @@ updates:
     # the change that needs a human to run `runcoach sync` once before merging.
     commit-message:
       prefix: "deps"
+    ignore:
+      # `pyproject.toml` pins `mcp<2` on purpose: 2.x renamed FastMCP and
+      # changed the server API. Dependabot's very first PR proposed 2.2.0
+      # anyway and CI rejected it; a major bump there is a port, not a bump.
+      - dependency-name: mcp
+        update-types: ["version-update:semver-major"]

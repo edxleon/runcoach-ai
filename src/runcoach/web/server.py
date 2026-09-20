@@ -135,6 +135,16 @@ class App:
         self.worker_beat = time.monotonic()
         self.worker_busy = False
         self.worker_error: str | None = None
+        #: Never set in production - the worker runs until the process ends. It
+        #: exists for the one caller that starts a worker and must also end it:
+        #: a test. A worker thread that outlives its test keeps polling
+        #: `paths.jobs_dir()`, which reads RUNCOACH_HOME on every call, so it
+        #: silently consumes the jobs of every LATER test's home - with the real
+        #: `agent.run` restored, which fails a job in milliseconds and frees a
+        #: queue slot the later test was counting on. That was the one-in-many
+        #: "queue_full expected, got 200" that three observers could not
+        #: reproduce in isolation: in isolation there is no leaked thread.
+        self.worker_stop = threading.Event()
         self.last_sync: dict | None = None
 
     # ── templates ──
@@ -377,23 +387,27 @@ class App:
         a Windows sharing violation in `cleanup_cards()` used to end the thread —
         after which jobs stayed `queued` forever, nothing in `/api/state` said so,
         and the queue cap turned every new card into "queue full"."""
+        # The thread names itself, whoever started it: `serve()` does so too,
+        # but a test that spawns a worker and forgets it is exactly the thread
+        # the leaked-worker guard in `tests/conftest.py` has to be able to see.
+        threading.current_thread().name = "runcoach-worker"
         try:
             jobs.recover_stale()
         except OSError as exc:
             self._note_worker_error(exc)
-        while True:
+        while not self.worker_stop.is_set():
             try:
                 self._worker_tick()
             except Exception as exc:  # noqa: BLE001 — the loop outlives every job
                 self._note_worker_error(exc)
-                time.sleep(2)
+                self.worker_stop.wait(2)
 
     def _worker_tick(self) -> None:
         self.worker_beat = time.monotonic()
         self.worker_busy = False
         job = jobs.next_queued()
         if job is None:
-            time.sleep(1.5)
+            self.worker_stop.wait(1.5)
             return
         if jobs.cancel_requested(job["id"]):
             jobs.clear_cancel(job["id"])
@@ -654,7 +668,8 @@ def serve(*, host: str = "127.0.0.1", port: int = 8765, demo: bool = False,
               f"window, or give this one its own RUNCOACH_HOME. Two instances on one home\n"
               f"fight over the same jobs.", file=sys.stderr)
         return 1
-    threading.Thread(target=app.worker, daemon=True, name="runcoach-worker").start()
+    worker = threading.Thread(target=app.worker, daemon=True, name="runcoach-worker")
+    worker.start()
     if sync_on_start and not demo:
         app.refresh_start()
     url = f"http://{'127.0.0.1' if host in ('0.0.0.0', '::') else host}:{port}/"
@@ -680,6 +695,14 @@ def serve(*, host: str = "127.0.0.1", port: int = 8765, demo: bool = False,
         # spending subscription quota, keeps an MCP child on the database, and
         # its job file stays `running` until the next start relabels it.
         agent.stop_running()
+        # The worker goes with the server. At a console Ctrl+C the process ends
+        # anyway; where `serve()` RETURNS instead - a test with `serve_forever`
+        # patched out, or a host that embeds the app - a worker left polling
+        # keeps consuming every job written to whatever RUNCOACH_HOME is by
+        # then. Three tests did exactly that, and the leaked threads failed a
+        # queue-cap assertion in a fourth, on CI, once in many runs.
+        app.worker_stop.set()
+        worker.join(5)
         _release_home_lock(lock)
     return 0
 

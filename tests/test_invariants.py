@@ -253,12 +253,22 @@ def test_the_worker_survives_a_failing_cleanup(tmp_path, monkeypatch):
 
     thread = threading.Thread(target=app.worker, daemon=True)
     thread.start()
-    deadline = time.monotonic() + 10
-    while boom["n"] < 2 and time.monotonic() < deadline:
-        time.sleep(0.1)
-    assert boom["n"] >= 2, "the worker stopped after the first failing cleanup"
-    assert thread.is_alive()
-    assert app.worker_error and "PermissionError" in app.worker_error
+    try:
+        deadline = time.monotonic() + 10
+        while boom["n"] < 2 and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert boom["n"] >= 2, "the worker stopped after the first failing cleanup"
+        assert thread.is_alive()
+        assert app.worker_error and "PermissionError" in app.worker_error
+    finally:
+        # A worker that survives everything also survives this test - and then
+        # polls RUNCOACH_HOME, which every later test points somewhere new, with
+        # the real `agent.run` restored. That leaked thread was the "queue_full
+        # expected, got 200" failure in test_web, once every N runs on CI and
+        # never in isolation. The guard in conftest.py fails any test that
+        # leaves one behind; this is the stop it checks for.
+        app.worker_stop.set()
+        thread.join(5)
 
 
 # ── one sync at a time ───────────────────────────────────────────────────────

@@ -40,6 +40,26 @@ def _isolated_env(tmp_path, monkeypatch):
                  "RUNCOACH_CLAUDE_CMD", "RUNCOACH_MODEL", "RUNCOACH_LOG"):
         monkeypatch.delenv(name, raising=False)
 
+@pytest.fixture(autouse=True)
+def _no_worker_outlives_its_test():
+    """A job worker started by one test and left running is invisible to that
+    test and lethal to a later one: it keeps polling `paths.jobs_dir()`, which
+    reads RUNCOACH_HOME on every call, so it consumes the jobs of whichever
+    home the next test sets up - with the real `agent.run`, which fails a job
+    in milliseconds and frees a queue slot that test was counting on. This is
+    what "queue_full expected, got 200" in test_web was, once in many CI runs
+    and never in isolation.
+
+    The worker names its own thread, whoever started it, so the check needs
+    no cooperation from the test: after every test, no `runcoach-worker` may
+    still be alive. A test that starts one has to stop it (`app.worker_stop`)."""
+    import threading
+    yield
+    leaked = [t for t in threading.enumerate() if t.name == "runcoach-worker" and t.is_alive()]
+    assert not leaked, ("a job worker thread outlived this test - set app.worker_stop "
+                        "and join it, or every later test's queue is at its mercy")
+
+
 @pytest.fixture()
 def store(tmp_path) -> Store:
     return Store(tmp_path / "t.db")
