@@ -1,0 +1,22 @@
+# The workflow pins its actions to commit SHAs, which is only as good as the
+# habit of moving them: the first three pins aged into a Node 20 deprecation
+# notice within a week, and nothing said so. Dependabot files the PR; CI on the
+# PR is the check that the new SHA still does what the old one did.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # Keeps the `# vX.Y.Z` comment next to the SHA up to date, so the pin stays
+    # readable by a human.
+    commit-message:
+      prefix: "ci"
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    # `garminconnect` tracks an unofficial API; a minor bump there is exactly
+    # the change that needs a human to run `runcoach sync` once before merging.
+    commit-message:
+      prefix: "deps"

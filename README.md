@@ -71,6 +71,16 @@ claude mcp add runcoach -- runcoach mcp
 
 Keep it fresh without the app (cron / Task Scheduler): `runcoach sync`.
 
+Later on:
+
+```bash
+uv tool upgrade runcoach-ai     # newer code; your data and Garmin session stay where they are
+uv tool uninstall runcoach-ai   # removes the program only - delete ~/.runcoach yourself if you want the data gone
+```
+
+`uv tool install` takes whatever is on `main`; pin a release instead with
+`uv tool install git+https://github.com/edxleon/runcoach-ai@v0.1.0`.
+
 ## What you get
 
 | Tab | What it answers |
