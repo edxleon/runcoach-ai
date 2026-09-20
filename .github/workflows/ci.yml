@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+# One matrix per branch. Pushing twice in a minute otherwise leaves the first
+# six legs running against a commit nobody is waiting for any more. A push to
+# `main` is not cancelled: its result is the badge.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 # Least privilege: nothing in this workflow writes to the repo, packages or
 # releases. Job-level grants stay opt-in from here.
 permissions:
@@ -12,6 +19,11 @@ permissions:
 
 jobs:
   test:
+    # The slowest leg (Windows) takes three minutes, so fifteen is five times
+    # the headroom and still catches a hang early. Without it the default is six
+    # HOURS per leg — and this suite has already had one: headless Chrome on the
+    # macOS runners never returns, it only ever hit a timeout inside the test.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -27,6 +39,10 @@ jobs:
       - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
         with:
           python-version: ${{ matrix.python }}
+          # Keyed on uv.lock, so the cache is only reused for the exact
+          # dependency set it was built from.
+          enable-cache: true
+          cache-dependency-glob: uv.lock
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
