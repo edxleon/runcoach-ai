@@ -1716,3 +1716,69 @@ def test_the_first_sync_after_a_reboot_is_not_refused(store, monkeypatch):
     # ...and the cooldown still throttles the SECOND one, on the same clock.
     again = tools.sync_garmin(store, days=1)
     assert "was skipped" in again and len(logins) == 1
+
+
+# ── the JS conventions a linter would hold ───────────────────────────────────
+
+_JS_LINE_COMMENT = re.compile(r"(?m)//.*$")
+_JS_BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.S)
+#: `==`/`!=`, but not `===`, `!==`, `<=`, `>=` or `=>`. The second group is what
+#: stands on the right: a word if there is one, otherwise the bare character.
+_JS_LOOSE_EQ = re.compile(r"(?<![=!<>])(==|!=)(?!=)\s*(\w+|.)")
+_JS_BANNED = {
+    "`var` (function-scoped, hoisted)": re.compile(r"(?<![.\w])var\s+\w"),
+    "`eval()`": re.compile(r"(?<![.\w])eval\s*\("),
+    "`new Function()`": re.compile(r"new\s+Function\s*\("),
+    "`document.write()`": re.compile(r"document\s*\.\s*write\s*\("),
+    "a native prototype is assigned to": re.compile(
+        r"(Array|Object|String|Number|Function)\s*\.\s*prototype\s*\.\s*\w+\s*="),
+}
+
+
+def _js_sources():
+    """The shipped modules, comments and block comments removed — a rule about
+    code should not fire on prose that merely quotes it."""
+    static = Path(server.__file__).parent / "static"
+    for path in sorted(static.glob("*.js")):
+        src = path.read_text(encoding="utf-8")
+        yield path.name, _JS_LINE_COMMENT.sub("", _JS_BLOCK_COMMENT.sub("", src))
+
+
+def test_loose_equality_is_used_only_against_null():
+    """There is no ESLint here, and deliberately so: the front end ships as
+    vanilla ES modules with no build step and no `node_modules`, and a linter
+    would be the first dependency to break that promise. The cost is that a
+    convention nobody enforces is indistinguishable from an oversight — and this
+    codebase writes `!= null` some seventy times, which every default `eqeqeq`
+    config reports as a violation.
+
+    It is not one. `x != null` is the one comparison that treats `null` and
+    `undefined` alike, which is exactly the question being asked of a field that
+    the server may omit; `x !== null` would let `undefined` through. ESLint's own
+    `eqeqeq` has a `"null": "ignore"` option for this case.
+
+    So the exemption is stated here instead of in a config file: loose equality
+    is allowed against `null` and against nothing else."""
+    offenders = [
+        f"{name}:{src[:m.start()].count(chr(10)) + 1}  {m.group(0).strip()}"
+        for name, src in _js_sources()
+        for m in _JS_LOOSE_EQ.finditer(src)
+        if m.group(2) != "null"
+    ]
+    assert not offenders, (
+        "loose equality against something other than `null` - use `===`/`!==`:\n  "
+        + "\n  ".join(offenders))
+
+
+def test_the_front_end_avoids_the_constructs_a_linter_would_ban():
+    """The same reasoning as above, for the rules that have no exemption at all.
+    Each of these is either a scoping trap (`var`) or an execution sink that
+    turns a string into code - which would also be the one way past the page's
+    `script-src 'self'` policy."""
+    offenders = [
+        f"{name}:{src[:m.start()].count(chr(10)) + 1}  {label}"
+        for name, src in _js_sources()
+        for label, rx in _JS_BANNED.items()
+        for m in rx.finditer(src)
+    ]
+    assert not offenders, "\n  ".join(["banned in the shipped modules:"] + offenders)
