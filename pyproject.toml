@@ -12,7 +12,7 @@ dependencies = [
     # can rename endpoints or change the login flow. Capped on purpose — raise
     # the bound deliberately, after `tests/test_api_contract.py` still passes.
     "garminconnect>=0.2.25,<0.4",
-    "mcp>=1.27,<2",
+    "mcp>=1.27,<3",
     "tzdata; sys_platform == 'win32'",
 ]
 
