@@ -148,3 +148,32 @@ def test_the_suffix_list_is_an_optimisation_not_the_boundary(tree):
     (tree / "docs" / "shot.png").write_bytes(png)
     rc, out = run_gate(tree)
     assert rc == 1 and "shot.png" in out
+
+
+def test_a_citation_is_not_a_leak(tree):
+    """`zones.md` cites its sources, and two of them tripped the gate: the ten
+    digits inside `mss.0b013e3180304570` read as a chat id, and the umlaut in
+    Stöggl as a German leftover. Mangling an author's name or exempting the one
+    file most likely to carry a personal HR default were both wrong answers.
+    A line with a DOI on it is a citation; the identifier and the names beside
+    it are public by definition."""
+    (tree / "docs" / "zones.md").write_text(
+        "| polarised | Stöggl & Sperlich 2014, doi:10.3389/fphys.2014.00033 |\n"
+        "| intervals | Helgerud 2007, doi:10.1249/mss.0b013e3180304570 |\n",
+        encoding="utf-8")
+    rc, out = run_gate(tree)
+    assert rc == 0, out
+
+
+def test_the_citation_exemption_covers_only_the_citation(tree):
+    """The counter-cases, so the exemption cannot quietly become a blanket:
+    a chat id sitting NEXT to a DOI is still found, and the umlaut is still
+    found on a line that has no DOI."""
+    (tree / "docs" / "a.md").write_text(
+        "| x | Someone 2020, doi:10.1000/xyz123 - ask user 700100200300 |\n", encoding="utf-8")
+    rc, out = run_gate(tree)
+    assert rc == 1 and "700100200300" in out, out
+
+    (tree / "docs" / "a.md").write_text("Stöggl without a citation\n", encoding="utf-8")
+    rc, out = run_gate(tree)
+    assert rc == 1 and "German leftover" in out, out

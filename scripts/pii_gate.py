@@ -60,6 +60,15 @@ PATTERNS = {
 # Long numbers that are legitimately part of the project (synthetic demo ids).
 ALLOWED_NUMBERS = re.compile(r"9[_]?000[_]?000[_]?\d{3}|1234567890")
 
+#: A DOI is a public identifier, and a line that carries one is a citation.
+#: The identifier itself holds digit runs the chat-id rule reads as an id
+#: (`mss.0b013e3180304570`), and the authors next to it carry umlauts the
+#: German-leftover rule reads as a leak (Stöggl). Neither is one. The DOI
+#: tokens are cut out before the line is scanned and the umlaut rule is off for
+#: that line - everything else on it (an e-mail, a home path, a real chat id
+#: outside the DOI) is still checked.
+_DOI = re.compile(r"doi:10\.\d{4,}/\S+")
+
 
 def extra() -> re.Pattern | None:
     terms = os.environ.get("RUNCOACH_PII_EXTRA", "").strip()
@@ -104,7 +113,12 @@ def main() -> int:
         active = ({k: v for k, v in patterns.items() if k in BINARY_PATTERNS}
                   if binary else patterns)
         for no, line in enumerate(text.splitlines(), 1):
+            citation = not binary and _DOI.search(line) is not None
+            if citation:
+                line = _DOI.sub(" ", line)
             for label, rx in active.items():
+                if citation and label == "German leftover":
+                    continue
                 m = rx.search(line)
                 if not m or (label.startswith("long numeric") and ALLOWED_NUMBERS.search(line)):
                     continue
