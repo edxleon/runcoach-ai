@@ -6,6 +6,16 @@
 
 **A local-first AI running coach for your Garmin data — powered by the Claude subscription you already have.**
 
+I came to running late, and for a long time my VO2max would not move. I had always trained a lot,
+and it had never really shown up in that number — so I assumed more of the same would eventually
+work. It did not. I was training wrong, in ways the watch on my wrist had the data to show me and
+never did: Garmin collects everything and explains nothing.
+
+That was the idea. The data is already there; let an AI read it and coach — with the training aimed
+squarely at raising VO2max rather than at collecting kilometres, and with the decision rules written
+down so the coach explains them instead of improvising. This repository started as that tool for one
+athlete. It is now installable for anyone with a Garmin watch and a Claude subscription.
+
 No cloud backend, no API key, no Docker. One Python package that syncs your Garmin data into a
 SQLite file on your machine, shows it in a small web app, and lets Claude act as your coach —
 with a deterministic readiness engine underneath, so the AI explains decisions instead of inventing them.
@@ -19,7 +29,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-482 tests, 56 frontend tests and that gate on three operating systems and two Python versions, with every
+484 tests, 56 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA.</sub>
 
 <p>
