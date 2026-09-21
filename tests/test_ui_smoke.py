@@ -145,32 +145,32 @@ def first_run_url(tmp_path_factory):
     from runcoach.web import server
 
     old_home = os.environ.get("RUNCOACH_HOME")
-    old_cmd = os.environ.get("RUNCOACH_CLAUDE_CMD")
     os.environ["RUNCOACH_HOME"] = str(tmp_path_factory.mktemp("first-run-home"))
-    # Stub the CLI so `claude_available()` is TRUE here. Without it the coach
-    # buttons are disabled because no `claude` is on PATH - which is the case on
-    # every CI runner - and the assertion below would pass no matter what the
-    # empty-database lock does. Measured: with the lock removed and no CLI, the
-    # test stayed green.
-    os.environ["RUNCOACH_CLAUDE_CMD"] = '["python", "-c", "pass"]'
     app = server.App(demo=False, token=None)
     httpd = server.make_server("127.0.0.1", 0, app)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
     yield f"http://127.0.0.1:{httpd.server_address[1]}/"
     httpd.shutdown()
     httpd.server_close()
-    for name, value in (("RUNCOACH_HOME", old_home), ("RUNCOACH_CLAUDE_CMD", old_cmd)):
-        if value is None:
-            os.environ.pop(name, None)
-        else:
-            os.environ[name] = value
+    if old_home is None:
+        os.environ.pop("RUNCOACH_HOME", None)
+    else:
+        os.environ["RUNCOACH_HOME"] = old_home
 
 
-def test_the_first_screen_guides_instead_of_reporting_an_error(first_run_url, tmp_path):
+def test_the_first_screen_guides_instead_of_reporting_an_error(first_run_url, tmp_path,
+                                                               monkeypatch):
     """Before the repair this page showed `No call · too little data for a
     verdict` over a column of dashes, under a red banner naming a
     GarminConnectAuthenticationError. Nothing there was wrong, and all of it
     read as a broken app."""
+    # Stub the CLI here, not in the fixture: `conftest._isolated_env` deletes
+    # RUNCOACH_CLAUDE_CMD before every test, so a module-scoped stub is gone by
+    # the time this runs. Without it the coach buttons are disabled for want of
+    # a `claude` on PATH - true on every CI runner - and the lock assertion
+    # below would hold whatever the empty-database lock actually does. Measured:
+    # with the lock removed the test stayed green.
+    monkeypatch.setenv("RUNCOACH_CLAUDE_CMD", '["python", "-c", "pass"]')
     dom, log = render(first_run_url, tmp_path / "profile")
     console_errors = [ln for ln in log.splitlines() if "CONSOLE" in ln
                       and any(w in ln for w in ("Uncaught", "SyntaxError",
@@ -190,10 +190,17 @@ def test_the_first_screen_guides_instead_of_reporting_an_error(first_run_url, tm
         assert "disabled" in chunk[:200], "a coach button is live on an empty database"
 
 
-def test_with_data_the_coach_buttons_are_live(base_url, tmp_path):
+def test_with_data_the_coach_buttons_are_live(base_url, tmp_path, monkeypatch):
     """The counter-case to the one above, and the reason it means anything: if
     the buttons were disabled for some OTHER reason - no CLI on PATH, a job in
-    flight - the empty-database assertion would hold whatever the lock does."""
+    flight - the empty-database assertion would hold whatever the lock does.
+
+    Stubs the CLI rather than relying on one being installed. The first version
+    did rely on it and went red on every CI runner while passing on a developer
+    machine - the same confound it exists to rule out, one level up. The server
+    reads `RUNCOACH_CLAUDE_CMD` per request, so setting it here reaches the
+    module-scoped server thread."""
+    monkeypatch.setenv("RUNCOACH_CLAUDE_CMD", '["python", "-c", "pass"]')
     dom, _ = render(f"{base_url}#coach", tmp_path / "profile-live")
     chunks = dom.split('data-tpl')[1:]
     assert chunks, "no coach buttons rendered at all"
