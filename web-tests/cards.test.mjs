@@ -30,10 +30,11 @@ test("metaParts", () => {
                       model: "claude-opus-5", cost_usd: 1.7 }, fmt);
   assert.equal(m[0], "data up to D:2026-09-06", "meta starts with the data status, not with '3 h ago'");
   assert.equal(m[1], "generated A:2026-09-06T07:45:01+02:00");
-  assert.deepEqual(m.slice(2), ["opus-5", "$1.70"]);
+  // No price on the card: `cost_usd` is in the input above and must NOT appear.
+  assert.deepEqual(m.slice(2), ["opus-5"]);
   m = metaParts({ day: "2026-08-13", written: "2026-08-13T08:16:23" }, fmt);
   assert.equal(m.join("|"), "D:2026-08-13|generated A:2026-08-13T08:16:23",
-               "card without stamps: day/written as fallback, no model, no cost");
+               "card without stamps: day/written as fallback, no model");
   assert.equal(metaParts({ cost_usd: null, model: "" }, fmt).length, 0, "nothing invented for an empty card");
 });
 

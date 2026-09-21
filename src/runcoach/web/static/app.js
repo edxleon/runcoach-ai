@@ -22,7 +22,7 @@ import {
 } from "./ui.js";
 import { mountApp } from "./chassis.js";
 import {
-  addDays, axisX, bandSplit, barLabel, barScale, carryForward, chartPoints, chartScale, dataAge as ageOf, groupRunsByWeek, hardSessionToday as hardSessionOf, intensityHits, intensitySeries, isRunning, isStrength, lightAddendum as lightAddendumOf, NO_DATE, shortTitle, stepMarks, stepPath, todayIso, volumeAverageKm, volumeComparison, weekdayShort, weekIncomplete, weekLabel, weeksBetween, weekStart, zoneTimeParts,
+  addDays, axisX, bandSplit, barLabel, barScale, carryForward, chartPoints, chartScale, dataAge as ageOf, groupRunsByWeek, hardSessionToday as hardSessionOf, hasNoData, intensityHits, intensitySeries, isFirstRun, showSyncFailure, isRunning, isStrength, lightAddendum as lightAddendumOf, NO_DATE, shortTitle, stepMarks, stepPath, todayIso, volumeAverageKm, volumeComparison, weekdayShort, weekIncomplete, weekLabel, weeksBetween, weekStart, zoneTimeParts,
 } from "./logic.js";
 import { mountCards, mountJobs, jobPoller, todayCard, handle409,
          setCardContext } from "./cards.js";
@@ -78,6 +78,37 @@ function renderVerdict() {
   // moved out of index.html, a test looking for "GO" found it in the inline
   // script's source and passed without ever seeing the rendered page.
   el.dataset.verdict = String(t.verdict || "");
+  // The empty page, before there is anything to judge. In the cockpit this
+  // state never existed - the sync had always run before the tab was opened.
+  // Standalone it is the first screen anyone sees, and "No call · not enough
+  // data for a verdict" over a column of dashes reads as a broken app.
+  //
+  // Gated on `hasNoData`, NOT on "no session": the guide used to disappear the
+  // moment `runcoach login` succeeded - i.e. one step in - and handed back the
+  // very screen it exists to replace, while step two was still undone and this
+  // card was the only place naming `--days 30`. It stays until there is data,
+  // and only the STEPS change with the session.
+  if (noData()) {
+    const logged = D().garmin_session !== false;
+    el.innerHTML = `
+      <div class="verdict-head">
+        <span class="verdict-word s-unknown">${logged ? "Almost" : "Hello"}</span>
+        <span class="verdict-sub">${logged ? "signed in, nothing synced yet"
+                                           : "no Garmin session yet"}</span>
+      </div>
+      <ol class="first-run">
+        ${logged ? "" : `<li>In a terminal: <code>runcoach login</code> — Garmin e-mail,
+            password and the MFA code, once. Only session tokens are stored.</li>`}
+        <li>${logged ? "In a terminal: " : "Then "}<code>runcoach sync --days 30</code>
+            once — the same command <code>runcoach doctor</code> names. A plain
+            <code>sync</code> (and the ↻ button) re-fetches only the last few days,
+            which is right for daily use and too little to fill the Trend tab.</li>
+        <li>Rather look around first? <code>runcoach serve --demo</code> shows a
+            synthetic athlete with every card filled.</li>
+      </ol>
+      <div class="note">Everything below stays empty until then — empty, not zero.</div>`;
+    return;
+  }
   el.innerHTML = `
     ${old ? `<div class="stale-banner" style="margin-bottom:12px">
         <span>This is the state of ${esc(fmtDay(age.day))}${
@@ -307,9 +338,10 @@ function renderZones() {
 
 /* ═══ Actions (coach jobs) ═════════════════════════════════════════════════ */
 
-/** NO price on the button: a dollar figure under every trigger turns cost
- *  into the deciding criterion. The measured total stands once, under "What
- *  it costs" in the Coach tab, where it is orientation and not a brake. */
+/** NO price anywhere in the page: a dollar figure under every trigger turns
+ *  cost into the deciding criterion, and on a subscription the figure the CLI
+ *  reports is nominal anyway. It stays in the job JSON for anyone who asks;
+ *  the cockpit this was extracted from had a cost dashboard, this app does not. */
 
 /** Is a paid job running right now? The source is the job state from the
  *  payload, not the duration of the POST: the request is through after a
@@ -321,9 +353,14 @@ function hasActiveJob() {
 
 const coachUnavailable = () => D().claude_available === false;
 
+/* Both predicates live in `logic.js` so web-tests can reach them; these are
+   the page's shorthand for "against the current payload". */
+const noData = () => hasNoData(D());
+const firstRun = () => isFirstRun(D());
+
 function tplButton(t, ctx) {
   const c = ctx ? ` data-ctx='${esc(JSON.stringify(ctx))}'` : "";
-  const locked = spawnRunning || hasActiveJob() || coachUnavailable();
+  const locked = spawnRunning || hasActiveJob() || coachUnavailable() || noData();
   return `<button class="btn btn-primary" data-tpl="${esc(t.id)}"${c}
             ${locked ? "disabled" : ""}
             title="${esc(t.hint || "")}">${esc(t.title)}</button>`;
@@ -345,13 +382,20 @@ function renderActions() {
     </div>
     ${hasActiveJob() ? `<div class="job-warn">A run is still under way —
       the buttons are locked until it is done.</div>` : ""}
-    <div class="note" style="margin-top:8px">${coachUnavailable()
-      ? "Coach cards need the Claude Code CLI — see the Coach tab."
-      : "Starts a real agent run. A second tap confirms. The answer appears in the Coach tab."}</div>`;
+    <div class="note" style="margin-top:8px">${noData()
+      ? (firstRun() ? "Nothing to analyse yet — start with runcoach login, above."
+                    : "Nothing to analyse yet — sync first.")
+      : coachUnavailable()
+        ? "Coach cards need the Claude Code CLI — see the Coach tab."
+        : "Starts a real agent run. A second tap confirms. The answer appears in the Coach tab."}</div>`;
 
-  document.getElementById("coach-hint").innerHTML = coachUnavailable()
-    ? `<div class="coach-hint">Claude Code CLI not found — coach cards need it
-         (run <code>runcoach doctor</code>).</div>` : "";
+  document.getElementById("coach-hint").innerHTML = noData()
+    ? `<div class="coach-hint">No data to analyse yet — the coach reads what a sync
+         has stored. ${firstRun() ? "Start with <code>runcoach login</code>."
+                                  : "Press ↻ or run <code>runcoach sync</code>."}</div>`
+    : coachUnavailable()
+      ? `<div class="coach-hint">Claude Code CLI not found — coach cards need it
+           (run <code>runcoach doctor</code>).</div>` : "";
   document.getElementById("coach-actions").innerHTML = `
     <div class="subhead">Start an analysis</div>
     <div class="btn-row">${tpls.filter(t => !(t.params || []).length)
@@ -798,6 +842,7 @@ function renderIntensity() {
     ${svg}
     <div class="note" style="margin-top:6px">${hits} of ${plural(full, "full week", "full weeks")}
       ${full === 1 ? "is" : "are"} at or above the ${pct} share.${lightAddendum()}</div>
+    <details class="card-more"><summary>How this is counted</summary>
     <div class="thin-data">The 80/20 rule refers to the SHARE, not to a fixed number of
       minutes — the line therefore moves with the week's zone time. Counted is everything
       above the easy zones, zone 3 included: the target is ${pct} of the TOTAL measured
@@ -806,7 +851,7 @@ function renderIntensity() {
       reaches its line while staying pale is a week spent in the grey middle — the
       minutes are there, the stimulus is not. The line is not a target for EVERY week
       either: base, deload and taper weeks rightly sit below it — this row counts,
-      it does not judge.</div>`;
+      it does not judge.</div></details>`;
 }
 
 /* Easy pace at a fixed HR: the base-fitness signal. The threshold shows the
@@ -1058,7 +1103,7 @@ function renderAcwr() {
 
 /* ═══ Coach ════════════════════════════════════════════════════════════════
    Cards and the job strip come from /static/cards.js. Here is only what is
-   particular to this page: the words per card kind and the cost card. */
+   particular to this page: the words per card kind. */
 const KIND_TITLE = {
   "analyze-run": "Run analysis", "train-today": "Train today?",
   "why-vo2max": "VO2max", "week-review": "Training week",
@@ -1094,24 +1139,6 @@ function renderCoach() {
   });
 }
 
-function renderCost() {
-  const jobs = (D().jobs || []).filter(j => typeof j.cost_usd === "number");
-  const sum = jobs.reduce((a, j) => a + j.cost_usd, 0);
-  const avg = jobs.length ? sum / jobs.length : null;
-  document.getElementById("coach-cost").innerHTML = `
-    <div class="subhead">What it costs</div>
-    ${jobs.length ? `
-      <div class="grid2">
-        ${cell("Measured", "$" + fmtNum(sum, 2), plural(jobs.length, "job", "jobs"))}
-        ${cell("Avg per job", "$" + fmtNum(avg, 2), "over these jobs")}
-      </div>
-      <div class="note" style="margin-top:8px">At two jobs a day that would be about
-        $${fmtNum(avg * 60, 0)} a month — computed from the measured average, not
-        estimated. The figure is what the CLI reports; on a subscription plan it is
-        nominal.</div>`
-      : `<div class="empty-note">No costs measured yet.</div>`}`;
-}
-
 /* ═══ Frame ════════════════════════════════════════════════════════════════
    Tabs, reloading, loading state, error screens and data age live in
    `chassis.js`. Here is only the rendering and the job/coach machinery. */
@@ -1132,7 +1159,14 @@ function renderHealth() {
   const el = document.getElementById("health");
   const out = [];
   const sync = D().last_sync;
-  if (sync && sync.ok === false) {
+  // Suppressed ONLY on a true first run, where the verdict card carries the
+  // guide instead. Gating this on `garmin_session !== false` was too coarse and
+  // deleted the banner in a state it was written for: data in the store and the
+  // token directory gone (a re-login in progress, or `RUNCOACH_GARMIN_TOKENS`
+  // set in the shell that ran `login` but not in the one running `serve`). The
+  // page then showed a normal verdict over data that had silently stopped
+  // updating — reproduced in a browser, green dot and all.
+  if (showSyncFailure(D())) {
     out.push(`<div class="stale-banner block">
       <span>The last Garmin sync did not go through${
         sync.at ? ` (${esc(fmtDay(sync.at.slice(0, 10)))})` : ""}. ` +
@@ -1180,7 +1214,7 @@ function renderAll() {
   renderRuns();
   renderTrendHead(); renderVo2(); renderThreshold(); renderIntensity(); renderAerobic();
   renderPredictions(); renderFactors(); renderVolume(); renderDistribution(); renderAcwr();
-  renderCoach(); renderCost(); renderHealth();
+  renderCoach(); renderHealth();
 }
 
 document.addEventListener("click", ev => {
@@ -1212,7 +1246,7 @@ const poller = jobPoller({
     if (!state) return;
     state.jobs = jobs;
     renderJobs();
-    renderCost(); renderActions();          // unlock the buttons once nothing runs any more
+    renderActions();                        // unlock the buttons once nothing runs any more
   },
   onFinished: () => refresh(),
 });
@@ -1282,6 +1316,7 @@ const app = mountApp({
   skeleton: [{ sel: "#verdict", kind: "title" }, { sel: "#signals", kind: "grid", n: 6 }],
   staleText: d => `Data up to ${fmtDay(d.data_through)} — the Garmin sync is `
                 + `${plural(d.stale_days, "day", "days")} behind.`,
+  empty: hasNoData,           // one definition of "nothing here" for header and page
   render: p => { state = p; renderAll(); },
   onAfterLoad: () => poller.start(),
   onVisible: () => poller.start(),

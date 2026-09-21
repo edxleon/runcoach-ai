@@ -66,6 +66,52 @@ export function dataAge(today, nowIso) {
   return { day: d, days };
 }
 
+/* ── Is there anything in the store at all? ───────────────────────────────
+   Three surfaces ask this: the freshness dot in the header, the coach buttons
+   (an analysis of nothing spends a real agent run), and the first-run card.
+   They live here rather than in `app.js` so they can be pinned by
+   web-tests/logic.test.mjs — `app.js` is a DOM module no test imports.
+
+   `counts` alone is the wrong oracle, and both halves of that were measured:
+   `counts.weeks` is 9 even on an empty database (`get_weekly_volume` emits a
+   bucket per week regardless), and `counts.days`/`counts.runs` are ZEROED by
+   `soft()` when a read fails — so a full, healthy store with two unreadable
+   tables rendered as a brand-new install telling the athlete to log in, while
+   the banner above it said the database could not be read. `data_through`
+   comes from `latest_day()`, which `snapshot.assemble` deliberately keeps
+   OUTSIDE `soft()` as a file-level probe, so it cannot be faked by a soft
+   failure. The runs count covers the converse case (activities synced, no
+   `daily_metrics` row yet), and a non-empty `degraded` list vetoes the whole
+   judgement: when we could not read, we do not know. */
+export function hasNoData(s) {
+  const st = s || {};
+  if (st.demo) return false;
+  if ((st.degraded || []).length) return false;   // unreadable ≠ empty
+  return !st.data_through && !((st.counts || {}).runs);
+}
+
+/** The state before `runcoach login`: no session AND nothing stored. A store
+ *  with data and no session is an EXPIRED login, which is a different message
+ *  (and must keep its sync-failure banner). */
+export function isFirstRun(s) {
+  return (s || {}).garmin_session === false && hasNoData(s);
+}
+
+/** Does the page owe the athlete a "the sync did not go through" banner?
+ *
+ *  Suppressed on a true first run only, where the guide says the same thing
+ *  in a friendlier order. Gating it on `garmin_session === false` alone was
+ *  the sharpest defect of this change: with data in the store and the token
+ *  directory gone, the banner vanished, `serve()` skipped the startup sync,
+ *  and the page showed a normal verdict over data that had stopped updating —
+ *  reproduced in a browser, green dot and all. The decision lives here rather
+ *  than inside `renderHealth` because a test cannot import `app.js`, and a
+ *  reverted gate went unnoticed by the entire suite. */
+export function showSyncFailure(s) {
+  const st = s || {};
+  return !!(st.last_sync && st.last_sync.ok === false) && !isFirstRun(st);
+}
+
 /* ── Hard sessions ────────────────────────────────────────────────────── */
 
 /* The authority for "hard" is `src/runcoach/logic.py: is_hard` — the same

@@ -36,7 +36,17 @@ def interactive_login() -> int:
     from garminconnect import Garmin
 
     store = paths.garmin_dir()
-    store.mkdir(parents=True, exist_ok=True)
+    try:
+        store.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        # `RUNCOACH_GARMIN_TOKENS` pointing at a FILE is the likely mistake here
+        # — garth writes token FILES, so naming one is a natural misreading —
+        # and `mkdir` answered it with a raw FileExistsError traceback. Same
+        # class as the no-terminal login: say which path and what it should be.
+        print(f"Cannot use {store} as the token directory: {type(exc).__name__}: {exc}\n"
+              "RUNCOACH_GARMIN_TOKENS must name a DIRECTORY (garth writes several "
+              "token files into it), not a single file.", file=sys.stderr)
+        return 2
 
     # `input()` raises EOFError when there is no terminal - a pipe, a cron, a
     # CI job, `< /dev/null` - and KeyboardInterrupt on Ctrl+C. Both used to end

@@ -301,6 +301,21 @@ class Store:
             row = conn.execute("SELECT MAX(day) AS d FROM daily_metrics").fetchone()
         return _d(row["d"]) if row else None
 
+    def is_empty(self) -> bool:
+        """Nothing stored at all — BOTH tables, because a sync can write one
+        without the other and did: `fetch_activities` succeeding while the
+        per-day fetches come back empty leaves activities with no
+        `daily_metrics` row (sync.py, `days_empty`).
+
+        One method because the page asks the same question in JavaScript
+        (`hasNoData` in logic.js) and the two answers have to agree. When they
+        did not, the server skipped the startup sync while the page held
+        itself to be non-empty: full Runs tab, green dot, no banner, no sync, data
+        ageing in silence. `tests/test_js_python_contract.py` pins the pair."""
+        with self._conn() as conn:
+            return (conn.execute("SELECT 1 FROM daily_metrics LIMIT 1").fetchone() is None
+                    and conn.execute("SELECT 1 FROM activities LIMIT 1").fetchone() is None)
+
     def get_trend(self, metric: str, start: date, end: date) -> list[dict]:
         """Weekly averages of ONE metric. `metric` is validated against
         TREND_METRICS — the column name never comes from the caller unchecked."""

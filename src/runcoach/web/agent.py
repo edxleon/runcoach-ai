@@ -131,6 +131,34 @@ def mcp_config(db: str | None, demo: bool = False) -> dict:
         "command": sys.executable, "args": ["-m", "runcoach.cli", "mcp"], "env": env}}}
 
 
+#: Everything that moves `claude` off the signed-in subscription and onto a
+#: metered account. The README promises "your subscription, not an API key — no
+#: key to leak, no per-token bill"; inheriting the parent environment made that
+#: a hope rather than a rule. Anyone with `ANTHROPIC_API_KEY` exported for other
+#: work was billed per token by an app that says it never bills — and since the
+#: cost card was removed, with nothing on screen to notice it by.
+#:
+#: A PREFIX, not a list of names. The first version named seven variables and
+#: was already incomplete when it was written (`ANTHROPIC_CUSTOM_HEADERS` can
+#: carry an `x-api-key` header; profile and workload-identity variables point at
+#: an org account). An enumeration has to be re-checked against every CLI
+#: release, a prefix does not — and this app needs no `ANTHROPIC_*` variable in
+#: the child at all.
+BILLING_ENV_PREFIXES = ("ANTHROPIC_",)
+BILLING_ENV = ("CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX")
+
+
+def strips_billing(name: str) -> bool:
+    return name in BILLING_ENV or name.startswith(BILLING_ENV_PREFIXES)
+
+
+def child_env() -> dict:
+    """The environment the agent runs in: the parent's, minus everything that
+    would redirect billing. All the rest is passed through — the CLI needs PATH,
+    HOME/USERPROFILE, SYSTEMROOT and its own config directory."""
+    return {k: v for k, v in os.environ.items() if not strips_billing(k)}
+
+
 def command(workdir: Path, db: str | None) -> list[str]:
     cfg = workdir / "mcp.json"
     cfg.write_text(json.dumps(mcp_config(db, demo=bool(db and Path(db).name == "demo.db"))),
@@ -221,6 +249,7 @@ def _run_once(job: dict, db: str | None) -> tuple[int, str, str]:
         workdir = Path(tmp)
         kwargs = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
                   else {"start_new_session": True})
+        kwargs["env"] = child_env()
         # stdout/stderr go to FILES, not pipes: we poll for cancel/timeout instead of
         # blocking in communicate(), and a full pipe would deadlock the child.
         out_p, err_p = workdir / "out.txt", workdir / "err.txt"
@@ -280,8 +309,11 @@ def _kill_tree(proc) -> None:
     job log and turning a finished run into a bogus failure."""
     try:
         if os.name == "nt":
+            # `env=` although taskkill talks to nobody: the invariant "every
+            # spawn in web/ passes a filtered environment" is worth more without
+            # an exception list, and `child_env()` keeps SYSTEMROOT and PATH.
             subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
-                           capture_output=True, timeout=15)
+                           capture_output=True, timeout=15, env=child_env())
         else:
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
     except (OSError, subprocess.SubprocessError):

@@ -11,7 +11,7 @@ import {
   lightAddendum, shortTitle, weekLabel, isRunning, isStrength, bandSplit, zoneTimeParts,
   groupRunsByWeek, NO_DATE, volumeComparison, volumeAverageKm, weekIncomplete,
   intensitySeries, intensityHits, chartPoints, chartScale, axisX, stepPath, stepMarks,
-  barScale, carryForward,
+  barScale, carryForward, hasNoData, isFirstRun, showSyncFailure,
 } from "../src/runcoach/web/static/logic.js";
 import { fmtKm, fmtNum, fmtDelta, fmtDay, fmtDayShort, fmtMinSec, fmtPace, fmtDur,
          fmtHours, plural, esc } from "../src/runcoach/web/static/ui.js";
@@ -336,4 +336,80 @@ test("formatters: decimal point, day before month, no raw pass-through", () => {
   assert.equal(plural(1, "run", "runs"), "1 run");
   assert.equal(plural(0, "run", "runs"), "0 runs");
   assert.equal(esc(`<a href="x">'&`), "&lt;a href=&quot;x&quot;&gt;&#39;&amp;");
+});
+
+/* ── Is there anything in the store, and is this a first run? ──────────────
+   Both predicates gate user-visible state: the freshness dot, the coach
+   buttons (a locked button is a spared agent run) and the first-run card.
+   They were computed inside app.js, which no test can import — a review
+   removed every one of these four repairs and the suite stayed green. */
+
+const S = (o) => ({ demo: false, garmin_session: true, degraded: [],
+                    data_through: null, counts: { days: 0, runs: 0, weeks: 9 }, ...o });
+
+test("hasNoData: empty means empty, not unreadable", () => {
+  // The state the first-run card is for.
+  assert.equal(hasNoData(S({ garmin_session: false })), true);
+
+  // `counts.weeks` is 9 on a TRULY empty database — get_weekly_volume emits a
+  // bucket per week whether or not anything is in it. Reading emptiness off
+  // `counts` at all is what this guards.
+  assert.equal(hasNoData(S({ counts: { days: 0, runs: 0, weeks: 9 } })), true,
+               "nine empty week buckets are not data");
+
+  // A read failed: we do not know what is in there, so we do not claim it is
+  // empty. Measured before the fix: a healthy store with two unreadable tables
+  // rendered the 'never logged in' card while the banner above it said the
+  // database could not be read.
+  assert.equal(hasNoData(S({ degraded: ["get_daily_series", "build_runs"] })), false,
+               "unreadable is not empty");
+
+  // Activities synced, no daily_metrics row yet: data_through is null, but the
+  // Runs tab is full — the header must not say 'no data yet' over it.
+  assert.equal(hasNoData(S({ counts: { days: 0, runs: 12, weeks: 9 } })), false);
+  assert.equal(hasNoData(S({ data_through: "2026-09-20" })), false);
+
+  // The demo always has data by construction.
+  assert.equal(hasNoData(S({ demo: true, garmin_session: false })), false);
+  // Nothing at all to go on: fail towards 'empty', which only ever locks
+  // buttons and shows a guide.
+  assert.equal(hasNoData(undefined), true);
+});
+
+test("isFirstRun: no session AND nothing stored — an expired login is not one", () => {
+  assert.equal(isFirstRun(S({ garmin_session: false })), true);
+
+  // THE case the review caught: data in the store, token directory gone
+  // (re-login in progress, or RUNCOACH_GARMIN_TOKENS set in one shell and not
+  // the other). Not a first run — and the sync-failure banner is gated on
+  // this, so getting it wrong silences a page that has stopped updating.
+  assert.equal(isFirstRun(S({ garmin_session: false, data_through: "2026-09-20" })), false,
+               "data + no session is an expired login, not a first run");
+
+  // Session present, database still empty: sync has not run yet, but the
+  // login step is done — no guide telling them to log in again.
+  assert.equal(isFirstRun(S({ garmin_session: true })), false);
+
+  // An older server does not send the field at all: never claim a first run.
+  assert.equal(isFirstRun(S({ garmin_session: undefined })), false);
+});
+
+test("showSyncFailure: silent only on a true first run", () => {
+  const failed = { ok: false, reason: "session expired" };
+
+  // THE regression. Data in the store, token directory gone: the startup sync
+  // DOES run there (server._first_run gates on empty-and-no-session), it fails,
+  // and this banner is what carries that failure to the page.
+  assert.equal(showSyncFailure(S({ garmin_session: false, data_through: "2026-09-20",
+                                   last_sync: failed })), true,
+               "a store with data must never go silent about a failed sync");
+
+  // First run: the guide on the verdict card says it better, so no banner.
+  assert.equal(showSyncFailure(S({ garmin_session: false, last_sync: failed })), false);
+
+  // Ordinary expired session with a session directory still in place.
+  assert.equal(showSyncFailure(S({ data_through: "2026-09-20", last_sync: failed })), true);
+  // Nothing wrong, or nothing attempted yet.
+  assert.equal(showSyncFailure(S({ last_sync: { ok: true } })), false);
+  assert.equal(showSyncFailure(S({ last_sync: null })), false);
 });

@@ -173,6 +173,11 @@ class App:
             # behind" appears with no cause and no next action, and the reason —
             # "run `runcoach login`" — is reachable only by pressing refresh.
             "last_sync": self.last_sync,
+            # "Never logged in" is not a failed sync. Without this flag the
+            # first start of a fresh install showed the startup sync's
+            # AuthenticationError as the top banner - an error report for a
+            # state that is simply step one of the README.
+            "garmin_session": paths.garmin_session_present(),
         }
 
     def worker_health(self) -> dict:
@@ -279,7 +284,7 @@ class App:
             ok = False
             reason = (f"Garmin login failed ({type(exc).__name__}) - run `runcoach login`"
                       if "login" in type(exc).__name__.lower() or "Auth" in type(exc).__name__
-                      or not paths.garmin_dir().is_dir()
+                      or not paths.garmin_session_present()
                       else f"{type(exc).__name__}: {exc}")
         with self._refresh_lock:
             # Only stamp the run we belong to: a thread that outlived its slot
@@ -623,6 +628,30 @@ class Handler(BaseHTTPRequestHandler):
         return self._json({"error": "not found"}, 404)
 
 
+def _first_run(app: App) -> bool:
+    """No Garmin session AND nothing stored — the state before `runcoach login`.
+
+    The same question `isFirstRun` asks in `logic.js`, and it has to give the
+    same answer: the page uses it to choose what to render, `serve()` to decide
+    whether a startup sync makes sense. Two things were measured here, one after
+    the other:
+
+    * Skipping the sync on "no session" ALONE was wrong — a store with data and
+      no token directory synced nothing, said nothing, and aged silently.
+    * Then "nothing stored" was `latest_day() is None`, i.e. `daily_metrics`
+      only, while the page also counted activities. A store with runs and no
+      day row fell into the gap: server skipped the sync, page saw itself as
+      non-empty, so no guide, no banner, green dot — the same silent ageing
+      through the other door. `Store.is_empty()` is now the one oracle, and
+      `tests/test_js_python_contract.py` runs both predicates over the same
+      payloads rather than trusting this sentence.
+    """
+    try:
+        return not paths.garmin_session_present() and app.store.is_empty()
+    except Exception:  # noqa: BLE001 — an unreadable database is not a first run
+        return False
+
+
 def make_server(host: str, port: int, app: App) -> ThreadingHTTPServer:
     handler = type("BoundHandler", (Handler,), {"app": app})
     httpd = ThreadingHTTPServer((host, port), handler)
@@ -655,7 +684,20 @@ def serve(*, host: str = "127.0.0.1", port: int = 8765, demo: bool = False,
     lock = _take_home_lock()
     if lock is None:
         return 1
-    app = App(demo=demo, token=token)
+    try:
+        app = App(demo=demo, token=token)
+    except Exception as exc:  # noqa: BLE001 — a corrupt database is a finding
+        # "Database unreadable" is one of the states this app separates on its
+        # surfaces — but `App()` opens and migrates the file BEFORE any surface
+        # exists, so a half-written database ended `runcoach serve` in a raw
+        # `sqlite3.DatabaseError` traceback. `doctor` answers the same state
+        # properly (cli.py); the command a user starts first did not.
+        _release_home_lock(lock)
+        print(f"Cannot open the database ({type(exc).__name__}: {exc}).\n"
+              f"The file may be corrupt: move {paths.db_path()} aside and run\n"
+              f"`runcoach sync --days 30` to rebuild it, or `runcoach doctor` for\n"
+              f"the full picture.", file=sys.stderr)
+        return 2
     try:
         httpd = make_server(host, port, app)
     except OSError as exc:
@@ -670,7 +712,7 @@ def serve(*, host: str = "127.0.0.1", port: int = 8765, demo: bool = False,
         return 1
     worker = threading.Thread(target=app.worker, daemon=True, name="runcoach-worker")
     worker.start()
-    if sync_on_start and not demo:
+    if sync_on_start and not demo and not _first_run(app):
         app.refresh_start()
     url = f"http://{'127.0.0.1' if host in ('0.0.0.0', '::') else host}:{port}/"
     print(f"runcoach {__version__}{' (demo data)' if demo else ''} - {url}\n"

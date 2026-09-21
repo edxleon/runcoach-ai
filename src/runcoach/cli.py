@@ -166,7 +166,21 @@ def cmd_doctor(args) -> int:
         except Exception as exc:  # noqa: BLE001 — reported as a failed check, not a traceback
             check(f"claude --version ({type(exc).__name__})", False, fatal=False)
 
-    if not (paths.garmin_dir().is_dir() and any(paths.garmin_dir().iterdir())):
+    # The app strips these before spawning the agent, so that the README's "your
+    # subscription, not an API key" holds. Without a word here that is a trap
+    # with no way out: the CLI works in the user's own terminal, every coach
+    # card fails in the app, and doctor said [ok] twice.
+    from .web.agent import strips_billing
+
+    stripped = sorted(n for n in os.environ if strips_billing(n))
+    if stripped:
+        check(f"billing variables in the environment: {', '.join(stripped)}", False,
+              "coach cards deliberately run on your Claude SUBSCRIPTION, so these are "
+              "removed before the agent starts. If you meant to bill through an API "
+              "key or Bedrock/Vertex, this app is not set up for it; unset them to "
+              "silence this check.", fatal=False)
+
+    if not paths.garmin_session_present():
         check("Garmin session", False, "no tokens stored - run `runcoach login`")
     elif args.offline:
         check("Garmin session tokens present (not verified: --offline)", True)

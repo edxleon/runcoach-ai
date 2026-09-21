@@ -210,3 +210,56 @@ def test_the_two_duration_formatters_round_the_same_way():
         card = _hm(seconds)
         assert minutes(card) == minutes(shown), (
             f"{seconds}s: the coach card says {card!r}, the Today tab shows {shown!r}")
+
+
+# ── "is there anything stored?" exists in both languages ─────────────────────
+
+@pytest.mark.parametrize(("label", "days", "runs"), [
+    ("empty", 0, 0),
+    ("a day row only", 1, 0),
+    # The gap that was measured: a sync whose per-day fetches came back empty
+    # while `fetch_activities` went through. Python asked `daily_metrics` only
+    # and called it a first run, so `serve()` skipped the startup sync; the page
+    # counted the activities, saw itself as non-empty, and rendered no guide and
+    # no banner — full Runs tab, green dot, data ageing in silence.
+    ("activities but no day row", 0, 3),
+    ("both", 4, 2),
+])
+def test_both_languages_agree_on_whether_the_store_is_empty(tmp_path, monkeypatch, today,
+                                                            label, days, runs):
+    from conftest import make_activity, make_day
+    from runcoach.store import Store
+    from runcoach.web import server
+
+    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    store = Store(tmp_path / f"{label.replace(' ', '-')}.db")
+    for i in range(days):
+        store.upsert_daily(make_day(today - timedelta_days(i)))
+    for i in range(runs):
+        store.upsert_activity(make_activity(9_000_000 + i, today - timedelta_days(i)))
+
+    app = server.App.__new__(server.App)
+    app.db_path = store.path
+    app.store = store
+    app.demo = False
+    app.reset_runtime_state()
+
+    payload = app.state()
+    js = run_js(f"const s = {json.dumps(payload)};"
+                "return {noData: L.hasNoData(s), first: L.isFirstRun(s)};")
+
+    assert js["noData"] is store.is_empty(), (
+        f"[{label}] JavaScript says empty={js['noData']}, Python says {store.is_empty()} — "
+        "the page and the startup sync would act on different answers")
+    # `_first_run` is what `serve()` gates the startup sync on; `isFirstRun` is
+    # what the page gates the guide and the sync-failure banner on. Same payload,
+    # same answer, or one of the two goes silent.
+    assert js["first"] is server._first_run(app), (
+        f"[{label}] JavaScript isFirstRun={js['first']}, Python _first_run="
+        f"{server._first_run(app)}")
+
+
+def timedelta_days(n: int):
+    from datetime import timedelta
+
+    return timedelta(days=n)

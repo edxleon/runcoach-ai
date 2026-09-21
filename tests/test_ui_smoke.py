@@ -79,7 +79,7 @@ def base_url(tmp_path_factory):
         os.environ["RUNCOACH_HOME"] = old_home
 
 
-def render(url: str, profile: Path, *extra: str) -> tuple[str, str]:
+def render(url: str, profile: Path, *extra: str, size: str = "430,1400") -> tuple[str, str]:
     proc = subprocess.run(
         # `--no-sandbox` and `--disable-dev-shm-usage`: the standard pair for a
         # containerised runner, where the sandbox has no user namespace and
@@ -87,7 +87,7 @@ def render(url: str, profile: Path, *extra: str) -> tuple[str, str]:
         [CHROME, "--headless=new", "--disable-gpu", "--no-sandbox",
          "--disable-dev-shm-usage", "--no-first-run", "--no-default-browser-check",
          f"--user-data-dir={profile}", "--enable-logging=stderr", "--v=0",
-         "--window-size=430,1400", "--virtual-time-budget=8000", *extra, "--dump-dom", url],
+         f"--window-size={size}", "--virtual-time-budget=8000", *extra, "--dump-dom", url],
         capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=90)
     return proc.stdout, proc.stderr
 
@@ -135,3 +135,97 @@ def test_the_coach_tab_offers_a_way_to_delete_a_card(base_url, tmp_path):
         "no delete affordance on the card the README promises one for"
     assert not [ln for ln in log.splitlines()
                 if "CONSOLE" in ln and ("Uncaught" in ln or "SyntaxError" in ln)]
+
+
+@pytest.fixture(scope="module")
+def first_run_url(tmp_path_factory):
+    """A server with NO demo data and no Garmin session — the state every
+    stranger from GitHub meets first, and the one this harness could not reach:
+    `base_url` runs `demo=True`, and demo short-circuits both predicates."""
+    from runcoach.web import server
+
+    old_home = os.environ.get("RUNCOACH_HOME")
+    old_cmd = os.environ.get("RUNCOACH_CLAUDE_CMD")
+    os.environ["RUNCOACH_HOME"] = str(tmp_path_factory.mktemp("first-run-home"))
+    # Stub the CLI so `claude_available()` is TRUE here. Without it the coach
+    # buttons are disabled because no `claude` is on PATH - which is the case on
+    # every CI runner - and the assertion below would pass no matter what the
+    # empty-database lock does. Measured: with the lock removed and no CLI, the
+    # test stayed green.
+    os.environ["RUNCOACH_CLAUDE_CMD"] = '["python", "-c", "pass"]'
+    app = server.App(demo=False, token=None)
+    httpd = server.make_server("127.0.0.1", 0, app)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{httpd.server_address[1]}/"
+    httpd.shutdown()
+    httpd.server_close()
+    for name, value in (("RUNCOACH_HOME", old_home), ("RUNCOACH_CLAUDE_CMD", old_cmd)):
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
+
+
+def test_the_first_screen_guides_instead_of_reporting_an_error(first_run_url, tmp_path):
+    """Before the repair this page showed `No call · too little data for a
+    verdict` over a column of dashes, under a red banner naming a
+    GarminConnectAuthenticationError. Nothing there was wrong, and all of it
+    read as a broken app."""
+    dom, log = render(first_run_url, tmp_path / "profile")
+    console_errors = [ln for ln in log.splitlines() if "CONSOLE" in ln
+                      and any(w in ln for w in ("Uncaught", "SyntaxError",
+                                                "Content Security Policy", "Refused to"))]
+    assert not console_errors, console_errors[:3]
+    assert 'data-area="runcoach"' in dom, "the page module never ran"
+
+    assert "runcoach login" in dom, "the first step is not on the page"
+    assert "runcoach sync --days 30" in dom, "the depth `doctor` recommends is not offered"
+    assert "GarminConnect" not in dom and "AuthenticationError" not in dom, \
+        "an exception name is not a first impression"
+    assert "too little data for a verdict" not in dom, "the guide replaces the verdict"
+    # Every coach button locked: an analysis of an empty database is a real,
+    # paid agent run that can only answer "there is nothing here".
+    assert "<button" in dom and 'data-tpl' in dom
+    for chunk in dom.split('data-tpl')[1:]:
+        assert "disabled" in chunk[:200], "a coach button is live on an empty database"
+
+
+def test_with_data_the_coach_buttons_are_live(base_url, tmp_path):
+    """The counter-case to the one above, and the reason it means anything: if
+    the buttons were disabled for some OTHER reason - no CLI on PATH, a job in
+    flight - the empty-database assertion would hold whatever the lock does."""
+    dom, _ = render(f"{base_url}#coach", tmp_path / "profile-live")
+    chunks = dom.split('data-tpl')[1:]
+    assert chunks, "no coach buttons rendered at all"
+    assert any("disabled" not in c[:200] for c in chunks), (
+        "every button disabled although the demo store is full - the lock is untestable")
+
+
+def test_the_desktop_layout_keeps_the_reload_button_reachable(base_url, tmp_path):
+    """At 1280 px the page used to be a 480 px phone column with the tab bar
+    stretched across the bottom. The tab bar now sits under the header — and the
+    header STAYS sticky, because it carries ↻, the only reload handle on a
+    desktop (pull-to-refresh is touch-only) and the one the first-run guide
+    points at."""
+    dom, log = render(f"{base_url}#today", tmp_path / "profile-wide", size="1280,900")
+    console_errors = [ln for ln in log.splitlines() if "CONSOLE" in ln
+                      and any(w in ln for w in ("Uncaught", "SyntaxError",
+                                                "Content Security Policy", "Refused to"))]
+    assert not console_errors, console_errors[:3]
+    assert 'data-area="runcoach"' in dom, "the page module never ran at desktop width"
+    assert 'id="refresh"' in dom
+
+    css = (Path(server_static()) / "tokens.css").read_text(encoding="utf-8")
+    wide = css.split("@media (min-width: 900px)", 1)
+    assert len(wide) == 2, "the desktop block is gone"
+    block = wide[1].split("\n}\n", 1)[0]
+    assert "position: static" not in block, \
+        "a static header takes ↻ out of reach after the first scroll"
+    assert "var(--header-h)" in block, \
+        "the tab bar must stick below the DECLARED header height, not a guessed number"
+
+
+def server_static() -> str:
+    from runcoach.web import server as _s
+
+    return str(Path(_s.__file__).resolve().parent / "static")

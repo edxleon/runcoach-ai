@@ -130,16 +130,28 @@ export function mountRefresh({ onRefresh, btn = "#refresh", pull = "#pull" } = {
 
 /** Shows how old the data is. `staleText(d)` supplies the page's own
  *  sentence. */
-export function renderFreshness(d, { staleText, fresh = "#fresh", dot = "#fresh-dot",
+export function renderFreshness(d, { staleText, empty, fresh = "#fresh", dot = "#fresh-dot",
                                      stale = "#stale" } = {}) {
   const el = document.querySelector(fresh);
   const point = document.querySelector(dot);
-  if (el) el.textContent = d?.generated_at ? fmtAgo(d.generated_at) : "–";
+  // `generated_at` is the age of the SNAPSHOT, not of the data: on a fresh
+  // install with nothing synced it read "1 s ago" next to a green dot, which
+  // says "fresh" about a database that has never held a day. No data, no age.
+  //
+  // `empty` comes from the app, so the header and the page agree on what
+  // "nothing here" means. This module had its own second definition for one
+  // review round, and the two disagreed exactly when a store held activities
+  // but no `daily_metrics` row: header "no data yet", Runs tab full.
+  // No fallback definition. There WAS one, and it disagreed with the page's
+  // exactly when a store held activities but no `daily_metrics` row. A caller
+  // that forgets `empty` gets "no opinion", not a second opinion.
+  const noData = empty ? !!empty(d) : false;
+  if (el) el.textContent = noData ? "no data yet" : d?.generated_at ? fmtAgo(d.generated_at) : "–";
   // The threshold comes from the SNAPSHOT (`snapshot.STALE_AFTER_DAYS`), not
   // from a literal here: this banner tells the athlete to run `runcoach
   // doctor`, and doctor used to answer `[ok]` at the very age that raised it.
   const old = (d?.stale_days ?? 0) >= (d?.stale_after_days ?? 3);
-  if (point) point.style.background = old ? "var(--warn)" : "var(--ok)";
+  if (point) point.style.background = noData ? "var(--muted)" : old ? "var(--warn)" : "var(--ok)";
   const banner = document.querySelector(stale);
   if (!banner) return;
   banner.innerHTML = old
@@ -222,7 +234,7 @@ export function checkPayload(p, { schema } = {}) {
  *  unset). */
 export function mountApp({
   marker = "runcoach", api, schema, views, initial, render,
-  head = "#verdict", clear = [], skeleton = [], staleText,
+  head = "#verdict", clear = [], skeleton = [], staleText, empty,
   onAfterLoad, onVisible, onRefresh, onView,
 }) {
   document.documentElement.dataset.area = marker;
@@ -234,7 +246,7 @@ export function mountApp({
 
   async function fetchState() {
     payload = checkPayload(await apiGet(api), { schema });
-    renderFreshness(payload, { staleText });
+    renderFreshness(payload, { staleText, empty });
     render(payload);
     return payload;
   }

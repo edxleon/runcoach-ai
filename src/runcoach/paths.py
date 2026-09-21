@@ -35,6 +35,22 @@ def garmin_dir() -> Path:
     return Path(override).expanduser() if override else home() / "garmin"
 
 
+def garmin_session_present() -> bool:
+    """Has `runcoach login` ever run? A token DIRECTORY with something in it -
+    whether the tokens are still valid is a network question (`doctor` asks it).
+
+    One definition for three readers: `doctor` reports it, the web app's state
+    carries it so the page can tell "never logged in" from "the sync failed"
+    (a first start used to show the second, as an error, with an exception name
+    in it), and `serve()` reads it to not even attempt a startup sync that has
+    no session to run on."""
+    d = garmin_dir()
+    try:
+        return d.is_dir() and any(d.iterdir())
+    except OSError:
+        return False
+
+
 def cards_dir() -> Path:
     d = home() / "cards"
     d.mkdir(exist_ok=True)

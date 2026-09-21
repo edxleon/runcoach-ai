@@ -15,6 +15,9 @@
 
 :root {
   color-scheme: dark;
+  /* Height of the sticky header. Not a theme value - a layout constant the
+     desktop tab bar sticks below (see the >=900px block). */
+  --header-h: 53px;
   --bg: #12151c; --surface: #1a1e27; --surface2: #20242f; --line: #2a3040;
   --text: #e8eaf0; --muted: #8b92a5;
   --ok: #4ade80; --warn: #f5a623; --down: #f87171; --neutral: #8a90a0;
@@ -148,6 +151,7 @@ a { color: var(--accent); }
 header.app {
   position: sticky; top: 0; z-index: 20;
   display: flex; align-items: center; gap: 10px;
+  box-sizing: border-box;
   padding: 10px 14px; background: var(--bg); border-bottom: 1px solid var(--line);
 }
 .wordmark { font-size: 15px; font-weight: 600; letter-spacing: .02em;
@@ -202,6 +206,44 @@ nav.tabbar button {
 nav.tabbar button[aria-current="page"] { color: var(--accent); }
 nav.tabbar svg { width: 22px; height: 22px; fill: none; stroke: currentColor;
                  stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ── Desktop ──────────────────────────────────────────────────────────────
+   Inside the cockpit this was one tab of six, opened on a phone. Standalone,
+   `runcoach serve` opens the DESKTOP browser first - and a 480 px column with
+   a bottom tab bar stretched across 1280 px is a phone in a big window. Above
+   900 px the tab bar moves under the header as a row and sticks there, the
+   column widens, and the body no longer reserves room at the bottom. The
+   card layout itself is unchanged: one column, so nothing in app.js has to
+   know the width. */
+@media (min-width: 900px) {
+  body { display: flex; flex-direction: column; min-height: 100vh;
+         padding-bottom: 32px; }
+  /* The header STAYS sticky. Making it static put the ↻ button - the one
+     control the first-run guide points at, and the only reload handle on a
+     desktop, where pull-to-refresh is touch-only - out of reach after the
+     first scroll. `top: 0` for the header, the tab bar sticks below it. */
+  /* A FIXED height only here, where the sticky tab bar below needs to know
+     it. In the base rule it applied at every width, so browser zoom or a
+     larger default font would have clipped the header on a phone too — for a
+     desktop reason that does not exist there. */
+  header.app { order: 0; height: var(--header-h); }
+  nav.tabbar { order: 1; position: sticky; top: var(--header-h); bottom: auto;
+               grid-auto-columns: max-content; justify-content: center; gap: 8px;
+               border-top: none; border-bottom: 1px solid var(--line);
+               padding: 0 14px; }
+  nav.tabbar button { flex-direction: row; gap: 8px; padding: 11px 16px; font-size: 13px;
+                      border-bottom: 2px solid transparent; }
+  nav.tabbar button[aria-current="page"] { border-bottom-color: var(--accent); }
+  nav.tabbar svg { width: 18px; height: 18px; }
+  #pull { order: 2; }
+  main.app { order: 3; max-width: 720px; width: 100%; padding: 22px 16px 32px; }
+}
+
+/* First-run guide on the verdict card (the state before `runcoach login`). */
+ol.first-run { margin: 10px 0 8px; padding-left: 22px; display: grid; gap: 6px; }
+ol.first-run code { font-family: ui-monospace, Consolas, monospace; font-size: 13px;
+                    background: var(--bg); border: 1px solid var(--line);
+                    border-radius: 4px; padding: 1px 5px; }
 
 /* ── Progress strip ───────────────────────────────────────────────────────
    Visible WHILE a refresh is running and afterwards with its result. Sits

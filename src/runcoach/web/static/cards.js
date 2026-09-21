@@ -18,7 +18,7 @@
    server root, and this module is imported by tests.
    ═══════════════════════════════════════════════════════════════════════════ */
 
-import { esc, fmtAgo, fmtDay, fmtNum, toast, apiGet, apiPost, armOrFire,
+import { esc, fmtAgo, fmtDay, toast, apiGet, apiPost, armOrFire,
          resetArm } from "./ui.js";
 
 /* ═══ Pure logic ═══════════════════════════════════════════════════════════ */
@@ -46,7 +46,7 @@ export function modelShort(m) {
  *  that the test can check the structure instead of a locale's output.
  *  Cards without the runner's stamps fall back to `day`/`written` — they then
  *  show less, but nothing wrong. */
-export function metaParts(c, { day = fmtDay, ago = fmtAgo, num = fmtNum } = {}) {
+export function metaParts(c, { day = fmtDay, ago = fmtAgo } = {}) {
   const t = [];
   if (c.data_through) t.push("data up to " + day(c.data_through));
   else if (c.day) t.push(day(c.day));
@@ -54,7 +54,9 @@ export function metaParts(c, { day = fmtDay, ago = fmtAgo, num = fmtNum } = {}) 
   else if (c.written) t.push("generated " + ago(c.written));
   const m = modelShort(c.model);
   if (m) t.push(m);
-  if (typeof c.cost_usd === "number") t.push("$" + num(c.cost_usd, 2));
+  // `cost_usd` stays in the card file and is deliberately not shown: on a
+  // subscription the CLI's figure is nominal, and a price on every card makes
+  // it the thing the eye compares. See the note above `tplButton` in app.js.
   return t;
 }
 
@@ -590,8 +592,7 @@ function renderJobRow(j, avg, opts) {
       <span class="pill ${JOB_PILL[j.status] || "pill-unknown"}">${
         j.status === "running" ? '<span class="live-dot"></span>' : ""}${esc(JOB_LABEL[j.status] || j.status)}</span>
       <span class="job-title">${esc(j.title || j.id)}</span>
-      <span class="note job-when">${typeof j.cost_usd === "number" ? "$" + fmtNum(j.cost_usd, 2) + " · " : ""}${
-        esc(when)}${esc(expectation)}</span>
+      <span class="note job-when">${esc(when)}${esc(expectation)}</span>
       <button type="button" class="job-log-btn" data-job-log="${esc(j.id)}"
               aria-expanded="${!!lines}">Log</button>
       ${active && opts.cancel !== false

@@ -15,6 +15,7 @@ actually come from.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -1810,3 +1811,270 @@ def test_login_without_a_terminal_says_so(monkeypatch, capsys):
 
     monkeypatch.setattr("builtins.input", lambda *_a: (_ for _ in ()).throw(KeyboardInterrupt()))
     assert auth.interactive_login() == 1 and "cancelled" in capsys.readouterr().err
+
+
+def test_login_names_the_path_when_the_token_directory_cannot_be_made(tmp_path,
+                                                                      monkeypatch, capsys):
+    """`RUNCOACH_GARMIN_TOKENS` pointing at a FILE is the likely misreading —
+    garth writes token files, so naming one looks right — and `mkdir` answered
+    it with a raw FileExistsError traceback. Same class as the no-terminal
+    login: name the path and what it should be."""
+    from runcoach import auth
+
+    f = tmp_path / "token.json"
+    f.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("RUNCOACH_GARMIN_TOKENS", str(f))
+
+    rc = auth.interactive_login()
+    err = capsys.readouterr().err
+    assert rc == 2, rc
+    assert "Traceback" not in err and "DIRECTORY" in err and str(f) in err, err
+
+
+# ── the state before `runcoach login` ────────────────────────────────────────
+#
+# A review reverted all four repairs of this state and the suite stayed green,
+# which is the only reason these exist. The state is also the first screen a
+# stranger from GitHub sees, and it used to greet them with an
+# AuthenticationError over a page of dashes.
+
+def test_the_session_probe_answers_the_three_shapes_of_a_token_directory(tmp_path,
+                                                                         monkeypatch):
+    """Missing / empty / non-empty — and a directory it cannot read is NOT a
+    session: `doctor` then says "run runcoach login", which is at least an
+    action, where claiming a session would send a doomed sync at Garmin."""
+    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    assert paths.garmin_session_present() is False, "no directory at all"
+
+    d = paths.garmin_dir()
+    d.mkdir(parents=True)
+    assert paths.garmin_session_present() is False, \
+        "an empty directory is what an aborted login leaves behind"
+
+    (d / "oauth1_token.json").write_text("{}", encoding="utf-8")
+    assert paths.garmin_session_present() is True
+
+    monkeypatch.setattr(paths.Path, "iterdir",
+                        lambda self: (_ for _ in ()).throw(PermissionError(13, "denied")))
+    assert paths.garmin_session_present() is False, "unreadable fails closed"
+
+
+def test_the_page_can_tell_never_logged_in_from_sync_failed(tmp_path, monkeypatch):
+    """`/api/state` has to carry the session flag, because the page cannot
+    distinguish the two otherwise: both look like "no fresh data". The banner
+    for a failed sync is gated on it, so a missing flag silences a page whose
+    data has stopped updating."""
+    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    app = server.App.__new__(server.App)
+    app.db_path = str(tmp_path / "t.db")
+    app.store = Store(app.db_path)
+    app.demo = False
+    app.reset_runtime_state()
+
+    assert app.state()["garmin_session"] is False
+    paths.garmin_dir().mkdir(parents=True)
+    (paths.garmin_dir() / "oauth1_token.json").write_text("{}", encoding="utf-8")
+    assert app.state()["garmin_session"] is True
+
+
+def test_the_startup_sync_is_skipped_only_on_a_true_first_run(tmp_path, monkeypatch,
+                                                              today):
+    """Skipping it whenever a session is missing was wrong in the one state that
+    matters: a store WITH data whose token directory is gone syncs nothing, and
+    because `serve()` never ran the sync, `last_sync` stays empty and no banner
+    appears. The page then shows a normal verdict over data that has silently
+    stopped updating. No session AND nothing stored is the only case where
+    there is genuinely nothing to report."""
+    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    app = server.App.__new__(server.App)
+    app.db_path = str(tmp_path / "t.db")
+    app.store = Store(app.db_path)
+    app.demo = False
+    app.reset_runtime_state()
+
+    assert server._first_run(app) is True, "no tokens, empty store"
+
+    # ...data arrives, the token directory is still gone: the sync has to run
+    # (and fail loudly) rather than be skipped.
+    app.store.upsert_daily(make_day(today))
+    assert server._first_run(app) is False, \
+        "data without a session is an expired login, not a first run"
+
+    # ...and a session alone is enough, even with an empty store.
+    app.store = Store(str(tmp_path / "empty.db"))
+    paths.garmin_dir().mkdir(parents=True)
+    (paths.garmin_dir() / "oauth1_token.json").write_text("{}", encoding="utf-8")
+    assert server._first_run(app) is False
+
+
+def test_serve_actually_uses_that_gate(tmp_path, monkeypatch, today):
+    """The test above pins the PREDICATE; this one pins the CALL SITE, and it
+    exists because a mutation proved the difference: reverting `serve()` to the
+    old `garmin_session_present()` check left `_first_run` intact, and the
+    predicate test stayed green while the behaviour was back to the defect.
+    A helper nothing is shown to use is a helper that can be quietly bypassed."""
+    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+
+    class _ServedError(Exception):
+        pass
+
+    started: list[str] = []
+    monkeypatch.setattr(server.App, "refresh_start", lambda self: started.append("sync"))
+    monkeypatch.setattr(server.ThreadingHTTPServer, "serve_forever",
+                        lambda self, *a, **k: (_ for _ in ()).throw(_ServedError()))
+    monkeypatch.setattr(server.agent, "stop_running", lambda: None)
+
+    def boot() -> list[str]:
+        started.clear()
+        with contextlib.suppress(_ServedError):
+            server.serve(host="127.0.0.1", port=0, open_browser=False, sync_on_start=True)
+        return list(started)
+
+    # First run: nothing to sync with and nothing to sync — stay quiet.
+    assert boot() == [], "a first run must not fire a sync that can only fail"
+
+    # Data, no session: the sync MUST run, so that its failure reaches the page.
+    Store(str(paths.db_path())).upsert_daily(make_day(today))
+    assert boot() == ["sync"], (
+        "a store with data and no session must still sync, "
+        "so the failure is visible")
+
+    # Session present: always.
+    paths.garmin_dir().mkdir(parents=True, exist_ok=True)
+    (paths.garmin_dir() / "oauth1_token.json").write_text("{}", encoding="utf-8")
+    assert boot() == ["sync"]
+
+
+# ── the subscription promise is enforced, not just stated ────────────────────
+
+def test_the_agent_cannot_be_billed_per_token(monkeypatch):
+    """README: "Your subscription, not an API key. There is no key to leak, no
+    per-token bill." `Popen` inherited the whole parent environment, so an
+    `ANTHROPIC_API_KEY` exported for other work moved every coach run onto a
+    metered account — in an app that says it never meters, and (since the cost
+    card was removed) with nothing on screen to notice it by.
+
+    The names below are LITERALS on purpose. The first version of this test
+    iterated `agent.BILLING_ENV` and asserted each entry was filtered — i.e. the
+    implementation against its own constant. A reviewer emptied the tuple to
+    `()`, disabling the guard completely, and the test stayed green."""
+    from runcoach.web import agent as agent_mod
+
+    redirects = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
+                 "ANTHROPIC_CUSTOM_HEADERS", "ANTHROPIC_PROFILE",
+                 "ANTHROPIC_BEDROCK_BASE_URL", "ANTHROPIC_VERTEX_BASE_URL",
+                 "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX")
+    for name in redirects:
+        monkeypatch.setenv(name, "set-and-must-not-reach-the-child")
+    monkeypatch.setenv("PATH", os.environ.get("PATH", ""))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", "/keep/this")
+
+    env = agent_mod.child_env()
+    for name in redirects:
+        assert name not in env, f"{name} redirects billing away from the subscription"
+    assert "PATH" in env, "the child still has to find the CLI"
+    assert env.get("CLAUDE_CONFIG_DIR") == "/keep/this", (
+        "only billing is stripped - the CLI keeps its own configuration")
+
+
+def test_the_spawn_really_hands_over_the_filtered_environment(tmp_path, monkeypatch):
+    """The guard above is a function; this is the wiring — and the wiring is
+    where it was missing: a reviewer deleted `kwargs["env"] = child_env()` and
+    all 492 tests stayed green.
+
+    A SPY on `Popen`, not a source check. The first attempt at this walked the
+    AST for `env=` and was blind for the same reason the suite was: the call is
+    `Popen(..., **kwargs)`, so the argument is invisible until it is actually
+    passed. Only running it answers the question."""
+    from runcoach.web import agent as agent_mod
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-must-not-reach-the-child")
+    monkeypatch.setenv("RUNCOACH_CLAUDE_CMD", json.dumps([sys.executable, "-c", "pass"]))
+    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+
+    seen: dict = {}
+
+    class _StopSpawnError(Exception):
+        pass
+
+    def spy(*args, **kwargs):
+        seen.update(kwargs)
+        raise _StopSpawnError
+
+    monkeypatch.setattr(agent_mod.subprocess, "Popen", spy)
+    with contextlib.suppress(_StopSpawnError):
+        agent_mod._run_once({"id": "j-test", "prompt": "hi"}, None)
+
+    assert "env" in seen, "the spawn inherits the parent environment"
+    assert "ANTHROPIC_API_KEY" not in seen["env"], (
+        "an exported API key reaches the agent and every run is billed per token")
+    assert seen["env"].get("PATH"), "the child still has to find the CLI"
+
+
+def test_every_agent_subprocess_carries_the_filtered_environment():
+    """The guard above is a function; this is the wiring. A reviewer deleted
+    `kwargs["env"] = child_env()` from the spawn and all 492 tests stayed green
+    — the promise was one line from being silently reverted.
+
+    An ENUMERATING check rather than a third hand-picked case: every `Popen` in
+    `web/` has to pass `env=`, so a second spawn site added later is covered the
+    day it is written, not the day someone remembers this test."""
+    import ast
+
+    web = Path(server.__file__).resolve().parent
+    spawns = []
+    for path in sorted(web.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            fn = node.func
+            name = fn.attr if isinstance(fn, ast.Attribute) else getattr(fn, "id", "")
+            if name not in {"Popen", "run", "call", "check_output"}:
+                continue
+            if isinstance(fn, ast.Attribute) and getattr(fn.value, "id", "") != "subprocess":
+                continue
+            passes_env = any(k.arg == "env" for k in node.keywords) or any(
+                k.arg is None for k in node.keywords)      # **kwargs may carry it
+            spawns.append((path.name, node.lineno, passes_env))
+
+    assert spawns, "no subprocess call found in web/ - has the spawn moved?"
+    blind = [f"{f}:{ln}" for f, ln, ok in spawns if not ok]
+    assert not blind, (
+        "these subprocess calls inherit the parent environment, including any "
+        f"ANTHROPIC_* credential: {blind}")
+
+
+def test_serve_names_a_corrupt_database_instead_of_tracing_back(tmp_path, monkeypatch,
+                                                                capsys):
+    """"Database unreadable" is one of the four states this app separates on its
+    surfaces — but `App()` opens and migrates the file before any surface
+    exists, so `runcoach serve` on a half-written database ended in a raw
+    `sqlite3.DatabaseError`. `doctor` has answered this properly all along; the
+    command a user starts first did not."""
+    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    paths.db_path().parent.mkdir(parents=True, exist_ok=True)
+    paths.db_path().write_bytes(b"this is definitely not a database\n" * 2)
+
+    rc = server.serve(host="127.0.0.1", port=0, open_browser=False, sync_on_start=False)
+    err = capsys.readouterr().err
+    assert rc == 2, rc
+    assert "Traceback" not in err, err
+    assert "runcoach doctor" in err and str(paths.db_path()) in err, err
+    # ...and the home lock is not left behind naming a process that never served.
+    assert not paths.home_lock().exists(), "a refused start must not hold the home"
+
+
+def test_doctor_says_when_billing_variables_will_be_stripped(tmp_path, monkeypatch,
+                                                             capsys):
+    """Stripping `ANTHROPIC_*` silently is a trap with no exit: `claude --print`
+    works in the user's own terminal, every coach card fails inside the app, and
+    doctor answered [ok] twice. Since the cost card was removed there is nothing
+    else on screen to notice it by either."""
+    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-set-by-the-user-on-purpose")
+
+    cli.main(["doctor", "--offline"])
+    out = capsys.readouterr().out
+    assert "ANTHROPIC_API_KEY" in out, "doctor is silent about a key it will remove"
+    assert "subscription" in out.lower()
