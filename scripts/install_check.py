@@ -183,7 +183,10 @@ def main() -> int:
                 if reply.get("id") == 2:
                     answer = reply
                     break
-            proc.stdin.close()
+            # NOT `proc.stdin.close()` first: `communicate` flushes stdin on
+            # POSIX and raises `ValueError: I/O operation on closed file` for a
+            # handle that is already shut. It closes stdin itself, which is all
+            # the server needs to exit - and the answer is already read.
             _, stderr = proc.communicate(timeout=30)
             exited = True
         except (subprocess.TimeoutExpired, OSError):
