@@ -32,7 +32,9 @@ def _reset_sync_cooldown():
 EXPECTED_MCP_TOOLS = {
     "get_training_readiness", "get_recovery_summary", "get_daily_metrics", "get_trend",
     "get_training_load", "get_recent_activities", "get_intensity_distribution",
-    "analyze_workout", "get_vo2max_history", "sync_garmin"}
+    "analyze_workout", "get_vo2max_history", "sync_garmin",
+    # the write path: propose (local) and, after a human's yes, apply (Garmin)
+    "propose_workout", "apply_workout"}
 
 
 def test_hm_formatting():
@@ -454,3 +456,96 @@ def test_mcp_server_registers_exactly_the_expected_tools():
     assert {t.name for t in registered} == EXPECTED_MCP_TOOLS
     assert len(registered) == len(EXPECTED_MCP_TOOLS)
     assert all((t.description or "").strip() for t in registered)
+
+
+# ── propose / apply ──────────────────────────────────────────────────────────
+
+def _seed_zones(store, today):
+    """A run with Garmin zone bounds and a measured threshold, so proposals
+    carry the athlete's numbers instead of assumptions."""
+    store.upsert_activity(make_activity(9_000_000_001, today - timedelta(days=2)))
+    store.update_activity_detail(9_000_000_001, {**DETAIL, "splits": [], "unknown": set()})
+    d = today - timedelta(days=5)
+    store.upsert_daily(make_day(d))
+    store.upsert_lactate_history([{"day": d, "lthr_bpm": 168, "lt_speed_mps": 3.5}])
+
+
+def test_propose_files_a_preview_and_writes_nothing_to_garmin(store, today, monkeypatch):
+    from runcoach import plan
+
+    _seed_zones(store, today)
+    logins = []
+    monkeypatch.setattr(garmin, "login", lambda tokenstore=None: logins.append(1))
+    out = tools.propose_workout(store, "vo2max", distance_km=10)
+    assert "warmup" in out and "HR zone 5" in out and "NOT on Garmin yet" in out
+    assert "assumption" not in out, "zones were seeded - nothing to assume"
+    pid = out.split("proposal ")[1].split()[0]
+    p = plan.read(pid)
+    assert p and p["status"] == "open" and p["day"] == today.isoformat()
+    assert logins == [], "proposing must not even log in"
+
+
+def test_apply_uploads_schedules_pushes_verifies_and_refreshes_the_mirror(store, today, monkeypatch):
+    from runcoach import plan
+
+    _seed_zones(store, today)
+    fake = FakeGarmin()
+    monkeypatch.setattr(garmin, "login", lambda tokenstore=None: fake)
+    pid = tools.propose_workout(store, "threshold", distance_km=10).split("proposal ")[1].split()[0]
+
+    out = tools.apply_workout(store, pid)
+    assert "On Garmin" in out and "verified" in out, out
+    p = plan.read(pid)
+    assert p["status"] == "applied" and p["workout_id"] and p["schedule_id"]
+    assert store.is_own_workout(p["workout_id"]), "what we uploaded is recorded as ours"
+    assert fake.data["pushed"] == [p["workout_id"]]
+    mirror = store.get_scheduled_workouts(today, today)
+    assert [m["workout_id"] for m in mirror] == [p["workout_id"]], "Today tab sees it now"
+
+    # once only
+    again = tools.apply_workout(store, pid)
+    assert "already applied" in again and len(fake.data["library"]) == 1
+
+
+def test_apply_with_an_unknown_id_lists_the_open_proposals(store, today, monkeypatch):
+    _seed_zones(store, today)
+    monkeypatch.setattr(garmin, "login", lambda tokenstore=None: FakeGarmin())
+    pid = tools.propose_workout(store, "easy", distance_km=8).split("proposal ")[1].split()[0]
+    out = tools.apply_workout(store, "p-20260101-000000-dead")
+    assert "no proposal" in out and pid in out
+
+
+def test_apply_reports_a_mismatch_instead_of_hiding_it(store, today, monkeypatch):
+    """Garmin stored something else than what was sent - the read-back is the
+    only place that can notice, and it must say so, not claim success."""
+    _seed_zones(store, today)
+
+    class Mangling(FakeGarmin):
+        def get_workout_by_id(self, workout_id):
+            dto = super().get_workout_by_id(workout_id)
+            import copy
+            dto = copy.deepcopy(dto)
+            dto["workoutSegments"][0]["workoutSteps"][1]["workoutSteps"][1]["targetType"] = {
+                "workoutTargetTypeId": 4, "workoutTargetTypeKey": "heart.rate.zone"}
+            return dto
+
+    monkeypatch.setattr(garmin, "login", lambda tokenstore=None: Mangling())
+    pid = tools.propose_workout(store, "vo2max", distance_km=10).split("proposal ")[1].split()[0]
+    out = tools.apply_workout(store, pid)
+    assert "MISMATCH" in out and "recovery carries a target" in out
+
+
+def test_the_write_tool_the_agent_is_denied_really_exists():
+    """`agent.WRITE_TOOL` is a string on a command line. If the tool were renamed,
+    the flag would deny nothing and every card run could write to Garmin."""
+    from runcoach import mcp_server
+    from runcoach.web import agent
+
+    registered = {t.name for t in asyncio.run(mcp_server.mcp.list_tools())}
+    assert agent.WRITE_TOOL == "mcp__runcoach__apply_workout"
+    assert agent.WRITE_TOOL.split("__")[-1] in registered
+
+
+def test_apply_in_demo_mode_refuses(store, monkeypatch):
+    monkeypatch.setenv("RUNCOACH_DEMO", "1")
+    assert "Demo mode" in tools.apply_workout(store, "p-20260101-000000-dead")

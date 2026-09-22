@@ -133,6 +133,10 @@ def test_command_is_an_allowlist(tmp_path, monkeypatch):
     assert cmd[cmd.index("--tools") + 1] == ""                # no built-in tool at all
     assert "--strict-mcp-config" in cmd
     assert cmd[cmd.index("--allowedTools") + 1] == "mcp__runcoach"
+    # The prefix allow above would cover the one tool that writes to Garmin;
+    # an unattended card run must not be able to call it. A click or the
+    # athlete's word in a Claude Code session applies a proposal, never a job.
+    assert cmd[cmd.index("--disallowedTools") + 1] == "mcp__runcoach__apply_workout"
     assert cmd[cmd.index("--output-format") + 1] == "json"
     assert "--dangerously-skip-permissions" not in cmd
     assert "--safe-mode" not in cmd                           # it would disable our MCP server too
@@ -223,6 +227,8 @@ def test_run_round_trip_writes_a_validated_card(stub_cli, tmp_path, today):
     assert "Should I train today?" in (stub_cli / "stdin.txt").read_text(encoding="utf-8")
     argv = json.loads((stub_cli / "argv.json").read_text(encoding="utf-8"))
     assert argv[argv.index("--tools") + 1] == "" and "--strict-mcp-config" in argv
+    assert argv[argv.index("--disallowedTools") + 1] == "mcp__runcoach__apply_workout", \
+        "the real spawn reached the CLI without the write tool denied"
     assert "exit=0" in jobs.log_path(job["id"]).read_text(encoding="utf-8")
     assert [c["id"] for c in jobs.public_cards()] == [job["id"]]
 

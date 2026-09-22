@@ -462,3 +462,54 @@ def _sync_now(store: Store, garmin, sync, days: int) -> str:
     except Exception as exc:  # noqa: BLE001 — a tool returns text, never an exception
         return f"Garmin fetch not possible right now ({type(exc).__name__}, rate limit?) - retry later."
     return rep.summary()
+
+
+# ── planning: propose, then (after a human's yes) apply ─────────────────────
+
+def propose_workout(store: Store, kind: str, distance_km: float | None = None,
+                    duration_min: int | None = None, day: str | None = None,
+                    name: str | None = None) -> str:
+    """Build a session from the athlete's own zones and file it as a proposal.
+    Text for the model AND the athlete; nothing touches Garmin here."""
+    import os
+
+    from . import plan
+
+    try:
+        target = date.fromisoformat(day) if day else None
+    except ValueError:
+        return f"day must be YYYY-MM-DD, got {day!r}"
+    if os.environ.get("RUNCOACH_DEMO"):
+        # The demo athlete has zones, so the proposal is real; only applying
+        # would need an account. Say so up front rather than at the click.
+        note = "\n(demo data: the proposal is real, applying needs a Garmin login)"
+    else:
+        note = ""
+    try:
+        p = plan.propose(store, kind, distance_km=distance_km, duration_min=duration_min,
+                         day=target, name=name, today=paths.today())
+    except ValueError as exc:
+        return f"Cannot build that session: {exc}"
+    return (f"{p['preview']}\n"
+            f"planned for {p['day']} - proposal {p['id']}\n"
+            f"NOT on Garmin yet. Show this to the athlete; if they say yes, call "
+            f"apply_workout(proposal_id=\"{p['id']}\"). If they want changes, propose again."
+            f"{note}")
+
+
+def apply_workout(store: Store, proposal_id: str) -> str:
+    """Write ONE proposal to Garmin. The only tool that changes the account."""
+    import os
+
+    from . import garmin, plan
+
+    if os.environ.get("RUNCOACH_DEMO"):
+        return "Demo mode has no Garmin account to write to - run with real data and a login."
+    if plan.read(proposal_id) is None:
+        return plan.apply(store, None, proposal_id)["error"]
+    try:
+        client = garmin.login()
+    except Exception as exc:  # noqa: BLE001 — a tool returns text, never an exception
+        return (f"Garmin login failed ({type(exc).__name__}) - nothing was written. "
+                f"Ask the athlete to run `runcoach login`, then apply again.")
+    return plan.describe_result(plan.apply(store, client, proposal_id, today=paths.today()))

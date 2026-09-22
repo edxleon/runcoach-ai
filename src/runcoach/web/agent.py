@@ -159,6 +159,12 @@ def child_env() -> dict:
     return {k: v for k, v in os.environ.items() if not strips_billing(k)}
 
 
+#: Fully qualified, as the CLI names MCP tools: server `runcoach`, tool
+#: `apply_workout`. `tests/test_tools.py` pins that the server really
+#: registers a tool of this name, so the flag cannot silently point at nothing.
+WRITE_TOOL = "mcp__runcoach__apply_workout"
+
+
 def command(workdir: Path, db: str | None) -> list[str]:
     cfg = workdir / "mcp.json"
     cfg.write_text(json.dumps(mcp_config(db, demo=bool(db and Path(db).name == "demo.db"))),
@@ -171,7 +177,14 @@ def command(workdir: Path, db: str | None) -> list[str]:
     # produced without a single tool round trip.
     cmd = [*base, "--print", "--output-format", "json",
            "--strict-mcp-config", "--mcp-config", str(cfg),
-           "--tools", "", "--allowedTools", "mcp__runcoach"]
+           "--tools", "", "--allowedTools", "mcp__runcoach",
+           # The ONE tool that writes to Garmin stays out of reach of an
+           # unattended run: `--allowedTools mcp__runcoach` is a prefix allow
+           # and would cover it. A card run may PROPOSE a session; applying it
+           # is a human's click on the card (or their word in a Claude Code
+           # session, where this flag is not set). Configuration, not a
+           # sentence in coach.md - a prompt is not a permission system.
+           "--disallowedTools", WRITE_TOOL]
     if os.environ.get("RUNCOACH_MODEL"):
         cmd += ["--model", os.environ["RUNCOACH_MODEL"]]
     return cmd

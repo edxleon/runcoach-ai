@@ -10,19 +10,41 @@ from conftest import make_activity, make_day
 from runcoach import paths
 from runcoach.store import Store
 
+SCHEMA_VERSION = 2   # 0001 init, 0002 runcoach_workouts (the write path's provenance)
 
-def test_fresh_database_is_at_version_1(tmp_path):
+
+def test_fresh_database_is_at_the_current_version(tmp_path):
     store = Store(tmp_path / "fresh.db")
-    assert store.schema_version() == 1
-    assert store.migrate() == 1                      # nothing pending
+    assert store.schema_version() == SCHEMA_VERSION
+    assert store.migrate() == SCHEMA_VERSION         # nothing pending
 
 
 def test_opening_twice_is_idempotent_and_keeps_data(tmp_path):
     path = tmp_path / "t.db"
     Store(path).upsert_daily(make_day(date(2026, 6, 1), steps=100))
     again = Store(path)
-    assert again.schema_version() == 1
+    assert again.schema_version() == SCHEMA_VERSION
     assert again.get_day(date(2026, 6, 1))["steps"] == 100
+
+
+def test_a_version_1_database_is_upgraded_in_place(tmp_path):
+    """Applied migrations are never edited, only appended: a store opened on the
+    old schema gets the new table and keeps its rows."""
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(path)
+    try:
+        from runcoach import store as store_mod
+
+        sql = (store_mod._MIGRATIONS / "0001_init.sql").read_text(encoding="utf-8")
+        conn.executescript(f"BEGIN;\n{sql}\nPRAGMA user_version = 1;\nCOMMIT;")
+        conn.execute("INSERT INTO daily_metrics (day, steps, synced_at) VALUES ('2026-06-01', 7, 'x')")
+        conn.commit()
+    finally:
+        conn.close()
+    store = Store(path)
+    assert store.schema_version() == SCHEMA_VERSION
+    assert store.get_day(date(2026, 6, 1))["steps"] == 7
+    assert store.own_workouts() == []
 
 
 def test_schema_has_the_expected_tables_and_indexes(tmp_path):
@@ -37,6 +59,7 @@ def test_schema_has_the_expected_tables_and_indexes(tmp_path):
     finally:
         conn.close()
     assert {"daily_metrics", "activities", "activity_splits", "scheduled_workouts",
+            "runcoach_workouts",
             "activities_local_day_idx", "scheduled_workouts_day_idx"} <= names
 
 

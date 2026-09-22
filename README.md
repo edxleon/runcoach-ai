@@ -29,7 +29,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-502 tests, 59 frontend tests and that gate on three operating systems and two Python versions, with every
+537 tests, 59 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -111,7 +111,7 @@ flowchart LR
     DB --> L[logic.py<br/>readiness · decision<br/>intervals · bands]
     L --> SNAP[snapshot.py]
     SNAP --> WEB[web app<br/>127.0.0.1:8765]
-    L --> MCP[MCP server<br/>10 tools<br/>9 read-only + sync]
+    L --> MCP[MCP server<br/>12 tools<br/>10 read-only · sync · apply]
     WEB -- "spawn job" --> A["claude --print<br/>(your subscription)"]
     A -- "only mcp__runcoach__*" --> MCP
     A -- "JSON card" --> WEB
@@ -141,9 +141,12 @@ the data will otherwise invent it (this was measured, not assumed).
 See [`web/agent.py`](src/runcoach/web/agent.py).
 
 What that does and does not buy, stated plainly: an injected workout title **cannot reach anything but
-this app's own tools** — no shell, no filesystem, no network, no other MCP server, and no write path,
-because every tool is read-only except `sync_garmin`, which triggers authenticated requests to your own
-Garmin account and so is worth a rate limit rather than nothing. What it **can** still do is influence
+this app's own tools** — no shell, no filesystem, no network, no other MCP server, and no write path
+from a card run: every tool is read-only except `sync_garmin`, which triggers authenticated requests to
+your own Garmin account and so is worth a rate limit rather than nothing, and `apply_workout`, the one
+tool that writes to Garmin — which the app's card runs cannot call at all (`--disallowedTools`, pinned
+by a test), because applying a proposal is a human's click on the card or their word in a Claude Code
+session, never a job's decision. What it **can** still do is influence
 what a card says — and the card is the product. And cards are remembered: the previous card of the same
 kind is fed back as context for the next one, so a bad card echoes forward until you delete it (the UI
 has a delete button per card).
@@ -227,8 +230,12 @@ uv run python scripts/pii_gate.py  # release gate
 
 ## Status & roadmap
 
-v0.1 is **read-only** towards Garmin by design. Next: adaptive planning — the coach proposes a changed
-workout and, after explicit confirmation in the UI, writes it to the Garmin calendar.
+v0.1 was **read-only** towards Garmin. The write path exists on `main` since v0.2 — `propose_workout`
+builds a session for your route from your own zones and files it, `apply_workout` uploads it, schedules
+it, pushes it to the watch and reads it back to verify — and it is tested against a fake Garmin client
+only. It has not yet been run end to end against a real watch, so it is not in the quick start above;
+the section on planning follows that test, not this commit. The app's card runs cannot apply anything;
+in the app a proposal is applied by a click (in progress), in Claude Code by your answer.
 
 ## License
 

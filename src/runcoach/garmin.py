@@ -663,3 +663,146 @@ def fetch_activity_detail(client, activity_id: int) -> dict:
     detail["splits"] = splits_out
     detail["unknown"] = failed
     return detail
+
+
+# ── The write path ───────────────────────────────────────────────────────────
+#
+# Everything below is the ONLY code that changes anything on Garmin's side, and
+# it is called from exactly one place, `plan.apply`, after a human said yes.
+# The library's typed models build the DTO; the three target values Garmin
+# reads on the STEP (`zoneNumber`, `targetValueOne`, `targetValueTwo`) are not
+# fields of the models but survive as extras (`ExecutableStep` allows them -
+# measured, not assumed). A recovery step is built without a target, which is
+# the library's default and the one rule the cockpit's tooling got wrong.
+
+_STEP_TYPE = {"warmup": (1, "warmup"), "cooldown": (2, "cooldown"),
+              "interval": (3, "interval"), "recovery": (4, "recovery")}
+
+
+def _target_dto(target: dict | None) -> dict:
+    """`planning` target -> Garmin `targetType` block plus step-level values."""
+    if not target:
+        return {"targetType": {"workoutTargetTypeId": 1, "workoutTargetTypeKey": "no.target",
+                               "displayOrder": 1}}
+    if target["type"] == "hr_zone":
+        return {"targetType": {"workoutTargetTypeId": 4, "workoutTargetTypeKey": "heart.rate.zone",
+                               "displayOrder": 4}, "zoneNumber": int(target["zone"])}
+    if target["type"] == "hr_bpm":
+        return {"targetType": {"workoutTargetTypeId": 4, "workoutTargetTypeKey": "heart.rate.zone",
+                               "displayOrder": 4},
+                "targetValueOne": int(target["lo"]), "targetValueTwo": int(target["hi"])}
+    if target["type"] == "pace":
+        # Garmin wants m/s; targetValueOne is the SLOWER bound.
+        return {"targetType": {"workoutTargetTypeId": 6, "workoutTargetTypeKey": "pace.zone",
+                               "displayOrder": 6},
+                "targetValueOne": round(1000 / target["lo_s_per_km"], 3),
+                "targetValueTwo": round(1000 / target["hi_s_per_km"], 3)}
+    raise ValueError(f"unknown target type {target.get('type')!r}")
+
+
+def to_running_workout(spec):
+    """`planning.SessionSpec` -> `garminconnect.workout.RunningWorkout`."""
+    from garminconnect import workout as w
+
+    from .planning import Repeat
+
+    order = [0]
+
+    def step(s) -> object:
+        order[0] += 1
+        type_id, type_key = _STEP_TYPE[s.kind]
+        if s.meters:
+            end = {"conditionTypeId": 3, "conditionTypeKey": "distance", "displayOrder": 3}
+            value = float(s.meters)
+        else:
+            end = {"conditionTypeId": 2, "conditionTypeKey": "time", "displayOrder": 2}
+            value = float(s.seconds)
+        return w.ExecutableStep(
+            type="ExecutableStepDTO", stepOrder=order[0],
+            stepType={"stepTypeId": type_id, "stepTypeKey": type_key, "displayOrder": type_id},
+            endCondition=end, endConditionValue=value, **_target_dto(s.target))
+
+    steps = []
+    for b in spec.blocks:
+        if isinstance(b, Repeat):
+            order[0] += 1
+            group_order = order[0]
+            children = [step(s) for s in b.steps]
+            steps.append(w.create_repeat_group(b.iterations, children, group_order))
+        else:
+            steps.append(step(b))
+    return w.RunningWorkout(
+        workoutName=spec.name[:80], estimatedDurationInSecs=int(spec.estimated_seconds),
+        workoutSegments=[w.WorkoutSegment(
+            segmentOrder=1, sportType={"sportTypeId": 1, "sportTypeKey": "running"},
+            workoutSteps=steps)])
+
+
+def upload_workout(client, spec) -> int:
+    """Upload; returns Garmin's workout id. Raises on failure - the caller
+    reports it, nothing here guesses."""
+    res = client.upload_running_workout(to_running_workout(spec))
+    wid = (res or {}).get("workoutId")
+    if not wid:
+        raise RuntimeError(f"upload returned no workoutId: {str(res)[:200]}")
+    return int(wid)
+
+
+def schedule(client, workout_id: int, day: date) -> int | None:
+    res = client.schedule_workout(int(workout_id), day.isoformat())
+    sid = (res or {}).get("workoutScheduleId")
+    return int(sid) if sid else None
+
+
+def unschedule(client, schedule_id: int) -> None:
+    client.unschedule_workout(int(schedule_id))
+
+
+def push_to_device(client, workout_id: int) -> None:
+    client.push_workout_to_device(int(workout_id))
+
+
+def delete_workout(client, workout_id: int) -> None:
+    client.delete_workout(int(workout_id))
+
+
+def read_back(client, workout_id: int) -> dict:
+    return client.get_workout_by_id(int(workout_id))
+
+
+def _flat_dto_steps(dto: dict) -> list[dict]:
+    out: list[dict] = []
+    for seg in dto.get("workoutSegments") or []:
+        for s in seg.get("workoutSteps") or []:
+            if s.get("workoutSteps"):
+                n = int(s.get("numberOfIterations") or 1)
+                out.extend({**c, "_reps": n} for c in s["workoutSteps"])
+            else:
+                out.append(s)
+    return out
+
+
+def verify(spec, dto: dict) -> list[str]:
+    """What the athlete's watch would actually do, checked against what was
+    meant. Empty list = the upload is the spec. The checks are the three
+    things that went wrong in practice: a target on a recovery step, a rep
+    count that is not the one confirmed, a work step that lost its target."""
+    problems: list[str] = []
+    want = spec.flat_steps()
+    got = _flat_dto_steps(dto)
+    if len(got) != len(want):
+        return [f"step count differs: watch has {len(got)}, spec has {len(want)}"]
+    for w_, g in zip(want, got, strict=True):
+        key = ((g.get("stepType") or {}).get("stepTypeKey") or "").lower()
+        tkey = ((g.get("targetType") or {}).get("workoutTargetTypeKey") or "no.target")
+        if key != w_.kind:
+            problems.append(f"step {g.get('stepOrder')}: is {key!r}, expected {w_.kind!r}")
+        if w_.kind == "recovery" and tkey != "no.target":
+            problems.append(f"step {g.get('stepOrder')}: recovery carries a target ({tkey})")
+        if w_.target and tkey == "no.target":
+            problems.append(f"step {g.get('stepOrder')}: work step lost its target")
+    reps_want = [b.iterations for b in spec.blocks if hasattr(b, "iterations")]
+    reps_got = sorted({g["_reps"] for g in got if "_reps" in g})
+    if reps_want and reps_got != sorted(set(reps_want)):
+        problems.append(f"repeat count differs: watch {reps_got}, spec {reps_want}")
+    return problems

@@ -543,8 +543,12 @@ def test_fetch_scheduled_workouts_filters_and_dedupes():
 
 def test_fetch_scheduled_workouts_client_without_method_is_incomplete():
     # `_safe` turns the AttributeError into {} → NOT complete. This flag is the
-    # only brake against a full replace on half a source.
-    got, complete = garmin.fetch_scheduled_workouts(FakeGarmin(), date(2026, 9, 1), date(2026, 9, 2))
+    # only brake against a full replace on half a source. A bare double here:
+    # `FakeGarmin` grew a calendar with the write path and would answer.
+    class NoCalendar:
+        pass
+
+    got, complete = garmin.fetch_scheduled_workouts(NoCalendar(), date(2026, 9, 1), date(2026, 9, 2))
     assert got == [] and complete is False
 
 

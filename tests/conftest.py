@@ -150,3 +150,56 @@ class FakeGarmin:
 
     def get_activity_details(self, activity_id, **kwargs):
         return self.data.get("activity_details", {})
+
+    # ── the write path: a library, a calendar, a device ───────────────────
+    # Uploads are kept as the DTO that arrived, so `get_workout_by_id` reads
+    # back exactly what was sent - the round trip `garmin.verify` relies on.
+
+    def _lib(self) -> dict:
+        return self.data.setdefault("library", {})
+
+    def upload_workout(self, workout_json):
+        import json as _json
+        dto = _json.loads(workout_json) if isinstance(workout_json, str) else dict(workout_json)
+        wid = 900_000 + len(self._lib()) + 1
+        dto = {**dto, "workoutId": wid}
+        self._lib()[wid] = dto
+        return {"workoutId": wid, "workoutName": dto.get("workoutName")}
+
+    def upload_running_workout(self, workout):
+        return self.upload_workout(workout.to_dict())
+
+    def get_workout_by_id(self, workout_id):
+        try:
+            return self._lib()[int(workout_id)]
+        except KeyError:
+            raise RuntimeError(f"no workout {workout_id}") from None
+
+    def delete_workout(self, workout_id):
+        self.data.setdefault("deleted", []).append(int(workout_id))
+        self._lib().pop(int(workout_id), None)
+
+    def schedule_workout(self, workout_id, date_str):
+        sched = self.data.setdefault("schedule", {})
+        sid = 500_000 + len(sched) + 1
+        sched[sid] = {"workoutId": int(workout_id), "date": date_str}
+        return {"workoutScheduleId": sid}
+
+    def unschedule_workout(self, scheduled_workout_id):
+        self.data.setdefault("schedule", {}).pop(int(scheduled_workout_id), None)
+
+    def push_workout_to_device(self, workout_id=None, device_id=None):
+        self.data.setdefault("pushed", []).append(int(workout_id))
+        return {"status": "ok"}
+
+    def get_scheduled_workouts(self, year, month):
+        """The calendar as the mirror sync reads it - includes what was
+        scheduled through this double, so a written workout round-trips."""
+        items = []
+        for sid, s in self.data.get("schedule", {}).items():
+            if s["date"].startswith(f"{int(year):04d}-{int(month):02d}"):
+                w = self._lib().get(s["workoutId"], {})
+                items.append({"id": sid, "itemType": "workout", "date": s["date"],
+                              "workoutId": s["workoutId"], "title": w.get("workoutName"),
+                              "sportTypeKey": "running"})
+        return {"calendarItems": items + list(self.data.get("calendar_extra", []))}

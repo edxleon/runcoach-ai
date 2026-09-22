@@ -71,7 +71,12 @@ all, which would defeat the two mitigations that depend on the athlete *seeing* 
 
 **Where the isolation ends.** `--tools ""` withholds every built-in tool, `--strict-mcp-config` with a
 one-server `--mcp-config` excludes every other MCP server, and the working directory is an empty temp
-dir. What that does *not* exclude is the host's own Claude Code configuration: user-level `CLAUDE.md`
+dir. Since v0.2 the server also carries the one tool that writes to Garmin (`apply_workout`), and
+`--allowedTools mcp__runcoach` is a prefix allow that would cover it — so every card run additionally
+passes `--disallowedTools mcp__runcoach__apply_workout`. A card may *propose* a session; applying it is a
+human's click on the card or their answer in a Claude Code session, where the flag is not set. Both the
+flag and the fact that it names a registered tool are pinned by tests, because a flag that denies a tool
+nobody registers denies nothing. What that does *not* exclude is the host's own Claude Code configuration: user-level `CLAUDE.md`
 is still loaded, and user-level or plugin `SessionStart`/`SubagentStart` hooks still fire in every
 `claude --print`. That is host-owned config rather than anything an injected workout title can reach,
 so the claim "an injected label cannot reach anything but this app's own tools" holds — but a

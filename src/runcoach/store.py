@@ -705,6 +705,35 @@ class Store:
                 "WHERE day BETWEEN ? AND ? ORDER BY day, schedule_id",
                 (_v(start), _v(end))).fetchall()
 
+    # ── Workouts this app created (provenance for the write path) ──────────
+
+    def record_workout(self, workout_id: int, *, name: str, kind: str, spec_json: str,
+                       schedule_id: int | None = None, scheduled_day: date | None = None) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO runcoach_workouts (workout_id, name, kind, spec_json, created_at, "
+                "schedule_id, scheduled_day) VALUES (?,?,?,?,?,?,?) "
+                "ON CONFLICT (workout_id) DO UPDATE SET schedule_id = excluded.schedule_id, "
+                "scheduled_day = excluded.scheduled_day",
+                (int(workout_id), name, kind, spec_json, _now(), schedule_id, _v(scheduled_day)))
+
+    def is_own_workout(self, workout_id: int) -> bool:
+        """The ONLY question the delete path may ask. A workout not recorded
+        here is the athlete's, whatever its name says."""
+        with self._conn() as conn:
+            return conn.execute("SELECT 1 FROM runcoach_workouts WHERE workout_id = ?",
+                                (int(workout_id),)).fetchone() is not None
+
+    def own_workouts(self) -> list[dict]:
+        with self._conn() as conn:
+            return conn.execute(
+                "SELECT workout_id, name, kind, created_at, schedule_id, scheduled_day "
+                "FROM runcoach_workouts ORDER BY created_at DESC").fetchall()
+
+    def forget_workout(self, workout_id: int) -> None:
+        with self._conn() as conn:
+            conn.execute("DELETE FROM runcoach_workouts WHERE workout_id = ?", (int(workout_id),))
+
     def latest_race_predictions(self) -> dict | None:
         with self._conn() as conn:
             return conn.execute(

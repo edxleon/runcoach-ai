@@ -63,6 +63,13 @@ def jobs_dir() -> Path:
     return d
 
 
+def proposals_dir() -> Path:
+    """Sessions proposed and not yet (or already) written to Garmin (`plan.py`)."""
+    d = home() / "proposals"
+    d.mkdir(exist_ok=True)
+    return d
+
+
 def profile_path() -> Path:
     return home() / "profile.json"
 

@@ -142,5 +142,52 @@ def sync_garmin(
     return tools.sync_garmin(store(), days)
 
 
+Kind = Literal["easy", "long", "threshold", "vo2max", "steady"]
+
+
+@mcp.tool()
+def propose_workout(
+    kind: Kind,
+    distance_km: Annotated[float | None, Field(ge=1, le=60, description=(
+        "Route length in km, e.g. 10 for a fixed 10 km loop. Give this OR duration_min."))] = None,
+    duration_min: Annotated[int | None, Field(ge=10, le=300, description=(
+        "Session length in minutes. Give this OR distance_km."))] = None,
+    day: Day = None,
+    name: Annotated[str | None, Field(max_length=60, description=(
+        "Workout name on the watch. Default: kind and structure, e.g. 'VO2max 4x4 min'."))] = None,
+) -> str:
+    """Build a structured session for the athlete's route or time budget and file
+    it as a PROPOSAL - warm-up, work reps with targets, recovery jogs, cool-down -
+    sized so the whole thing adds up to the route. Targets come from the
+    athlete's own Garmin zones; anything not measured is listed as an assumption.
+    Use when the athlete asks for a workout ("plan me intervals for my 10 km",
+    "an easy 45 minutes", "a threshold session") or when the readiness verdict
+    calls for a different session than the one on the calendar.
+    Kinds: easy/long (one capped step), threshold (Z4 reps), vo2max (Z5 reps),
+    steady (>= 12 min even effort at threshold - the only shape Garmin measures
+    VO2max from). `day` defaults to today.
+    Returns the preview and a proposal id. NOTHING is written to Garmin: show
+    the preview, and only if the athlete says yes call apply_workout with the
+    id. On an impossible request (route too short) returns why, not a session."""
+    return tools.propose_workout(store(), kind, distance_km, duration_min, day, name)
+
+
+@mcp.tool()
+def apply_workout(
+    proposal_id: Annotated[str, Field(pattern=r"^p-\d{8}-\d{6}-[0-9a-f]{4}$",
+                                      description="The id propose_workout returned.")],
+) -> str:
+    """WRITE a proposed session to the athlete's Garmin account: upload the
+    workout, schedule it on the proposal's day, push it to the watch, then read
+    it back and verify structure and targets. Call ONLY after the athlete has
+    seen the preview and explicitly agreed - a request ("plan me 10 km") is not
+    agreement, "yes, put it on the watch" is. Not available to the app's own
+    card runs; there the athlete clicks. Returns what is now on Garmin, with
+    any warning (not pushed because the watch is offline; a mismatch found on
+    read-back). A proposal can be applied once; an unknown or used id says so
+    and lists the open ones."""
+    return tools.apply_workout(store(), proposal_id)
+
+
 def main() -> None:
     mcp.run()
