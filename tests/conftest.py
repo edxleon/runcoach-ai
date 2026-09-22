@@ -112,6 +112,12 @@ def seed_week(store: Store, end: date, *, resting=(40, 41, 42, 43, 44, 45, 46)) 
             hrv_avg_ms=55 + i, stress_avg=30, body_battery_high=90, steps=10000))
 
 
+def own_ids(store) -> list[int]:
+    """Workout ids this app recorded as its own - the provenance table, read
+    the way production reads it (`own_workouts`)."""
+    return [w["workout_id"] for w in store.own_workouts()]
+
+
 class FakeGarmin:
     """Garmin client double: every endpoint answers from `data`, default empty."""
 

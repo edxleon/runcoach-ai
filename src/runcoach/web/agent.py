@@ -29,7 +29,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from .. import paths
+from .. import paths, plan
 from . import jobs
 
 PKG = Path(__file__).resolve().parent.parent
@@ -122,7 +122,13 @@ def coaching_reference() -> str:
 def mcp_config(db: str | None, demo: bool = False) -> dict:
     """Spawn our own MCP server with the SAME interpreter that runs the app —
     works for `uv tool install`, pipx and a plain venv alike."""
-    env = {"PYTHONUTF8": "1", "RUNCOACH_HOME": str(paths.home())}
+    # The SECOND lock on the write tool, inside the process that owns it.
+    # `--disallowedTools` (below) is a CLI argument: it holds only as long as
+    # that flag keeps its name, keeps beating the prefix allow, and stays on
+    # every spawn path. None of that is ours to guarantee, and the thing on the
+    # other side is the athlete's Garmin account - so the server itself refuses
+    # while it is a card run. `tests/test_web.py` pins both.
+    env = {"PYTHONUTF8": "1", "RUNCOACH_HOME": str(paths.home()), "RUNCOACH_UNATTENDED": "1"}
     if demo:
         env["RUNCOACH_DEMO"] = "1"
     if os.environ.get("RUNCOACH_TZ"):
@@ -405,7 +411,7 @@ def run(job: dict, *, db: str | None = None, snapshot_meta: dict | None = None) 
     # files: the model may not invent an id, and the page resolves it - an
     # unknown id becomes "no proposal", never a button.
     if not (isinstance(card.get("proposal"), str)
-            and re.match(r"^p-[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$", card["proposal"])):
+            and plan.PROPOSAL_ID_RE.match(card["proposal"])):
         card.pop("proposal", None)
     card.update(
         kind=str(job.get("template_id") or card.get("kind") or ""),

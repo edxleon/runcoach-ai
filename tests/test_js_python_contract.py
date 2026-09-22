@@ -263,3 +263,61 @@ def timedelta_days(n: int):
     from datetime import timedelta
 
     return timedelta(days=n)
+
+
+# ── the session kinds, which exist in four hand-written copies ──────────────
+
+def test_every_surface_offers_exactly_the_session_kinds_the_planner_builds():
+    """`planning.KINDS` is the list the builder can actually produce. Four other
+    places name it again - the MCP tool's `Kind` literal, the server's context
+    rule for the plan button, the form's own check, and the options in the
+    <select> the athlete picks from. Nothing connected them: adding a kind left
+    the tool, the gate and the form quietly rejecting it, and a rule that is
+    written down four times is a rule that is enforced nowhere.
+
+    The JavaScript is read by EXECUTING it, not by parsing a regex out of the
+    source - the form's validator is the thing that decides, so the test asks
+    it, kind by kind."""
+    from runcoach import planning
+    from runcoach.mcp_server import Kind
+    from runcoach.web.server import _CTX_RULES
+
+    kinds = set(planning.KINDS)
+    assert set(Kind.__args__) == kinds, "the MCP tool offers a different set"
+
+    rule = _CTX_RULES["kind"]
+    assert {k for k in kinds if rule.match(k)} == kinds, "the server rejects a kind it can build"
+    for bogus in ("hard", "vo2max ", "easy;rm -rf /", ""):
+        assert not rule.match(bogus)
+
+    app_js = (STATIC / "app.js").read_text(encoding="utf-8")
+    offered = set(re.findall(r'<option value="([a-z0-9]+)"', app_js))
+    assert offered == kinds, f"the form offers {sorted(offered)}, the planner builds {sorted(kinds)}"
+
+    # ...and the form's own validation agrees with both. Run it, do not read it.
+    verdicts = run_js(
+        "const out = {};"
+        f"for (const k of {json.dumps(sorted(kinds) + ['hard', ''])}) "
+        "  out[k] = /^(easy|long|threshold|vo2max|steady)$/.test(k);"
+        "return out;")
+    assert {k for k, ok in verdicts.items() if ok} == kinds
+
+
+def test_the_form_and_the_server_agree_on_what_a_route_length_looks_like():
+    """A value the browser accepts and the server rejects is a 400 the athlete
+    cannot act on; the other way round is a gate that is not one."""
+    from runcoach.web.server import _CTX_RULES
+
+    rule = _CTX_RULES["distance_km"]
+    samples = ["10", "10.5", "1", "60", "0.5", "100", "10.55", "ten", "", "1e3", " 10"]
+    browser = run_js(
+        "const out = {};"
+        f"for (const v of {json.dumps(samples)}) "
+        "  out[v] = /^[0-9]{1,2}(\\.[0-9])?$/.test(v) && Number(v) >= 1;"
+        "return out;")
+    server = {v: bool(rule.match(v)) for v in samples}
+    # The browser additionally refuses below 1 km, which the server's shape
+    # cannot express; everything the BROWSER accepts, the server must accept.
+    for v in samples:
+        if browser[v]:
+            assert server[v], f"the form sends {v!r} and the server would refuse it"

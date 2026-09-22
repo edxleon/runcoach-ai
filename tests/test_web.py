@@ -139,6 +139,9 @@ def test_command_is_an_allowlist(tmp_path, monkeypatch):
     # an unattended card run must not be able to call it. A click or the
     # athlete's word in a Claude Code session applies a proposal, never a job.
     assert cmd[cmd.index("--disallowedTools") + 1] == "mcp__runcoach__apply_workout"
+    # ...and the second lock, which does not depend on that flag: the child
+    # server is told it is a card run, and refuses the write itself.
+    assert agent.mcp_config(None)["mcpServers"]["runcoach"]["env"]["RUNCOACH_UNATTENDED"] == "1"
     assert cmd[cmd.index("--output-format") + 1] == "json"
     assert "--dangerously-skip-permissions" not in cmd
     assert "--safe-mode" not in cmd                           # it would disable our MCP server too
@@ -583,7 +586,7 @@ def test_the_click_applies_the_proposal_through_the_same_path_as_the_tool(tmp_pa
     body, code = app.apply_proposal({"proposal_id": p["id"]})
     assert code == 200 and body["ok"] and "On Garmin" in body["result"], body
     assert body["proposal"]["days"] == 1
-    assert app.store.is_own_workout(body["proposal"]["workouts"][0])
+    assert body["proposal"]["workouts"][0] in [w["workout_id"] for w in app.store.own_workouts()]
     assert plan.read(p["id"])["status"] == "applied"
     # ...and the card the page renders now says so.
     job = jobs.new_job("x", title="t", kind="plan-session")

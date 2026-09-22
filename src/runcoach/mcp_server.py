@@ -15,7 +15,7 @@ from typing import Annotated, Literal
 from mcp.server.fastmcp import FastMCP
 from pydantic import Field
 
-from . import tools
+from . import plan, tools
 from .store import TREND_METRICS, Store
 
 mcp = FastMCP("runcoach")
@@ -204,7 +204,7 @@ def propose_week(
 
 @mcp.tool()
 def apply_workout(
-    proposal_id: Annotated[str, Field(pattern=r"^p-\d{8}-\d{6}-[0-9a-f]{4}$",
+    proposal_id: Annotated[str, Field(pattern=plan.PROPOSAL_ID_PATTERN,
                                       description="The id propose_workout returned.")],
 ) -> str:
     """WRITE a proposed session to the athlete's Garmin account: upload the

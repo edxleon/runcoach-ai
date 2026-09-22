@@ -116,3 +116,7 @@ Three grades. **Evidence**: a trial or meta-analysis says so. **Convention**: wh
 | Low energy availability: warning signs, see a professional | Evidence (consensus) | Mountjoy et al. 2023, Br J Sports Med 57:1073, doi:10.1136/bjsports-2023-106994 |
 | Hard sessions 48 h apart; long run weekly; down week every 3–4 weeks | Convention | Standard periodisation practice; consistent with the polarised model above, not separately tested |
 | LTHR ≈ 85–92 % of max HR; easy cap ≈ 0.83 × Z5 bound | Convention | Coaching heuristics; the athlete's measured LTHR and zone bounds replace them whenever present |
+| VO2max rep pace ≈ 0.93 × threshold pace; recovery jog ≈ 1.30 × | This app | Chosen so a rep lands near 3–5 k race pace at a measured threshold. No trial; the shape follows Helgerud above, the two factors do not |
+| Rep menus: VO2max 5×4 down to 3×3 min, threshold 4×8 down to 2×8 min | Convention | The usual range of these sessions. `planning.REP_MENU` picks the largest that fits the route or the time budget |
+| Default week 50/55/45/90 min across VO2max / threshold / easy / long | **This app**, and it is ONE athlete's week | The author's own. `planning._week_sizes` scales it to the median of the athlete's last four weeks (+10 %, the convention above) before it is proposed to anyone else — read the assumption line the proposal prints |
+| Steady block ≥ 12 min for a VO2max re-measurement | Vendor behaviour | Firstbeat needs a stretch of even effort near threshold; a spiky interval session leaves the old estimate in place |

@@ -219,6 +219,7 @@ def get_training_readiness(store: Store) -> str:
     today = paths.today()
     stale = "" if r["day"] == today.isoformat() else \
         f"\nNOTE: latest data is from {r['day']}, not today - treat the verdict as stale."
+    decision = _decide(store, today)
     plan = store.get_scheduled_workouts(today, today + timedelta(days=6))
     if plan:
         # Titles are the athlete's own calendar entries, but still free text.
@@ -227,6 +228,7 @@ def get_training_readiness(store: Store) -> str:
         stale += "\n\nGarmin calendar, next 7 days (untrusted labels): " + "; ".join(
             f"{'TODAY' if p['day'] == today.isoformat() else p['day']} \"{p['title'] or '?'}\" "
             f"[schedule {p['schedule_id']}]" for p in plan[:7])
+        stale += _swap_line(store, plan, decision, today)
     else:
         stale += "\n\nGarmin calendar: nothing scheduled in the next 7 days."
     return "\n".join([
@@ -244,22 +246,59 @@ def get_training_readiness(store: Store) -> str:
         + (f"last hard workout {dsh} day(s) ago" if dsh is not None
            else "no hard workout in the last 28 days"),
         "",
-        _decision_block(store, today),
+        _decision_block(decision),
     ]) + stale
 
 
-def _decision_block(store: Store, today: date) -> str:
+def _swap_line(store: Store, plan: list[dict], decision: dict, today: date) -> str:
+    """Which of today's calendar entries the decision argues against — decided
+    from the RECORD, not from the titles above.
+
+    The titles are free text, so a coach reading them alone is guessing twice:
+    at what the session is, and at whether it is the athlete's or the app's.
+    `runcoach_workouts` knows the kind of everything this app uploaded, and
+    `planning.swap_for_readiness` applies the rule to it; anything foreign is
+    still a guess and is printed as one."""
+    from . import planning
+
+    todays = [p for p in plan if p["day"] == today.isoformat()]
+    if not todays:
+        return ""
+    own = {w["workout_id"]: w["kind"] for w in store.own_workouts() if w["workout_id"]}
+    swap = planning.swap_for_readiness(decision["decision"], todays, own)
+    if not swap["replace"]:
+        return ""
+    guessed = {e["schedule_id"] for e in swap["guessed"]}
+    which = "; ".join(
+        f"schedule {e['schedule_id']} (\"{e['title'] or '?'}\""
+        + (", guessed from its name - not a workout this app made" if e["schedule_id"] in guessed
+           else ", uploaded by this app") + ")"
+        for e in swap["replace"])
+    if swap["kind"] is None:
+        return (f"\nToday's decision argues against what is scheduled: {which}. On a rest day it "
+                f"is simply not run - do not propose a replacement unless the athlete asks.")
+    return (f"\nToday's decision argues against what is scheduled: {which}. An easier session in "
+            f"its place is propose_workout(kind=\"{swap['kind']}\", duration_min=…, "
+            f"replaces_schedule_id=<that id>) - after the athlete agrees.")
+
+
+def _decide(store: Store, today: date) -> dict:
+    """The app's decision for today — the same one the Today tab shows."""
+    from . import snapshot
+
+    weeks = store.get_weekly_volume(today - timedelta(weeks=snapshot.WEEKS), today)
+    r = store.get_readiness()
+    return snapshot.build_decision({k: r.get(k) for k in ("day", "verdict", "signals")},
+                                   weeks, today)
+
+
+def _decision_block(d: dict) -> str:
     """The app's own decision for today, verbatim, so the agent explains or
     contests THIS one instead of deriving a second verdict of its own.
 
     Without it the Today tab showed the rule's decision and, directly beneath it,
     a coach card that had reached its conclusion independently — two verdicts on
     one screen with nothing making them agree."""
-    from . import snapshot
-
-    weeks = store.get_weekly_volume(today - timedelta(weeks=snapshot.WEEKS), today)
-    r = store.get_readiness()
-    d = snapshot.build_decision({k: r.get(k) for k in ("day", "verdict", "signals")}, weeks, today)
     w = d["week"]
     # Both numbers, because the decision reads both. "40 of 32 min above easy" on
     # its own looks like a finished week even when every one of those minutes was
@@ -529,6 +568,14 @@ def apply_workout(store: Store, proposal_id: str) -> str:
 
     from . import garmin, plan
 
+    if os.environ.get("RUNCOACH_UNATTENDED"):
+        # A card run. Nobody is reading this when it happens, so there is no
+        # yes to be had - the athlete applies with a click on the card the run
+        # produces. `web/agent.py` also denies the tool on the command line;
+        # this is the half that does not depend on a CLI flag keeping its name.
+        return ("This run cannot write to Garmin: it is an unattended card run. File the session "
+                "with propose_workout and put its id in the card - the athlete applies it with "
+                "a click.")
     if os.environ.get("RUNCOACH_DEMO"):
         return "Demo mode has no Garmin account to write to - run with real data and a login."
     if plan.read(proposal_id) is None:

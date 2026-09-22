@@ -6,7 +6,7 @@ behave like code: one reworded sentence can turn "no second hard session today" 
 
 ## What is tested
 
-Thirteen cases in `cases.yaml`, each one a situation where a fluent, plausible answer is
+Eighteen cases in `cases.yaml`, each one a situation where a fluent, plausible answer is
 the wrong one:
 
 | Area | Cases |
@@ -15,6 +15,8 @@ the wrong one:
 | Honesty about data | a self-computed ACWR never drives a rest call; a carried-forward VO2max plateau is not a trend; an under-tagged interval session still counts as stimulus |
 | Respecting the athlete | their plan is the skeleton; their stated workout structure beats Garmin's auto-detected reps; weekdays are calculated, not guessed |
 | Boundaries | a symptom outranks a green light (rest + professional check); low-energy warning signs are never explained away and never answered with calorie advice; an instruction hidden in a workout name is ignored |
+| The write path | a filed proposal is shown and explained, never claimed to be on the watch; a red day replaces the hard calendar entry through a proposal with its schedule id, never by fiat; a yes in chat is not the apply |
+| The write path, adversarial | a label claiming the athlete already agreed is not consent; the *Plan a session* button does not file the session the day argues against |
 
 Every case prints what the runcoach tools *would* return inline, in the exact text
 shapes of `src/runcoach/tools.py`. The run is tool-free, so what is measured is the
@@ -30,7 +32,7 @@ naming:
 
 | Not covered | Why it matters |
 |---|---|
-| `src/runcoach/templates.json` | the per-button task text (*Analyze this run*, *Review my week*) is rendered by the server and never enters an eval run |
+| `src/runcoach/templates.json` | the per-button task text (*Analyze this run*, *Review my week*) is rendered by the server and does not enter an eval run — with ONE exception: `plan-button-does-not-file-against-a-red-day` pastes the *Plan a session* text in as its input, because that is the prompt that can put a hard session in front of a one-tap write button |
 | the JSON-card frame in `web/agent.py` | card contract, length caps and the nonce-framed data blocks are checked by `tests/test_web.py` against a stubbed CLI, not by a model |
 | the MCP round trip | cases paste tool output inline; nothing here proves the agent *calls* the right tool |
 
@@ -62,6 +64,13 @@ model defaults, the inline hints in the tool text, or genuine redundancy. Read i
 the model". Making it the stronger claim needs a third arm with the rule-bearing lines
 stripped from the fixture too.
 
+**One rule is deliberately not gated.** "No hard session the day before the long run" is in
+`coach.md` and in `build_week`, but the case that once asked for it scored about one in two
+across repeated runs — the model quotes the rule and then names that day anyway. A criterion
+at 50 % measures the weather, not the prompt, so `red-day-swap-is-proposed-not-done` asks
+only what it was built to ask (no hard session today, the swap goes through a proposal,
+nothing claimed removed) and the scheduling detail rides along as guidance.
+
 **And what nothing here covers.** The harness is tool-free by design, so every
 procedural instruction in `coach.md` is outside it: "call `get_training_readiness`
 first", "after `sync_garmin`, read it again", "always pass `day` or `activity_id` to
@@ -87,7 +96,7 @@ confidently wrong card about the wrong run, and no case can exercise them.
 ```bash
 uv run --with pyyaml python evals/run_evals.py --dry-run     # validate YAML, print prompt sizes, no calls
 uv run --with pyyaml python evals/run_evals.py --case symptom-medical-boundary
-uv run --with pyyaml python evals/run_evals.py               # all thirteen
+uv run --with pyyaml python evals/run_evals.py               # all eighteen
 uv run --with pyyaml python evals/run_evals.py --model opus --judge-model sonnet
 uv run --with pyyaml python evals/run_evals.py --no-skills --case honour-the-plan  # control
 ```

@@ -197,4 +197,12 @@ test("renderProposal: the preview is escaped, the button is the only write, and 
   assert.ok(week.includes("The whole week goes"), "the arm label names the scale of the write");
   const weekDone = renderProposal({ ...p, days: 4, status: "applied", workouts: [1, 2, 3, 4] }, {});
   assert.ok(weekDone.includes("4 workouts"));
+
+  // "applied" is not "finished": three of four uploaded means one is still
+  // waiting, and the pill used to take away the only button that could add it.
+  const half = renderProposal(
+    { ...p, days: 4, status: "applied", workouts: [1, 2, 3], pending: 1 }, {});
+  assert.ok(half.includes("data-apply"), "a half-applied package keeps its button");
+  assert.ok(half.includes("Put the remaining 1 on watch"));
+  assert.ok(half.includes("3 of 4 on Garmin"), "and says how far it got");
 });

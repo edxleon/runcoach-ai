@@ -32,6 +32,15 @@ from .models import Activity, ActivitySplit, DailyMetrics, ScheduledWorkout
 #: Measured nights required before an average resting HR counts as a baseline.
 RHR_BASELINE_MIN_DAYS = 7
 
+#: How long a claim on a proposal's session may sit `in_flight` before it is
+#: treated as the remains of a crashed apply. One upload, schedule, push and
+#: read-back is seconds; this has to be longer than the longest a LIVE call
+#: can hang, because reaping a claim whose apply is still running is the one
+#: outcome the claim exists to prevent - the next apply would upload the same
+#: session again. Half an hour is past any HTTP timeout the vendor library
+#: sets and still short enough that a crashed apply is not a dead end.
+CLAIM_STALE_MINUTES = 30
+
 
 def _is_partial_week(monday: date, start: date, end: date) -> bool:
     """Does the window cover this week only in part?
@@ -546,6 +555,20 @@ class Store:
                 "OR resting_hr IS NOT NULL)", (_v(today),)).fetchone()
         return _d(row["d"]) if row and row["d"] else today
 
+    def last_hard_day(self, on_or_before: date) -> date | None:
+        """The most recent day with a hard session up to `on_or_before`.
+
+        Separate from `get_readiness`, which anchors on the newest day that has
+        HEALTH data: the spacing rule has to hold when the nightly sync is
+        behind, and a proposal built on a three-day-old readiness row would
+        otherwise be told the last hard session was three days further back
+        than it was."""
+        with self._conn() as conn:
+            row = conn.execute(
+                f"SELECT MAX(local_day) AS d FROM activities WHERE {_HARD_SQL} AND local_day <= ?",
+                (_v(on_or_before),)).fetchone()
+        return _d(row["d"]) if row and row["d"] else None
+
     def get_readiness(self, day: date | None = None) -> dict:
         """Today's readiness signals + verdict. Collects the latest day row (<= `day`),
         the resting-HR average of the 27 days BEFORE it as baseline (without the day
@@ -717,22 +740,93 @@ class Store:
                 "scheduled_day = excluded.scheduled_day",
                 (int(workout_id), name, kind, spec_json, _now(), schedule_id, _v(scheduled_day)))
 
-    def is_own_workout(self, workout_id: int) -> bool:
-        """The ONLY question the delete path may ask. A workout not recorded
-        here is the athlete's, whatever its name says."""
-        with self._conn() as conn:
-            return conn.execute("SELECT 1 FROM runcoach_workouts WHERE workout_id = ?",
-                                (int(workout_id),)).fetchone() is not None
-
     def own_workouts(self) -> list[dict]:
         with self._conn() as conn:
             return conn.execute(
                 "SELECT workout_id, name, kind, created_at, schedule_id, scheduled_day "
                 "FROM runcoach_workouts ORDER BY created_at DESC").fetchall()
 
-    def forget_workout(self, workout_id: int) -> None:
+    # ── Claims: who may upload which session of a proposal ─────────────────
+
+    def claim_proposal_item(self, proposal_id: str, index: int) -> bool:
+        """`True` if THIS caller may upload session `index` of the proposal.
+
+        The one piece of concurrency control in the write path. Two applies of
+        the same proposal - a click on the card and a yes in a Claude Code
+        session - used to read the same "open" status and both upload, leaving
+        the session on the watch twice. Here exactly one INSERT wins.
+
+        Taken BEFORE the upload on purpose: a crash in between loses a session
+        (reported, reaped by `reap_stale_claims` and appliable again) instead
+        of duplicating one on the athlete's watch."""
         with self._conn() as conn:
-            conn.execute("DELETE FROM runcoach_workouts WHERE workout_id = ?", (int(workout_id),))
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO proposal_items "
+                "(proposal_id, item_index, claimed_at, state) VALUES (?,?,?,'in_flight')",
+                (str(proposal_id), int(index), _now()))
+            return cur.rowcount == 1
+
+    def release_proposal_item(self, proposal_id: str, index: int) -> None:
+        """Give the claim back after an upload that PROVABLY created nothing.
+
+        The claim serialises two applies against each other; it is not an
+        idempotency key against Garmin, which offers none. A refused upload
+        (expired session, rate limit, connection refused) created nothing, so
+        holding the claim would only make a transient failure permanent. For a
+        failure that proves nothing either way, `mark_proposal_item_unknown`
+        keeps the claim instead."""
+        with self._conn() as conn:
+            conn.execute("DELETE FROM proposal_items WHERE proposal_id = ? AND item_index = ? "
+                         "AND workout_id IS NULL", (str(proposal_id), int(index)))
+
+    def mark_proposal_item_unknown(self, proposal_id: str, index: int) -> None:
+        """The upload may or may not have reached Garmin. Keep the claim, out of
+        reach of the reaper: retrying is what would duplicate the session."""
+        with self._conn() as conn:
+            conn.execute("UPDATE proposal_items SET state = 'unknown' WHERE proposal_id = ? "
+                         "AND item_index = ? AND workout_id IS NULL",
+                         (str(proposal_id), int(index)))
+
+    def record_proposal_item(self, proposal_id: str, index: int, workout_id: int) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "UPDATE proposal_items SET workout_id = ?, state = 'done' "
+                "WHERE proposal_id = ? AND item_index = ?",
+                (int(workout_id), str(proposal_id), int(index)))
+
+    def proposal_items(self, proposal_id: str) -> dict[int, int | None]:
+        """`{item_index: workout_id or None}` for the proposal's SESSIONS - what
+        it really put on Garmin. The database, not the proposal file, is the
+        truth here: two applies writing the same file can lose each other's ids.
+
+        Negative indices are `plan`'s own claim space for the steps that are not
+        a session upload (the calendar entries it replaces, the scheduling of an
+        already uploaded session). They share the table because they need the
+        same "exactly one INSERT wins", and they are not sessions."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT item_index, workout_id FROM proposal_items "
+                "WHERE proposal_id = ? AND item_index >= 0", (str(proposal_id),)).fetchall()
+        return {r["item_index"]: r["workout_id"] for r in rows}
+
+    def reap_stale_claims(self, minutes: int = CLAIM_STALE_MINUTES) -> int:
+        """Drop claims whose apply never came back, so the session can be tried
+        again. Only `in_flight` rows: a claim the apply could not resolve is
+        `unknown` and stays, because re-uploading is the one outcome worse than
+        a missing session."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=int(minutes))).isoformat()
+        with self._conn() as conn:
+            cur = conn.execute("DELETE FROM proposal_items WHERE state = 'in_flight' "
+                               "AND workout_id IS NULL AND claimed_at < ?", (cutoff,))
+            return cur.rowcount
+
+    def unresolved_claims(self) -> list[dict]:
+        """Sessions whose upload never gave an answer - for `runcoach doctor`.
+        Each one is a question only the athlete's Garmin library can settle."""
+        with self._conn() as conn:
+            return conn.execute(
+                "SELECT proposal_id, item_index, claimed_at FROM proposal_items "
+                "WHERE state = 'unknown' ORDER BY claimed_at").fetchall()
 
     def latest_race_predictions(self) -> dict | None:
         with self._conn() as conn:

@@ -1,7 +1,7 @@
 # runcoach-ai
 
 [![ci](https://github.com/edxleon/runcoach-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/edxleon/runcoach-ai/actions/workflows/ci.yml)
-[![evals 13/13](https://img.shields.io/badge/evals-13%2F13-brightgreen)](evals/RESULTS.md)
+[![evals 18/18](https://img.shields.io/badge/evals-18%2F18-brightgreen)](evals/RESULTS.md)
 [![license MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 **A local-first AI running coach for your Garmin data — powered by the Claude subscription you already have.**
@@ -29,7 +29,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-572 tests, 60 frontend tests and that gate on three operating systems and two Python versions, with every
+650 tests, 60 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -169,7 +169,7 @@ the frontend, which draws curves, gets points.
 
 **Prompts are tested like code.** The coach's behaviour lives in two Markdown files
 ([`skills/`](src/runcoach/skills)) with an LLM-as-judge regression suite ([`evals/`](evals)):
-13 cases such as *"a run already happened today → no second hard session"*, *"warning signs of low energy
+18 cases such as *"a run already happened today → no second hard session"*, *"warning signs of low energy
 availability are not explained away"*, *"an instruction inside a workout name is not followed"*. They run
 without Garmin data against the real CLI — though only over those two files, not over the other two
 pieces of the shipped prompt (`templates.json` and the JSON-card frame in `web/agent.py`, which

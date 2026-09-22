@@ -285,9 +285,18 @@ export function renderCard(c, opts = {}) {
  *  The button is the human's yes: two taps, then `POST /api/plan/apply`.
  *  `opts.canApply === false` (demo, or no Garmin session) keeps it disabled
  *  with the reason next to it, so a dead button never has to be explained. */
+//: Long enough for a whole week of Garmin round trips on a slow line.
+const APPLY_TIMEOUT_MS = 180_000;
+
+
 export function renderProposal(p, opts = {}) {
   if (!p || !p.id) return "";
-  const applied = p.status === "applied";
+  // "applied" is not the same as "finished": a package whose third upload
+  // failed is applied AND has sessions waiting. Showing the pill there took
+  // away the only button that could add them.
+  const pending = Number(p.pending || 0);
+  const applied = p.status === "applied" && pending === 0;
+  const partial = p.status === "applied" && pending > 0;
   const can = opts.canApply !== false;
   const warn = (p.warnings || []).map(w => `<div class="note proposal-warn">! ${esc(w)}</div>`).join("");
   const ids = Array.isArray(p.workouts) ? p.workouts : [];
@@ -296,15 +305,17 @@ export function renderProposal(p, opts = {}) {
     ? `<span class="pill pill-ok">On Garmin${ids.length > 1 ? ` · ${ids.length} workouts`
         : ids.length ? ` · workout ${esc(ids[0])}` : ""}${p.day ? ` · ${esc(p.day)}` : ""}</span>`
     : `<button type="button" class="btn btn-primary" data-apply="${esc(p.id)}"
-               data-arm-label="Sure? ${week ? "The whole week goes" : "It goes"} on the watch"${
-                 can ? "" : " disabled"}
+               data-arm-label="Sure? ${partial ? `${esc(pending)} more go` :
+                 week ? "The whole week goes" : "It goes"} on the watch"${can ? "" : " disabled"}
                title="Upload to Garmin, schedule ${week ? `${esc(p.days)} sessions from` : "for"} ${
                  esc(p.day || "the day")}, push to the watch">
-         Put on watch</button>${can ? "" : `<span class="note">${
-           opts.applyHint ? esc(opts.applyHint) : "needs a Garmin login"}</span>`}`;
+         ${partial ? `Put the remaining ${esc(pending)} on watch` : "Put on watch"}</button>${
+           can ? "" : `<span class="note">${
+             opts.applyHint ? esc(opts.applyHint) : "needs a Garmin login"}</span>`}`;
   return `<div class="card-proposal" data-proposal="${esc(p.id)}">
     <div class="subhead">${week ? `Proposed week · ${esc(p.days)} sessions` : "Proposed session"}${
-      p.day ? ` · ${esc(p.day)}` : ""}</div>
+      p.day ? ` · ${esc(p.day)}` : ""}${
+      partial ? ` · ${esc(Number(p.days || 1) - pending)} of ${esc(p.days)} on Garmin` : ""}</div>
     <pre class="proposal-steps">${esc(p.preview || "")}</pre>
     ${warn}
     <div class="btn-row">${button}</div>
@@ -316,9 +327,23 @@ async function applyProposal(id, btn) {
   const box = btn?.closest("[data-proposal]");
   box?.querySelectorAll("button").forEach(b => (b.disabled = true));
   try {
-    const r = await apiPost("/api/plan/apply", { proposal_id: id });
-    toast(String(r?.result || "On Garmin."), { ms: 8000 });
+    // A week is up to six uploads, each with a schedule, a push and a
+    // read-back, plus a Garmin login. The 15 s default had the page report
+    // "Not applied" while the server was still writing them.
+    const r = await apiPost("/api/plan/apply", { proposal_id: id }, APPLY_TIMEOUT_MS);
+    // A package that stopped half way is not a success story: the toast says
+    // so, and the card keeps the button for the rest.
+    toast(String(r?.result || "On Garmin."), { ms: 8000, warn: Number(r?.pending || 0) > 0 });
   } catch (e) {
+    // A TIMEOUT is not a failure: the server may still be writing sessions to
+    // Garmin. Re-enabling the button there invites a second apply against a
+    // run that is still going - the one case the claim table then has to
+    // catch. Leave it disabled and send the athlete to a refresh.
+    if (/timed out|timeout/i.test(String(e.message || ""))) {
+      toast("Still writing to Garmin - refresh in a moment to see what arrived.",
+            { warn: true, ms: 10000 });
+      return;
+    }
     box?.querySelectorAll("button").forEach(b => (b.disabled = false));
     if (e.message === "403") return;
     toast("Not applied: " + (e.message || "server gone"), { warn: true, ms: 8000 });

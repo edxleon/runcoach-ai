@@ -6,11 +6,13 @@ import sqlite3
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+import pytest
+
 from conftest import make_activity, make_day
 from runcoach import paths
 from runcoach.store import Store
 
-SCHEMA_VERSION = 2   # 0001 init, 0002 runcoach_workouts (the write path's provenance)
+SCHEMA_VERSION = 3   # 0001 init, 0002 runcoach_workouts (provenance), 0003 proposal_items (claims)
 
 
 def test_fresh_database_is_at_the_current_version(tmp_path):
@@ -124,3 +126,25 @@ def test_local_day_uses_runcoach_tz(monkeypatch):
     monkeypatch.delenv("RUNCOACH_TZ")
     assert paths.local_tz() is None                              # falls back to the system zone
     assert isinstance(paths.today(), date)
+
+
+def test_every_migration_the_schema_claims_exists_and_is_tracked_by_git():
+    """A migration that is written but never `git add`ed is invisible: it works
+    on the machine that wrote it and is missing from every clone, where the
+    schema version then stops one short and the first call hits "no such
+    table". That is exactly how `0003_proposal_items.sql` reached a review -
+    present locally, untracked, and passing the whole suite."""
+    import subprocess
+
+    from runcoach import store as store_mod
+
+    files = sorted(p.name for p in store_mod._MIGRATIONS.glob("[0-9][0-9][0-9][0-9]_*.sql"))
+    assert [int(n[:4]) for n in files] == list(range(1, SCHEMA_VERSION + 1)), (
+        f"the schema is at v{SCHEMA_VERSION} but the package ships {files}")
+
+    git = subprocess.run(["git", "ls-files", "src/runcoach/migrations"],
+                         cwd=store_mod._MIGRATIONS.parents[2], capture_output=True, text=True)
+    if git.returncode != 0:          # not a checkout (an installed wheel, say)
+        pytest.skip("not inside a git work tree")
+    tracked = {line.rsplit("/", 1)[-1] for line in git.stdout.split() if line.endswith(".sql")}
+    assert tracked == set(files), f"not tracked by git: {sorted(set(files) - tracked)}"

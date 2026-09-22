@@ -762,8 +762,10 @@ def push_to_device(client, workout_id: int) -> None:
     client.push_workout_to_device(int(workout_id))
 
 
-def delete_workout(client, workout_id: int) -> None:
-    client.delete_workout(int(workout_id))
+#: There is deliberately NO `delete_workout` wrapper. v1 has no delete path -
+#: rescheduling is `unschedule` plus `schedule`, and the athlete's own templates
+#: are not the app's to remove. `conftest.FakeGarmin` still offers the endpoint,
+#: so a test can assert that nothing ever reached it.
 
 
 def read_back(client, workout_id: int) -> dict:
@@ -782,11 +784,33 @@ def _flat_dto_steps(dto: dict) -> list[dict]:
     return out
 
 
+#: Tolerance when comparing a pace bound read back from Garmin with the one
+#: that was sent. The DTO carries m/s rounded to three places, and a round trip
+#: through the vendor's JSON is not obliged to return the same float.
+_SPEED_EPS = 0.005
+
+
+def _same_value(got, want) -> bool:
+    if got is None:
+        return False
+    if isinstance(want, float):
+        return abs(float(got) - want) <= _SPEED_EPS
+    return int(got) == int(want)
+
+
 def verify(spec, dto: dict) -> list[str]:
     """What the athlete's watch would actually do, checked against what was
-    meant. Empty list = the upload is the spec. The checks are the three
-    things that went wrong in practice: a target on a recovery step, a rep
-    count that is not the one confirmed, a work step that lost its target."""
+    meant. Empty list = the upload is the spec.
+
+    Structure AND numbers. The structural checks are the three things that went
+    wrong in practice: a target on a recovery step, a rep count that is not the
+    one confirmed, a work step that lost its target. The numbers are checked
+    because the targets ride on the vendor model as EXTRA fields (`zoneNumber`,
+    `targetValueOne/Two` — `ExecutableStep` allows extras); nothing in the
+    library type-checks them, so a renamed field or a stricter model would drop
+    them silently while every structural check still passed. Comparing against
+    `_target_dto` of the same spec is the only thing that can see that: zone 5
+    arriving as zone 2 is exactly the failure this read-back exists for."""
     problems: list[str] = []
     want = spec.flat_steps()
     got = _flat_dto_steps(dto)
@@ -795,12 +819,22 @@ def verify(spec, dto: dict) -> list[str]:
     for w_, g in zip(want, got, strict=True):
         key = ((g.get("stepType") or {}).get("stepTypeKey") or "").lower()
         tkey = ((g.get("targetType") or {}).get("workoutTargetTypeKey") or "no.target")
+        order = g.get("stepOrder")
         if key != w_.kind:
-            problems.append(f"step {g.get('stepOrder')}: is {key!r}, expected {w_.kind!r}")
+            problems.append(f"step {order}: is {key!r}, expected {w_.kind!r}")
         if w_.kind == "recovery" and tkey != "no.target":
-            problems.append(f"step {g.get('stepOrder')}: recovery carries a target ({tkey})")
+            problems.append(f"step {order}: recovery carries a target ({tkey})")
+        wanted = _target_dto(w_.target)
+        want_key = wanted["targetType"]["workoutTargetTypeKey"]
         if w_.target and tkey == "no.target":
-            problems.append(f"step {g.get('stepOrder')}: work step lost its target")
+            problems.append(f"step {order}: work step lost its target")
+        elif w_.target and tkey != want_key:
+            problems.append(f"step {order}: target is {tkey}, expected {want_key}")
+        elif w_.target:
+            for field in ("zoneNumber", "targetValueOne", "targetValueTwo"):
+                if field in wanted and not _same_value(g.get(field), wanted[field]):
+                    problems.append(f"step {order}: {field} is {g.get(field)!r}, "
+                                    f"expected {wanted[field]!r}")
     reps_want = [b.iterations for b in spec.blocks if hasattr(b, "iterations")]
     reps_got = sorted({g["_reps"] for g in got if "_reps" in g})
     if reps_want and reps_got != sorted(set(reps_want)):

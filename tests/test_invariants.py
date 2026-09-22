@@ -466,6 +466,45 @@ def test_doctor_hints_at_the_week_profile_without_failing(today, capsys, monkeyp
     assert code == 0 and "[ok] profile for the week planner: 5 days, long run sat" in out
 
 
+def test_doctor_reports_the_write_path_instead_of_falling_silent(today, capsys, monkeypatch,
+                                                                  tmp_path):
+    """The three states a runner cannot see for himself: a proposal waiting for
+    a yes, one that stopped half way, and an upload that never answered. They
+    were invisible - doctor knew nothing about the write path and said `[ok]`
+    through all of it."""
+    from runcoach import plan
+    from runcoach.store import Store as _Store
+
+    monkeypatch.setattr("runcoach.cli.shutil.which", lambda _n: None)
+    _fake_tokens()
+    store = _Store(paths.db_path())
+    store.upsert_daily(make_day(today, resting_hr=44))
+
+    code, out = _doctor(capsys)
+    assert code == 0 and "proposals: 0 waiting for a yes, 0 applied only in part" in out
+
+    # One waiting, one half applied, one upload without an answer, and one
+    # workout that reached Garmin without a day.
+    waiting = plan.propose(store, "easy", duration_min=40, today=today)
+    half = plan.propose(store, "easy", duration_min=45, today=today)
+    half["items"][0]["workout_id"] = 900_123
+    half["status"] = "applied"
+    half["items"].append(dict(half["items"][0], workout_id=None, schedule_id=None))
+    half["days"] = 2
+    plan._write_json(plan._path(half["id"]), half)
+    store.claim_proposal_item("p-20260101-000000-abcd", 0)
+    store.mark_proposal_item_unknown("p-20260101-000000-abcd", 0)
+    store.record_workout(900_123, name="Easy run 45 min", kind="easy", spec_json="{}")
+
+    code, out = _doctor(capsys)
+    assert "1 waiting for a yes, 1 applied only in part" in out, out
+    assert half["id"] in out, "the half-applied proposal is named"
+    assert "1 upload(s) never gave an answer" in out and "Garmin library" in out
+    assert "1 uploaded workout(s) sit in your Garmin library without a day" in out
+    assert code == 0, "none of this is fatal - it is a question, not a breakage"
+    assert waiting["id"] not in out.split("applied only in part")[1][:200]
+
+
 def test_sync_does_not_blame_the_login_for_a_rate_limit(capsys, monkeypatch):
     """Reporting every failure as a login failure sent the athlete into an
     interactive password-and-MFA re-login that cannot fix a rate limit."""
@@ -1410,6 +1449,15 @@ def test_the_readme_counts_the_cases_that_actually_exist():
     assert int(m.group(2)) == n, (
         f"the last recorded run covered {m.group(2)} cases, the suite has {n} - "
         f"re-run `evals/run_evals.py` or the badge is advertising a stale result")
+    # ...and the badge's NUMERATOR too. Pinning only the denominator let the
+    # README show a green "16/16" beside a RESULTS.md recording 15/16 in the
+    # same commit, and this test passed.
+    passed = int(m.group(1))
+    assert f"evals-{passed}%2F{n}-" in readme, (
+        f"the badge does not say {passed}/{n}: the last run passed {passed} of {n}")
+    assert f"[![evals {passed}/{n}]" in readme, "the badge's alt text says something else"
+    assert (passed == n) == ("brightgreen" in readme.split("evals-")[1].split(")")[0]), (
+        "a run that did not pass every case must not be advertised as green")
 
 
 def test_the_readme_only_promises_commands_that_exist():

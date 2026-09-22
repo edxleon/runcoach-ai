@@ -194,10 +194,18 @@ class App:
         out = jobs.public_cards()
         for c in out:
             pid = c.get("proposal")
-            p = plan.read(pid) if isinstance(pid, str) else None
-            c["proposal"] = ({"id": p["id"], "day": p["day"], "days": p.get("days", 1),
-                              "status": p["status"], "preview": p["preview"],
+            # WITH the store: a proposal whose apply died before saving the
+            # file still reads "open", and the card would offer to write a
+            # session that is already on the athlete's watch.
+            p = plan.read(pid, self.store) if isinstance(pid, str) else None
+            # `.get` throughout: a proposal file that parses but is missing a
+            # field must cost its own card, never the whole page. One KeyError
+            # here turns every /api/state into a 500 and the dashboard is gone.
+            c["proposal"] = ({"id": p.get("id") or pid, "day": p.get("day") or "",
+                              "days": p.get("days", 1), "status": p.get("status") or "open",
+                              "preview": p.get("preview") or "",
                               "workouts": plan.workouts_of(p),
+                              "pending": plan.pending_of(p),
                               "warnings": list(p.get("warnings") or [])[:5]}
                              if p else None)
         return out
@@ -208,24 +216,41 @@ class App:
         from .. import garmin, plan
 
         pid = str(op.get("proposal_id") or "").strip()
-        if not re.match(r"^p-[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$", pid):
+        if not plan.PROPOSAL_ID_RE.match(pid):
             return {"error": "proposal_id missing or malformed"}, 400
         if self.demo:
             return {"error": "the demo has no Garmin account to write to"}, 400
-        if plan.read(pid) is None:
+        current = plan.read(pid, self.store)
+        if current is None:
             return {"error": "unknown or expired proposal - ask the coach again"}, 404
+        # BEFORE the login: a second click on a finished proposal used to open a
+        # Garmin session just to be told there was nothing to do.
+        if current.get("status") == "applied" and plan.pending_of(current) == 0:
+            return {"error": plan.apply(self.store, None, pid)["error"],
+                    "result": plan.describe_result(current),
+                    "proposal": current}, 409
         try:
             client = garmin.login()
         except Exception as exc:  # noqa: BLE001 — reported to the UI, never fatal
             return {"error": f"Garmin login failed ({type(exc).__name__}) - "
                              f"run `runcoach login`, nothing was written"}, 502
         result = plan.apply(self.store, client, pid)
+        written, pending = plan.workouts_of(result), plan.pending_of(result)
         if result.get("error"):
-            code = 409 if result.get("status") == "applied" else 502
-            return {"error": result["error"], "proposal": result}, code
-        return {"ok": True, "result": plan.describe_result(result),
+            if pending == 0:            # nothing left to do - a second click
+                return {"error": result["error"], "proposal": result}, 409
+            if not written:             # nothing was written at all
+                return {"error": result["error"], "proposal": result}, 502
+            # ...otherwise sessions DID go up and some did not: that is a 200
+            # with an honest `pending`, not an error the click can act on.
+        # `ok` means the whole proposal is on Garmin. A week whose third upload
+        # failed used to answer 200 {"ok": true} - the error field is only set
+        # when the FIRST pending session fails, so a package that stopped in
+        # the middle reported itself as done.
+        return {"ok": pending == 0, "pending": pending, "error": result.get("error"),
+                "result": plan.describe_result(result),
                 "proposal": {**{k: result.get(k) for k in ("id", "day", "days", "status", "warnings")},
-                             "workouts": plan.workouts_of(result)}}, 200
+                             "workouts": written, "pending": pending}}, 200
 
     def worker_health(self) -> dict:
         """`{ok, reason}` for the Coach tab. A stalled or sick runner is the one

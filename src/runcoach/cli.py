@@ -180,6 +180,44 @@ def cmd_doctor(args) -> int:
               "key or Bedrock/Vertex, this app is not set up for it; unset them to "
               "silence this check.", fatal=False)
 
+    # The write path, which `doctor` used not to know existed at all: a package
+    # that stopped half way, or a claim whose upload never answered, is exactly
+    # the state a runner cannot see and cannot reason about. It is reported, not
+    # failed - nothing here is broken, it is a question for the athlete.
+    from . import plan
+
+    try:
+        store_for_plan = Store()
+        unresolved = store_for_plan.unresolved_claims()
+        open_n = len(plan.open_proposals(store_for_plan))
+        half = [p for p in (plan.read(f.stem, store_for_plan)
+                            for f in paths.proposals_dir().glob("p-*.json"))
+                if p and p.get("status") == "applied" and plan.pending_of(p)]
+        # From the DATABASE, not from a file: a proposal swept after the TTL
+        # takes the only file-side trace of a half-written session with it, and
+        # an uploaded workout that never got a day is the one the athlete will
+        # not find on the watch.
+        orphans = [w for w in store_for_plan.own_workouts() if not w["schedule_id"]]
+    except Exception as exc:  # noqa: BLE001 — a diagnostic never tracebacks
+        check(f"proposals unreadable ({type(exc).__name__})", False, fatal=False)
+    else:
+        check(f"proposals: {open_n} waiting for a yes, {len(half)} applied only in part",
+              not half,
+              "apply them again to add what is missing - what is already on Garmin is not "
+              "written twice: " + ", ".join(p["id"] for p in half[:3]), fatal=False)
+        if orphans:
+            check(f"{len(orphans)} uploaded workout(s) sit in your Garmin library "
+                  f"without a day", False,
+                  "schedule them in Garmin Connect, or propose the session again: "
+                  + ", ".join(f"{w['name']} ({w['workout_id']})" for w in orphans[:3]),
+                  fatal=False)
+        if unresolved:
+            check(f"{len(unresolved)} upload(s) never gave an answer", False,
+                  "Garmin may or may not have created these - look in your Garmin library, "
+                  "then propose them again if they are missing: "
+                  + ", ".join(f"{u['proposal_id']}#{u['item_index']}" for u in unresolved[:3]),
+                  fatal=False)
+
     # The week planner runs without these - on defaults it lists as assumptions
     # - so this is a hint, not a failure.
     profile = snapshot.load_profile()

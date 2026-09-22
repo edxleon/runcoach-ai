@@ -265,8 +265,20 @@ def main() -> int:
                                     "with_skills": with_skills, "passed": n_pass,
                                     "total": len(results), "cost_usd": total, "results": results},
                                    indent=2, ensure_ascii=False), encoding="utf-8")
+    # A case that ERRORed produced no verdict - the run did not measure it. The
+    # commonest cause is the subscription's usage limit, where every remaining
+    # case is refused in a couple of seconds, and the recorded result then reads
+    # "10/18 PASS" for a suite that was never run. RESULTS.md is what the
+    # README's badge is pinned to, so a run with a hole in it must not touch it:
+    # re-run once the window is open.
+    errored = [r["id"] for r in results if r["status"] == "ERROR"]
     if with_skills and not args.case:
-        write_results(model, judge_model, n_pass, results, total)
+        if errored:
+            print(f"\nNOT recording this run: {len(errored)} case(s) never produced a verdict "
+                  f"({', '.join(errored[:3])}{'…' if len(errored) > 3 else ''}). "
+                  f"RESULTS.md keeps the last complete run - re-run when the reason is gone.")
+        else:
+            write_results(model, judge_model, n_pass, results, total)
     if not with_skills:
         # Inverted reading: without the skills a case SHOULD fail. One that still
         # passes is carried by the model's defaults, not by the shipped prompt.
@@ -277,7 +289,7 @@ def main() -> int:
         errs = [r["id"] for r in results if r["status"] == "ERROR"]
         print(f"  errored (no verdict): {', '.join(errs)}" if errs else "  no errors")
         return 1 if errs else 0
-    return 0 if n_pass == len(results) else 1
+    return 0 if n_pass == len(results) and not errored else 1
 
 
 if __name__ == "__main__":
