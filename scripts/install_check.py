@@ -158,22 +158,40 @@ def main() -> int:
             {"jsonrpc": "2.0", "method": "notifications/initialized"},
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
         ]
+        # stdin stays OPEN until the answer is in. Piping all three messages and
+        # closing at once let the server see EOF before it had answered
+        # `tools/list`; it shut down cleanly and the in-flight request was
+        # dropped - on the Ubuntu runner, once in a while, "0 tools".
+        proc = subprocess.Popen([str(exe), "mcp"], env=env, stdin=subprocess.PIPE,
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                encoding="utf-8", errors="replace")
+        answer: dict | None = None
+        stderr = ""
         try:
-            out = subprocess.run(
-                [str(exe), "mcp"], env=env, input="\n".join(json.dumps(m) for m in msgs) + "\n",
-                capture_output=True, text=True, timeout=60, encoding="utf-8", errors="replace")
-        except subprocess.TimeoutExpired:
-            out = None
-        tools: list[str] = []
-        if out is not None:
-            for line in out.stdout.splitlines():
+            for m in msgs:
+                proc.stdin.write(json.dumps(m) + "\n")
+            proc.stdin.flush()
+            deadline = time.monotonic() + 60
+            while time.monotonic() < deadline:
+                line = proc.stdout.readline()
+                if not line:
+                    break
                 try:
-                    m = json.loads(line)
+                    reply = json.loads(line)
                 except ValueError:
                     continue
-                if m.get("id") == 2:
-                    tools = [t["name"] for t in m["result"]["tools"]]
-        check(out is not None, "the server answers and exits when stdin closes")
+                if reply.get("id") == 2:
+                    answer = reply
+                    break
+            proc.stdin.close()
+            _, stderr = proc.communicate(timeout=30)
+            exited = True
+        except (subprocess.TimeoutExpired, OSError):
+            proc.kill()
+            exited = False
+        tools = [t["name"] for t in (answer or {}).get("result", {}).get("tools", [])]
+        check(exited and answer is not None, "the server answers and exits when stdin closes",
+              (json.dumps(answer.get("error")) if answer and "error" in answer else stderr[-400:]))
         check(len(tools) == EXPECTED_TOOLS, f"tools/list returns {EXPECTED_TOOLS} tools",
               f"{len(tools)}: {tools}")
         check("sync_garmin" in tools and "get_training_readiness" in tools,
