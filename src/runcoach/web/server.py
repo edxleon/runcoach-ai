@@ -195,8 +195,9 @@ class App:
         for c in out:
             pid = c.get("proposal")
             p = plan.read(pid) if isinstance(pid, str) else None
-            c["proposal"] = ({"id": p["id"], "day": p["day"], "status": p["status"],
-                              "preview": p["preview"], "workout_id": p.get("workout_id"),
+            c["proposal"] = ({"id": p["id"], "day": p["day"], "days": p.get("days", 1),
+                              "status": p["status"], "preview": p["preview"],
+                              "workouts": plan.workouts_of(p),
                               "warnings": list(p.get("warnings") or [])[:5]}
                              if p else None)
         return out
@@ -223,8 +224,8 @@ class App:
             code = 409 if result.get("status") == "applied" else 502
             return {"error": result["error"], "proposal": result}, code
         return {"ok": True, "result": plan.describe_result(result),
-                "proposal": {k: result.get(k) for k in
-                             ("id", "day", "status", "workout_id", "schedule_id", "warnings")}}, 200
+                "proposal": {**{k: result.get(k) for k in ("id", "day", "days", "status", "warnings")},
+                             "workouts": plan.workouts_of(result)}}, 200
 
     def worker_health(self) -> dict:
         """`{ok, reason}` for the Coach tab. A stalled or sick runner is the one

@@ -22,6 +22,7 @@ the coach can say so instead of presenting it as fact.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 #: What a session is for. `steady` exists because Garmin/Firstbeat only
@@ -292,3 +293,109 @@ def from_json(d: dict) -> SessionSpec:
               for b in d["blocks"]]
     return SessionSpec(d["kind"], d["name"], blocks, int(d["estimated_seconds"]),
                        int(d["estimated_meters"]), list(d.get("assumptions") or []))
+
+
+# ── a week, and the readiness swap ───────────────────────────────────────────
+
+WEEKDAYS = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+DEFAULT_DAYS_PER_WEEK = 4
+DEFAULT_LONG_RUN_DAY = "sun"
+#: The kinds that cost 48 h before the next one. `long` is easy intensity in
+#: a polarised week and is spaced by a different rule (a fresh day before it).
+HARD_KINDS = ("threshold", "vo2max")
+#: A week never has more sessions than this: one rest day is not negotiable.
+MAX_SESSIONS_PER_WEEK = 6
+#: Default sizes when the athlete gives none (minutes).
+WEEK_MINUTES = {"vo2max": 50, "threshold": 55, "easy": 45, "long": 90}
+
+#: Offsets from the long run, in days, in the order the sessions are placed.
+#: Q1 two days after the long run, Q2 two days after Q1 - 48 h between hard
+#: stimuli - and nothing hard on the day before the long run (L+6) or after it
+#: (L+1). Easy days fill in between, nearest the quality sessions first, so the
+#: rest days end up next to the long run where the body wants them.
+_QUALITY_OFFSETS = {1: ((3, "vo2max"),), 2: ((2, "vo2max"), (4, "threshold"))}
+_EASY_OFFSETS = (3, 5, 1, 6)
+#: How a calendar entry the app did NOT create is guessed to be hard. Titles
+#: are the athlete's free text (or a plan's): a guess, flagged as one.
+_HARD_TITLE_RE = re.compile(r"vo2|interval|threshold|tempo|schwelle|repeat|\d+\s*[x×]\s*\d+", re.I)
+
+
+def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
+               long_run_day: str = DEFAULT_LONG_RUN_DAY, zones: dict | None = None,
+               minutes: dict | None = None) -> tuple[list[tuple], list[str]]:
+    """Seven days from `start`: a polarised week as `[(date, SessionSpec), …]`
+    sorted by day, plus the assumptions that shaped it.
+
+    Two quality sessions (one VO2max, one threshold) 48 h apart, the long run on
+    the weekday the athlete named, easy runs between, the rest is rest. The
+    rhythm is CYCLIC: with the long run on Sunday and the week starting Monday,
+    "two days after the long run" is Tuesday - counted from last Sunday's run."""
+    from datetime import timedelta
+
+    if not 3 <= int(days_per_week) <= 7:
+        raise ValueError("days_per_week must be between 3 and 7")
+    if long_run_day not in WEEKDAYS:
+        raise ValueError(f"long_run_day must be one of {', '.join(WEEKDAYS)}")
+    assumptions: list[str] = []
+    n = int(days_per_week)
+    if n > MAX_SESSIONS_PER_WEEK:
+        assumptions.append(f"{n} days asked, {MAX_SESSIONS_PER_WEEK} planned: one rest day "
+                           f"is not negotiable")
+        n = MAX_SESSIONS_PER_WEEK
+    sizes = {**WEEK_MINUTES, **(minutes or {})}
+
+    window = [start + timedelta(days=i) for i in range(7)]
+    long_date = next(d for d in window if WEEKDAYS[d.weekday()] == long_run_day)
+
+    def at(offset: int):
+        d = long_date + timedelta(days=offset)
+        return d if d <= window[-1] else d - timedelta(days=7)
+
+    plan: dict = {long_date: "long"}
+    for offset, kind in _QUALITY_OFFSETS[1 if n == 3 else 2]:
+        plan[at(offset)] = kind
+    for offset in _EASY_OFFSETS:
+        if len(plan) >= n:
+            break
+        if at(offset) not in plan:      # a 3-day week has its quality day here
+            plan[at(offset)] = "easy"
+
+    sessions = []
+    for day in sorted(plan):
+        kind = plan[day]
+        spec = build_session(kind, duration_min=sizes[kind], zones=zones)
+        sessions.append((day, spec))
+    # The zone assumptions are the same for every session; say them once.
+    seen: set[str] = set()
+    for _, spec in sessions:
+        for a in spec.assumptions:
+            if a not in seen:
+                seen.add(a)
+                assumptions.append(a)
+        spec.assumptions = []
+    return sessions, assumptions
+
+
+def swap_for_readiness(decision: str, scheduled: list[dict], own_kinds: dict) -> dict:
+    """What today's readiness decision means for what is on the calendar.
+
+    `decision` is `logic.decide_today`'s word (`hard` | `easy` | `rest` |
+    `unknown`), `scheduled` today's calendar entries (`schedule_id`,
+    `workout_id`, `title`), `own_kinds` the kinds of the workouts this app
+    created, by workout id. A hard entry on an easy or rest day is the one to
+    replace; the answer names it and the kind that should take its place
+    (`easy`, or nothing on a rest day). A calendar entry the app did not create
+    is judged by its title - free text, so it can only ever be a guess, and the
+    coach says so."""
+    if decision not in ("easy", "rest"):
+        return {"replace": [], "kind": None, "guessed": []}
+    replace, guessed = [], []
+    for entry in scheduled:
+        kind = own_kinds.get(entry.get("workout_id"))
+        if kind is not None:
+            if kind in HARD_KINDS:
+                replace.append(entry)
+        elif _HARD_TITLE_RE.search(str(entry.get("title") or "")):
+            replace.append(entry)
+            guessed.append(entry)
+    return {"replace": replace, "kind": "easy" if decision == "easy" else None, "guessed": guessed}

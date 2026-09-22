@@ -29,7 +29,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-547 tests, 60 frontend tests and that gate on three operating systems and two Python versions, with every
+572 tests, 60 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -111,7 +111,7 @@ flowchart LR
     DB --> L[logic.py<br/>readiness · decision<br/>intervals · bands]
     L --> SNAP[snapshot.py]
     SNAP --> WEB[web app<br/>127.0.0.1:8765]
-    L --> MCP[MCP server<br/>12 tools<br/>10 read-only · sync · apply]
+    L --> MCP[MCP server<br/>13 tools<br/>11 read-only · sync · apply]
     WEB -- "spawn job" --> A["claude --print<br/>(your subscription)"]
     A -- "only mcp__runcoach__*" --> MCP
     A -- "JSON card" --> WEB
@@ -231,9 +231,10 @@ uv run python scripts/pii_gate.py  # release gate
 ## Status & roadmap
 
 v0.1 was **read-only** towards Garmin. The write path exists on `main` since v0.2 — `propose_workout`
-builds a session for your route from your own zones and files it, `apply_workout` uploads it, schedules
-it, pushes it to the watch and reads it back to verify — and it is tested against a fake Garmin client
-only. It has not yet been run end to end against a real watch, so it is not in the quick start above;
+builds a session for your route from your own zones and files it, `propose_week` files a polarised
+week as one package, a proposal can replace the hard session the calendar had on a red day, and
+`apply_workout` uploads, schedules, pushes to the watch and reads back to verify — and it is tested
+against a fake Garmin client only. It has not yet been run end to end against a real watch, so it is not in the quick start above;
 the section on planning follows that test, not this commit. The app's card runs cannot apply anything;
 in the app a proposal is applied by a click on the card ("Put on watch", two taps), in Claude Code by
 your answer.

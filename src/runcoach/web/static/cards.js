@@ -290,16 +290,21 @@ export function renderProposal(p, opts = {}) {
   const applied = p.status === "applied";
   const can = opts.canApply !== false;
   const warn = (p.warnings || []).map(w => `<div class="note proposal-warn">! ${esc(w)}</div>`).join("");
+  const ids = Array.isArray(p.workouts) ? p.workouts : [];
+  const week = Number(p.days) > 1;
   const button = applied
-    ? `<span class="pill pill-ok">On Garmin${p.workout_id ? ` · workout ${esc(p.workout_id)}` : ""}${
-        p.day ? ` · ${esc(p.day)}` : ""}</span>`
+    ? `<span class="pill pill-ok">On Garmin${ids.length > 1 ? ` · ${ids.length} workouts`
+        : ids.length ? ` · workout ${esc(ids[0])}` : ""}${p.day ? ` · ${esc(p.day)}` : ""}</span>`
     : `<button type="button" class="btn btn-primary" data-apply="${esc(p.id)}"
-               data-arm-label="Sure? It goes on the watch"${can ? "" : " disabled"}
-               title="Upload to Garmin, schedule for ${esc(p.day || "the day")}, push to the watch">
+               data-arm-label="Sure? ${week ? "The whole week goes" : "It goes"} on the watch"${
+                 can ? "" : " disabled"}
+               title="Upload to Garmin, schedule ${week ? `${esc(p.days)} sessions from` : "for"} ${
+                 esc(p.day || "the day")}, push to the watch">
          Put on watch</button>${can ? "" : `<span class="note">${
            opts.applyHint ? esc(opts.applyHint) : "needs a Garmin login"}</span>`}`;
   return `<div class="card-proposal" data-proposal="${esc(p.id)}">
-    <div class="subhead">Proposed session${p.day ? ` · ${esc(p.day)}` : ""}</div>
+    <div class="subhead">${week ? `Proposed week · ${esc(p.days)} sessions` : "Proposed session"}${
+      p.day ? ` · ${esc(p.day)}` : ""}</div>
     <pre class="proposal-steps">${esc(p.preview || "")}</pre>
     ${warn}
     <div class="btn-row">${button}</div>

@@ -448,6 +448,24 @@ def test_doctor_is_green_on_a_fresh_database(today, capsys, monkeypatch, tmp_pat
     assert "0 day(s) behind" in out and code == 0
 
 
+def test_doctor_hints_at_the_week_profile_without_failing(today, capsys, monkeypatch, tmp_path):
+    """The week planner runs on defaults and says so - doctor points at the two
+    fields, but a cron running `doctor || alert` must not page for them."""
+    from runcoach import cli
+
+    monkeypatch.setattr("runcoach.cli.shutil.which", lambda _n: None)
+    _fake_tokens()
+    Store(paths.db_path()).upsert_daily(make_day(today, resting_hr=44))
+    code, out = _doctor(capsys)
+    assert code == 0
+    assert "[!!] profile for the week planner" in out and "--days-per-week N --long-run-day" in out
+
+    assert cli.main(["profile", "--days-per-week", "5", "--long-run-day", "sat"]) == 0
+    capsys.readouterr()
+    code, out = _doctor(capsys)
+    assert code == 0 and "[ok] profile for the week planner: 5 days, long run sat" in out
+
+
 def test_sync_does_not_blame_the_login_for_a_rate_limit(capsys, monkeypatch):
     """Reporting every failure as a login failure sent the athlete into an
     interactive password-and-MFA re-login that cannot fix a rate limit."""

@@ -3,11 +3,25 @@ and back through a fake client - the path `plan.apply` will drive."""
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 import pytest
 
 from conftest import FakeGarmin
 from runcoach import garmin, planning
-from runcoach.planning import KINDS, Repeat, Step, build_session, describe, from_json, to_json
+from runcoach.planning import (
+    HARD_KINDS,
+    KINDS,
+    WEEKDAYS,
+    Repeat,
+    Step,
+    build_session,
+    build_week,
+    describe,
+    from_json,
+    swap_for_readiness,
+    to_json,
+)
 
 ZONES = {"z4_low": 156, "z5_low": 176, "lthr_bpm": 168, "lt_pace_s_per_km": 285}
 
@@ -165,3 +179,92 @@ def test_verify_catches_the_three_real_failures():
     bad["workoutSegments"][0]["workoutSteps"][1]["workoutSteps"][0]["targetType"] = {
         "workoutTargetTypeId": 1, "workoutTargetTypeKey": "no.target"}
     assert any("lost its target" in p for p in garmin.verify(spec, bad))
+
+
+# ── a week ───────────────────────────────────────────────────────────────────
+
+MONDAY = date(2026, 9, 21)
+
+
+def _gap(a: date, b: date) -> int:
+    """Days between two sessions of a WEEKLY rhythm: Tuesday is two days after
+    Sunday, whichever of the two the window holds first."""
+    d = abs((a - b).days)
+    return min(d, 7 - d)
+
+
+@pytest.mark.parametrize("n", [3, 4, 5, 6, 7])
+def test_a_week_is_polarised_spaced_and_keeps_a_rest_day(n):
+    sessions, _ = build_week(MONDAY, days_per_week=n, long_run_day="sun", zones=ZONES)
+    days = [d for d, _ in sessions]
+    kinds = [s.kind for _, s in sessions]
+    assert len(sessions) == min(n, 6), "seven days asked still leaves one rest day"
+    assert days == sorted(days) and len(set(days)) == len(days)
+    assert all(MONDAY <= d <= MONDAY + timedelta(days=6) for d in days)
+    assert kinds.count("long") == 1
+    long_day = next(d for d, s in sessions if s.kind == "long")
+    assert WEEKDAYS[long_day.weekday()] == "sun"
+    hard = [d for d, s in sessions if s.kind in HARD_KINDS]
+    assert len(hard) == (1 if n == 3 else 2)
+    if n >= 4:
+        assert {s.kind for _, s in sessions if s.kind in HARD_KINDS} == {"vo2max", "threshold"}
+    for a in hard:
+        assert _gap(a, long_day) >= 2, "nothing hard next to the long run"
+        for b in hard:
+            assert a == b or _gap(a, b) >= 2, "48 h between hard stimuli"
+    assert all(s.kind == "easy" for _, s in sessions if s.kind not in HARD_KINDS + ("long",))
+
+
+def test_seven_days_say_why_only_six_are_planned():
+    _, notes = build_week(MONDAY, days_per_week=7, long_run_day="sat", zones=ZONES)
+    assert any("one rest day" in a for a in notes)
+
+
+def test_the_long_run_lands_on_the_named_weekday_whatever_the_start():
+    sessions, _ = build_week(date(2026, 9, 23), days_per_week=4, long_run_day="sat", zones=ZONES)
+    long_day = next(d for d, s in sessions if s.kind == "long")
+    assert long_day == date(2026, 9, 26)
+    hard = [d for d, s in sessions if s.kind in HARD_KINDS]
+    assert all(_gap(a, long_day) >= 2 for a in hard)
+
+
+@pytest.mark.parametrize("bad", [{"days_per_week": 2}, {"days_per_week": 8},
+                                 {"long_run_day": "sunday"}])
+def test_week_inputs_are_checked(bad):
+    with pytest.raises(ValueError):
+        build_week(MONDAY, **{"days_per_week": 4, "long_run_day": "sun", **bad}, zones=ZONES)
+
+
+def test_zone_assumptions_are_said_once_for_the_week_not_per_session():
+    sessions, notes = build_week(MONDAY, days_per_week=5, long_run_day="sun", zones=None)
+    assert sum("threshold pace" in a for a in notes) == 1
+    assert all(s.assumptions == [] for _, s in sessions)
+
+
+# ── the readiness swap ───────────────────────────────────────────────────────
+
+CALENDAR = [{"schedule_id": 1, "workout_id": 10, "title": "Tuesday run"},
+            {"schedule_id": 2, "workout_id": 20, "title": "VO2max 5x3"},
+            {"schedule_id": 3, "workout_id": 30, "title": "Easy 40"}]
+
+
+def test_an_easy_day_replaces_the_hard_entries_and_flags_the_guessed_one():
+    out = swap_for_readiness("easy", CALENDAR, {10: "threshold", 30: "easy"})
+    assert [e["schedule_id"] for e in out["replace"]] == [1, 2]
+    assert [e["schedule_id"] for e in out["guessed"]] == [2], "judged by its title only"
+    assert out["kind"] == "easy"
+    rest = swap_for_readiness("rest", CALENDAR, {10: "threshold"})
+    assert [e["schedule_id"] for e in rest["replace"]] == [1, 2] and rest["kind"] is None
+
+
+@pytest.mark.parametrize("decision", ["hard", "unknown"])
+def test_a_green_or_unknown_day_swaps_nothing(decision):
+    assert swap_for_readiness(decision, CALENDAR, {10: "threshold"})["replace"] == []
+
+
+def test_own_workouts_are_judged_by_the_record_not_by_their_name():
+    """The app knows what it created; a name is data. An own EASY run called
+    "VO2max" stays, an own vo2max session called "Tuesday run" goes."""
+    out = swap_for_readiness("easy", [{"schedule_id": 9, "workout_id": 90, "title": "VO2max 5x3"}],
+                             {90: "easy"})
+    assert out["replace"] == []

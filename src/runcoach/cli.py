@@ -10,7 +10,7 @@ import shutil
 import subprocess
 import sys
 
-from . import __version__, paths, snapshot
+from . import __version__, paths, planning, snapshot
 
 
 def _utf8() -> None:
@@ -73,7 +73,7 @@ def cmd_profile(args) -> int:
         profile = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         profile = {}
-    for key in ("max_hr", "aerobic_ref_hr", "goal"):
+    for key in ("max_hr", "aerobic_ref_hr", "goal", "days_per_week", "long_run_day"):
         value = getattr(args, key)
         if value is not None:
             profile[key] = value
@@ -180,6 +180,17 @@ def cmd_doctor(args) -> int:
               "key or Bedrock/Vertex, this app is not set up for it; unset them to "
               "silence this check.", fatal=False)
 
+    # The week planner runs without these - on defaults it lists as assumptions
+    # - so this is a hint, not a failure.
+    profile = snapshot.load_profile()
+    missing = [k for k in ("days_per_week", "long_run_day") if profile.get(k) is None]
+    check("profile for the week planner"
+          + ("" if missing else f": {profile['days_per_week']} days, long run {profile['long_run_day']}"),
+          not missing,
+          f"weekly plans use defaults ({planning.DEFAULT_DAYS_PER_WEEK} days, long run "
+          f"{planning.DEFAULT_LONG_RUN_DAY}) until you set: runcoach profile "
+          f"--days-per-week N --long-run-day mon..sun", fatal=False)
+
     if not paths.garmin_session_present():
         check("Garmin session", False, "no tokens stored - run `runcoach login`")
     elif args.offline:
@@ -260,6 +271,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--aerobic-ref-hr", type=int, dest="aerobic_ref_hr",
                    help="reference HR for the aerobic-efficiency card")
     p.add_argument("--goal", help="free text, shown on the Today tab")
+    p.add_argument("--days-per-week", type=int, choices=range(3, 8), dest="days_per_week",
+                   metavar="N", help="running days per week, for the week planner (3-7)")
+    p.add_argument("--long-run-day", choices=planning.WEEKDAYS, dest="long_run_day",
+                   help="weekday of the long run, for the week planner")
     p.set_defaults(fn=cmd_profile)
 
     p = sub.add_parser("doctor", help="check the installation (exit 1 = something is wrong)")

@@ -222,9 +222,11 @@ def get_training_readiness(store: Store) -> str:
     plan = store.get_scheduled_workouts(today, today + timedelta(days=6))
     if plan:
         # Titles are the athlete's own calendar entries, but still free text.
+        # The schedule id is what `propose_workout(replaces_schedule_id=…)`
+        # takes to swap an entry for an easier one.
         stale += "\n\nGarmin calendar, next 7 days (untrusted labels): " + "; ".join(
-            f"{'TODAY' if p['day'] == today.isoformat() else p['day']} \"{p['title'] or '?'}\""
-            for p in plan[:7])
+            f"{'TODAY' if p['day'] == today.isoformat() else p['day']} \"{p['title'] or '?'}\" "
+            f"[schedule {p['schedule_id']}]" for p in plan[:7])
     else:
         stale += "\n\nGarmin calendar: nothing scheduled in the next 7 days."
     return "\n".join([
@@ -466,35 +468,59 @@ def _sync_now(store: Store, garmin, sync, days: int) -> str:
 
 # ── planning: propose, then (after a human's yes) apply ─────────────────────
 
-def propose_workout(store: Store, kind: str, distance_km: float | None = None,
-                    duration_min: int | None = None, day: str | None = None,
-                    name: str | None = None) -> str:
-    """Build a session from the athlete's own zones and file it as a proposal.
-    Text for the model AND the athlete; nothing touches Garmin here."""
+def _demo_note() -> str:
     import os
 
+    # The demo athlete has zones, so the proposal is real; only applying
+    # would need an account. Say so up front rather than at the click.
+    return ("\n(demo data: the proposal is real, applying needs a Garmin login)"
+            if os.environ.get("RUNCOACH_DEMO") else "")
+
+
+def _proposal_text(p: dict) -> str:
+    what = f"{p['days']} sessions, {p['day']} onwards" if p["days"] > 1 else f"planned for {p['day']}"
+    return (f"{p['preview']}\n"
+            f"{what} - proposal {p['id']}\n"
+            f"NOT on Garmin yet. Show this to the athlete; if they say yes, call "
+            f"apply_workout(proposal_id=\"{p['id']}\"). If they want changes, propose again."
+            f"{_demo_note()}")
+
+
+def propose_workout(store: Store, kind: str, distance_km: float | None = None,
+                    duration_min: int | None = None, day: str | None = None,
+                    name: str | None = None, replaces_schedule_id: int | None = None) -> str:
+    """Build a session from the athlete's own zones and file it as a proposal.
+    Text for the model AND the athlete; nothing touches Garmin here."""
     from . import plan
 
     try:
         target = date.fromisoformat(day) if day else None
     except ValueError:
         return f"day must be YYYY-MM-DD, got {day!r}"
-    if os.environ.get("RUNCOACH_DEMO"):
-        # The demo athlete has zones, so the proposal is real; only applying
-        # would need an account. Say so up front rather than at the click.
-        note = "\n(demo data: the proposal is real, applying needs a Garmin login)"
-    else:
-        note = ""
     try:
         p = plan.propose(store, kind, distance_km=distance_km, duration_min=duration_min,
-                         day=target, name=name, today=paths.today())
+                         day=target, name=name, today=paths.today(),
+                         replaces=[replaces_schedule_id] if replaces_schedule_id else None)
     except ValueError as exc:
         return f"Cannot build that session: {exc}"
-    return (f"{p['preview']}\n"
-            f"planned for {p['day']} - proposal {p['id']}\n"
-            f"NOT on Garmin yet. Show this to the athlete; if they say yes, call "
-            f"apply_workout(proposal_id=\"{p['id']}\"). If they want changes, propose again."
-            f"{note}")
+    return _proposal_text(p)
+
+
+def propose_week(store: Store, start_day: str | None = None, days_per_week: int | None = None,
+                 long_run_day: str | None = None) -> str:
+    """A polarised week as one package. Profile fills what is not given."""
+    from . import plan
+
+    try:
+        start = date.fromisoformat(start_day) if start_day else None
+    except ValueError:
+        return f"start_day must be YYYY-MM-DD, got {start_day!r}"
+    try:
+        p = plan.propose_week(store, start=start, days_per_week=days_per_week,
+                              long_run_day=long_run_day, today=paths.today())
+    except ValueError as exc:
+        return f"Cannot build that week: {exc}"
+    return _proposal_text(p)
 
 
 def apply_workout(store: Store, proposal_id: str) -> str:

@@ -155,6 +155,11 @@ def propose_workout(
     day: Day = None,
     name: Annotated[str | None, Field(max_length=60, description=(
         "Workout name on the watch. Default: kind and structure, e.g. 'VO2max 4x4 min'."))] = None,
+    replaces_schedule_id: Annotated[int | None, Field(ge=1, description=(
+        "A calendar entry this session REPLACES (the number after 'schedule' in "
+        "get_training_readiness). Applying unschedules it first; the workout stays in the "
+        "library. Use for the readiness swap: an easy run instead of the hard session the "
+        "calendar had on a red or amber day."))] = None,
 ) -> str:
     """Build a structured session for the athlete's route or time budget and file
     it as a PROPOSAL - warm-up, work reps with targets, recovery jogs, cool-down -
@@ -169,7 +174,32 @@ def propose_workout(
     Returns the preview and a proposal id. NOTHING is written to Garmin: show
     the preview, and only if the athlete says yes call apply_workout with the
     id. On an impossible request (route too short) returns why, not a session."""
-    return tools.propose_workout(store(), kind, distance_km, duration_min, day, name)
+    return tools.propose_workout(store(), kind, distance_km, duration_min, day, name,
+                                 replaces_schedule_id)
+
+
+@mcp.tool()
+def propose_week(
+    start_day: Annotated[str | None, Field(pattern=r"^\d{4}-\d{2}-\d{2}$", description=(
+        "First day of the week to plan, YYYY-MM-DD, today or up to 8 days ahead. "
+        "Default: the coming Monday (today, if today is Monday)."))] = None,
+    days_per_week: Annotated[int | None, Field(ge=3, le=7, description=(
+        "Running days. Default: the athlete's profile, else 4 (listed as an assumption)."))] = None,
+    long_run_day: Annotated[Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"] | None,
+                            Field(description=(
+        "Weekday of the long run. Default: the profile, else sun (listed as an assumption)."))] = None,
+) -> str:
+    """Build a polarised training week and file it as ONE proposal: a VO2max
+    session and a threshold session 48 h apart, the long run on its weekday,
+    easy runs between, nothing hard the day before or after the long run, at
+    least one rest day. Sizes come from defaults (50/55/45/90 min), targets
+    from the athlete's own zones. Use when the athlete asks for their week
+    ("plan my week", "what should next week look like"). What the calendar
+    already holds in that week is listed - the package ADDS to it.
+    Returns the preview of every session and one proposal id; apply_workout
+    with that id puts the whole week on Garmin after the athlete's yes.
+    Nothing is written here."""
+    return tools.propose_week(store(), start_day, days_per_week, long_run_day)
 
 
 @mcp.tool()

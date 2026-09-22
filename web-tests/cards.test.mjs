@@ -187,7 +187,14 @@ test("renderProposal: the preview is escaped, the button is the only write, and 
   const off = renderProposal(p, { canApply: false, applyHint: "demo data - no Garmin account" });
   assert.ok(off.includes("disabled") && off.includes("demo data"), "off, and it says why");
 
-  const done = renderProposal({ ...p, status: "applied", workout_id: 900001 }, {});
+  const done = renderProposal({ ...p, status: "applied", workouts: [900001] }, {});
   assert.ok(!done.includes("data-apply") && done.includes("On Garmin"), "applied: no button, a pill");
+  assert.ok(done.includes("workout 900001"));
   assert.equal(renderProposal(null, {}), "");
+
+  const week = renderProposal({ ...p, days: 4 }, {});
+  assert.ok(week.includes("Proposed week") && week.includes("4 sessions"), "a package says so");
+  assert.ok(week.includes("The whole week goes"), "the arm label names the scale of the write");
+  const weekDone = renderProposal({ ...p, days: 4, status: "applied", workouts: [1, 2, 3, 4] }, {});
+  assert.ok(weekDone.includes("4 workouts"));
 });

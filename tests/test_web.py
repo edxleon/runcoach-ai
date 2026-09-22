@@ -582,7 +582,8 @@ def test_the_click_applies_the_proposal_through_the_same_path_as_the_tool(tmp_pa
 
     body, code = app.apply_proposal({"proposal_id": p["id"]})
     assert code == 200 and body["ok"] and "On Garmin" in body["result"], body
-    assert app.store.is_own_workout(body["proposal"]["workout_id"])
+    assert body["proposal"]["days"] == 1
+    assert app.store.is_own_workout(body["proposal"]["workouts"][0])
     assert plan.read(p["id"])["status"] == "applied"
     # ...and the card the page renders now says so.
     job = jobs.new_job("x", title="t", kind="plan-session")

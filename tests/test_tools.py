@@ -34,7 +34,7 @@ EXPECTED_MCP_TOOLS = {
     "get_training_load", "get_recent_activities", "get_intensity_distribution",
     "analyze_workout", "get_vo2max_history", "sync_garmin",
     # the write path: propose (local) and, after a human's yes, apply (Garmin)
-    "propose_workout", "apply_workout"}
+    "propose_workout", "propose_week", "apply_workout"}
 
 
 def test_hm_formatting():
@@ -153,8 +153,8 @@ def test_training_readiness_lists_the_garmin_calendar(store, today):
          ScheduledWorkout(4, today - timedelta(days=1), title="yesterday")],
         today - timedelta(days=7), today + timedelta(days=14))
     out = tools.get_training_readiness(store)
-    assert ('Garmin calendar, next 7 days (untrusted labels): TODAY "Threshold 3x10"; '
-            '2026-06-16 "?"') in out
+    assert ('Garmin calendar, next 7 days (untrusted labels): TODAY "Threshold 3x10" [schedule 1]; '
+            '2026-06-16 "?" [schedule 2]') in out
     assert "beyond" not in out and "yesterday" not in out
 
 
@@ -496,11 +496,12 @@ def test_apply_uploads_schedules_pushes_verifies_and_refreshes_the_mirror(store,
     out = tools.apply_workout(store, pid)
     assert "On Garmin" in out and "verified" in out, out
     p = plan.read(pid)
-    assert p["status"] == "applied" and p["workout_id"] and p["schedule_id"]
-    assert store.is_own_workout(p["workout_id"]), "what we uploaded is recorded as ours"
-    assert fake.data["pushed"] == [p["workout_id"]]
+    (it,) = p["items"]
+    assert p["status"] == "applied" and it["workout_id"] and it["schedule_id"]
+    assert store.is_own_workout(it["workout_id"]), "what we uploaded is recorded as ours"
+    assert fake.data["pushed"] == [it["workout_id"]]
     mirror = store.get_scheduled_workouts(today, today)
-    assert [m["workout_id"] for m in mirror] == [p["workout_id"]], "Today tab sees it now"
+    assert [m["workout_id"] for m in mirror] == [it["workout_id"]], "Today tab sees it now"
 
     # once only
     again = tools.apply_workout(store, pid)
@@ -549,3 +550,135 @@ def test_the_write_tool_the_agent_is_denied_really_exists():
 def test_apply_in_demo_mode_refuses(store, monkeypatch):
     monkeypatch.setenv("RUNCOACH_DEMO", "1")
     assert "Demo mode" in tools.apply_workout(store, "p-20260101-000000-dead")
+
+
+# ── a week as one package, and the readiness swap ───────────────────────────
+
+def test_propose_week_files_one_package_and_writes_nothing(store, today, monkeypatch):
+    from runcoach import plan
+
+    _seed_zones(store, today)
+    logins = []
+    monkeypatch.setattr(garmin, "login", lambda tokenstore=None: logins.append(1))
+    out = tools.propose_week(store, days_per_week=4, long_run_day="sun")
+    assert "4 sessions" in out and out.count("Long run") == 1 and "NOT on Garmin yet" in out
+    assert "HR zone 5" in out and "HR zone 4" in out, "both quality sessions, with their targets"
+    pid = out.split("proposal ")[1].split()[0]
+    p = plan.read(pid)
+    assert p["days"] == 4 and len(p["items"]) == 4 and p["status"] == "open"
+    assert logins == []
+
+
+def test_propose_week_reads_the_profile_and_names_what_it_had_to_assume(store, today, tmp_path):
+    from runcoach import paths
+
+    _seed_zones(store, today)
+    out = tools.propose_week(store)
+    assert "assumption: 4 running days" in out and "assumption: long run on sun" in out
+    paths.profile_path().write_text('{"days_per_week": 5, "long_run_day": "sat"}', encoding="utf-8")
+    out = tools.propose_week(store)
+    assert "5 sessions" in out and "assumption: long run" not in out
+    assert "assumption: 4 running" not in out
+
+
+def test_propose_week_refuses_a_start_outside_the_calendar_mirror(store, today):
+    out = tools.propose_week(store, start_day=(today + timedelta(days=20)).isoformat())
+    assert out.startswith("Cannot build that week") and "mirrors the calendar" in out
+    assert "not-a-date" in tools.propose_week(store, start_day="not-a-date")
+
+
+def test_apply_puts_the_whole_week_on_garmin_after_one_yes(store, today, monkeypatch):
+    from runcoach import plan
+
+    _seed_zones(store, today)
+    fake = FakeGarmin()
+    monkeypatch.setattr(garmin, "login", lambda tokenstore=None: fake)
+    pid = tools.propose_week(store, start_day=today.isoformat(), days_per_week=4,
+                             long_run_day="sun").split("proposal ")[1].split()[0]
+    out = tools.apply_workout(store, pid)
+    assert out.count("On Garmin:") == 4 and "verified" in out, out
+    p = plan.read(pid)
+    wids = plan.workouts_of(p)
+    assert len(wids) == 4 and all(store.is_own_workout(w) for w in wids)
+    assert all(it["schedule_id"] for it in p["items"])
+    assert fake.data["pushed"] == wids
+    mirror = store.get_scheduled_workouts(today, today + timedelta(days=14))
+    assert {m["workout_id"] for m in mirror} == set(wids), "the Today tab sees the week"
+    assert "already applied" in tools.apply_workout(store, pid) and len(fake.data["library"]) == 4
+
+
+def test_a_package_whose_first_upload_fails_stays_open_and_owns_nothing(store, today, monkeypatch):
+    from runcoach import plan
+
+    class Down(FakeGarmin):
+        def upload_running_workout(self, _w):
+            raise ConnectionError("garmin is down")
+
+    _seed_zones(store, today)
+    monkeypatch.setattr(garmin, "login", lambda tokenstore=None: Down())
+    pid = tools.propose_week(store, start_day=today.isoformat()).split("proposal ")[1].split()[0]
+    out = tools.apply_workout(store, pid)
+    assert "upload failed" in out and "garmin is down" in out
+    assert plan.read(pid)["status"] == "open" and store.own_workouts() == []
+
+
+def test_a_package_that_fails_half_way_is_applied_with_the_missing_day_named(store, today,
+                                                                             monkeypatch):
+    from runcoach import plan
+
+    class Flaky(FakeGarmin):
+        """The third upload fails, ONCE - the fourth goes through."""
+
+        def upload_running_workout(self, w):
+            if len(self.data.get("library", {})) == 2 and not self.data.get("hiccuped"):
+                self.data["hiccuped"] = True
+                raise ConnectionError("hiccup")
+            return super().upload_running_workout(w)
+
+    _seed_zones(store, today)
+    monkeypatch.setattr(garmin, "login", lambda tokenstore=None: Flaky())
+    pid = tools.propose_week(store, start_day=today.isoformat(), days_per_week=4,
+                             long_run_day="sun").split("proposal ")[1].split()[0]
+    out = tools.apply_workout(store, pid)
+    p = plan.read(pid)
+    assert p["status"] == "applied", "three sessions ARE on Garmin - a re-apply would double them"
+    assert len(plan.workouts_of(p)) == 3 and out.count("On Garmin:") == 3
+    missing = next(it for it in p["items"] if not it["workout_id"])
+    assert f"! {missing['day']}" in out and "NOT uploaded" in out and "hiccup" in out
+
+
+def test_the_readiness_tool_prints_the_schedule_id_the_swap_needs(store, today):
+    store.upsert_daily(make_day(today, hrv_status="BALANCED", sleep_score=85))
+    store.replace_scheduled_workouts([ScheduledWorkout(777, today, workout_id=4242,
+                                                       title="VO2max 5x3", sport="running")],
+                                     today, today)
+    assert 'TODAY "VO2max 5x3" [schedule 777]' in tools.get_training_readiness(store)
+
+
+def test_a_swap_proposal_unschedules_the_old_entry_when_applied(store, today, monkeypatch):
+    from runcoach import plan
+
+    _seed_zones(store, today)
+    fake = FakeGarmin(schedule={777: {"workoutId": 4242, "date": today.isoformat()}})
+    monkeypatch.setattr(garmin, "login", lambda tokenstore=None: fake)
+    store.replace_scheduled_workouts([ScheduledWorkout(777, today, workout_id=4242,
+                                                       title="VO2max 5x3", sport="running")],
+                                     today, today)
+    out = tools.propose_workout(store, "easy", duration_min=40, replaces_schedule_id=777)
+    assert 'replaces on the calendar: ' + today.isoformat() + ' "VO2max 5x3" (schedule 777)' in out
+    pid = out.split("proposal ")[1].split()[0]
+    assert plan.read(pid)["replaces"][0]["workout_id"] == 4242
+
+    out = tools.apply_workout(store, pid)
+    assert 'Removed from the calendar: "VO2max 5x3"' in out and "stays in your library" in out
+    assert 777 not in fake.data["schedule"], "unscheduled, not deleted"
+    assert 4242 not in fake.data.get("deleted", []), "the athlete's workout is not ours to delete"
+    mirror = store.get_scheduled_workouts(today, today)
+    assert [m["workout_id"] for m in mirror] == plan.workouts_of(plan.read(pid))
+
+
+def test_a_swap_may_only_name_an_entry_the_mirror_knows(store, today, monkeypatch):
+    _seed_zones(store, today)
+    monkeypatch.setattr(garmin, "login", lambda tokenstore=None: FakeGarmin())
+    out = tools.propose_workout(store, "easy", duration_min=40, replaces_schedule_id=999)
+    assert out.startswith("Cannot build") and "not on the calendar the app knows" in out
