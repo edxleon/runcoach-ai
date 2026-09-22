@@ -21,6 +21,13 @@
     "prompt": "Examine how VO2max developed over the last 8 weeks and WHICH factors mechanically fit.\n\nFetch the data with get_vo2max_history, get_training_load and get_intensity_distribution (28 and 84 days), plus get_recent_activities.\n\nImportant: Garmin's VO2max is carry-forward - on days without a real measurement the last value is repeated. Treat the series as steps and interpret only the jumps, not the plateau in between. Compare the last 28 days with the 28 before: distance, Z5 minutes, easy share, average temperature. If the older block was not read in full, do not sell the comparison as a change.\n\nSay clearly what the data supports and what it does not (correlation is not causation, n=1). No training-theory platitudes - refer to the athlete's numbers."
   },
   {
+    "id": "plan-session",
+    "title": "Plan a session",
+    "hint": "For a route you run: warm-up, reps, cool-down",
+    "params": ["kind", "distance_km"],
+    "prompt": "Plan a {kind} session for a {distance_km} km route: call propose_workout with kind and distance_km exactly as given. Before that read get_training_readiness and get_recent_activities - if today's verdict or the last hard session argues against this kind, say so in the verdict and still file the session the athlete asked for (they decide). Then explain the proposal in the card: headline = the structure in one line (e.g. 4x4 min in zone 5, 2.6 km warm-up, 1.9 km cool-down); bullets = why this rep structure for this athlete today (zones and their source, last hard session, what the targets mean on the watch), the assumptions the proposal lists, and what would change the plan. Put the proposal id in the card's proposal field. Do NOT call apply_workout - the athlete applies with a click."
+  },
+  {
     "id": "week-review",
     "title": "Review my training week",
     "hint": "Volume, polarisation, ACWR",

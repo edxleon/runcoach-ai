@@ -55,6 +55,8 @@ sync_garmin). Rules:
   {"kind":"$KIND","ref":"<reference, e.g. activity id, else empty>","day":"<YYYY-MM-DD>",
    "headline":"<one sentence>","bullets":["..."],"verdict":"<short>"}
   Optionally add "delta":"<one sentence>" if a previous card is given below.
+  If you filed a session with propose_workout, add "proposal":"<its id>" - the
+  athlete applies it with a click on the card; you never call apply_workout.
   `bullets`: AT MOST 5, each at most 2 short sentences, numbers first. No
   repetition between headline/verdict/bullets, no methodology, no hedging
   boilerplate, no reference knowledge that decides nothing today. Decidability
@@ -399,6 +401,12 @@ def run(job: dict, *, db: str | None = None, snapshot_meta: dict | None = None) 
     if card is None:
         return _finish(job, "failed", rc, problem, cost)
     card.pop("feedback", None)   # never accept self-written feedback
+    # A proposal reference is kept only if it has the shape of one the app
+    # files: the model may not invent an id, and the page resolves it - an
+    # unknown id becomes "no proposal", never a button.
+    if not (isinstance(card.get("proposal"), str)
+            and re.match(r"^p-[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$", card["proposal"])):
+        card.pop("proposal", None)
     card.update(
         kind=str(job.get("template_id") or card.get("kind") or ""),
         job_id=job["id"], model=model, cost_usd=cost,

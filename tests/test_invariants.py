@@ -1462,6 +1462,7 @@ _CLIENT_CALL = {
     "/api/spawn": "POST",
     "/api/feedback": "POST",
     "/api/cards/<id>/delete": "POST",
+    "/api/plan/apply": "POST",          # the one write to Garmin, behind a click
 }
 
 

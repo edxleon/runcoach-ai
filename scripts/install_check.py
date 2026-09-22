@@ -123,8 +123,8 @@ def main() -> int:
                 # wheel, and the Coach tab simply has no buttons. Checking that
                 # the key exists caught nothing; the count is what a user sees.
                 ids = {t.get("id") for t in state.get("templates", [])}
-                check(len(ids) == 4 and {"train-today", "analyze-run"} <= ids,
-                      "the four coach templates shipped inside the wheel", str(sorted(ids)))
+                check(len(ids) == 5 and {"train-today", "analyze-run", "plan-session"} <= ids,
+                      "the five coach templates shipped inside the wheel", str(sorted(ids)))
         finally:
             proc.terminate()
             try:

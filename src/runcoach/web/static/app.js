@@ -358,12 +358,32 @@ const coachUnavailable = () => D().claude_available === false;
 const noData = () => hasNoData(D());
 const firstRun = () => isFirstRun(D());
 
-function tplButton(t, ctx) {
+function tplButton(t, ctx, { form = false } = {}) {
   const c = ctx ? ` data-ctx='${esc(JSON.stringify(ctx))}'` : "";
+  // `data-form-tpl` (not `data-tpl-...`: the smoke test splits the DOM on that
+  // literal): the context is read from the inputs next to the button
+  // at click time (the plan form), not baked into the button.
+  const f = form ? ` data-form-tpl="1"` : "";
   const locked = spawnRunning || hasActiveJob() || coachUnavailable() || noData();
-  return `<button class="btn btn-primary" data-tpl="${esc(t.id)}"${c}
+  return `<button class="btn btn-primary" data-tpl="${esc(t.id)}"${c}${f}
             ${locked ? "disabled" : ""}
             title="${esc(t.hint || "")}">${esc(t.title)}</button>`;
+}
+
+/** The plan form's inputs as a template context, validated the way the
+ *  server validates them (`_CTX_RULES`) so a bad value fails here with a
+ *  toast rather than there with a 400. */
+function planFormCtx(btn) {
+  const form = btn.closest("[data-plan-form]");
+  if (!form) return null;
+  const kind = form.querySelector(".plan-kind")?.value || "";
+  const km = String(form.querySelector(".plan-km")?.value || "").trim();
+  if (!/^(easy|long|threshold|vo2max|steady)$/.test(kind)) return null;
+  if (!/^[0-9]{1,2}(\.[0-9])?$/.test(km) || Number(km) < 1) {
+    toast("Route length: 1 to 60 km, at most one decimal.", { warn: true });
+    return null;
+  }
+  return { kind, distance_km: km };
 }
 
 function renderActions() {
@@ -396,10 +416,27 @@ function renderActions() {
     : coachUnavailable()
       ? `<div class="coach-hint">Claude Code CLI not found — coach cards need it
            (run <code>runcoach doctor</code>).</div>` : "";
+  const plan = tpls.find(t => t.id === "plan-session");
   document.getElementById("coach-actions").innerHTML = `
     <div class="subhead">Start an analysis</div>
     <div class="btn-row">${tpls.filter(t => !(t.params || []).length)
-      .map(t => tplButton(t)).join("")}</div>`;
+      .map(t => tplButton(t)).join("")}</div>
+    ${plan ? `
+    <div class="subhead" style="margin-top:14px">Plan a session for a route</div>
+    <div class="btn-row plan-form" data-plan-form>
+      <select class="plan-kind" aria-label="Session kind">
+        <option value="vo2max">VO2max intervals</option>
+        <option value="threshold">Threshold reps</option>
+        <option value="easy">Easy run</option>
+        <option value="long">Long run</option>
+        <option value="steady">Steady at threshold</option>
+      </select>
+      <input class="plan-km" type="number" inputmode="decimal" min="1" max="60" step="0.5" value="10"
+             aria-label="Route length in km"> <span class="note">km</span>
+      ${tplButton(plan, null, { form: true })}
+    </div>
+    <div class="note">The coach builds warm-up, reps and cool-down to fit the route from your own
+      zones and shows it as a card. Nothing goes on the watch until you tap the card's button.</div>` : ""}`;
 }
 
 /* A spawn in flight locks ALL template buttons until the answer is there.
@@ -1133,6 +1170,11 @@ function renderCoach() {
   renderJobs();
   mountCards("#coach-cards", D().cards || [], {
     kindTitle: KIND_TITLE, filter: true, refText,
+    // The proposal button writes to Garmin: never in the demo, never without
+    // a session. The reason stands next to the disabled button.
+    canApply: !D().demo && D().garmin_session !== false,
+    applyHint: D().demo ? "demo data - no Garmin account to write to"
+                        : "needs a Garmin login (runcoach login)",
     emptyText: coachUnavailable()
       ? "No analyses yet."
       : "No analyses yet. Start one above — or tap a run and have it analyzed.",
@@ -1220,9 +1262,15 @@ function renderAll() {
 document.addEventListener("click", ev => {
   const tpl = ev.target.closest("button[data-tpl]");
   if (tpl) {
-    const ctx = tpl.dataset.ctx ? JSON.parse(tpl.dataset.ctx) : null;
+    let ctx = tpl.dataset.ctx ? JSON.parse(tpl.dataset.ctx) : null;
+    // The plan form: the context lives in the inputs beside the button and is
+    // read (and checked) at click time, so the arming key follows the values.
+    if (tpl.dataset.formTpl) {
+      ctx = planFormCtx(tpl);
+      if (!ctx) return;
+    }
     // An agent run is not free — a second tap confirms.
-    armOrFire(tpl, "tpl:" + tpl.dataset.tpl + (tpl.dataset.ctx || ""),
+    armOrFire(tpl, "tpl:" + tpl.dataset.tpl + JSON.stringify(ctx || ""),
               () => spawnTemplate(tpl.dataset.tpl, ctx));
     return;
   }

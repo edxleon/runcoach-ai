@@ -256,6 +256,7 @@ export function renderCard(c, opts = {}) {
       ? `<details class="card-more card-delta-wrap" ${det("delta")}><summary>Since the last card</summary>
            <div class="card-delta">${esc(textPlain(c.delta))}</div></details>` : "";
     const metaLine = meta.length ? `<div class="card-metaline">${meta.map(esc).join(" · ")}</div>` : "";
+    const proposal = renderProposal(c.proposal, opts);
     const fb = opts.feedback !== false ? renderFeedback(id, c.feedback) : "";
     const pending = followUps.get(id);
     const fu = opts.followUp !== false ? renderFollowUp(id, pending) : "";
@@ -265,7 +266,7 @@ export function renderCard(c, opts = {}) {
            <summary>Feedback${value ? (value === "good" ? " · 👍" : " · 👎") : ""}${
              pending ? " · answer on its way" : ""}</summary>${fb}${fu}</details>` : "";
     body = `<div class="card-body">${content || `<div class="empty-note">No content.</div>`}${
-      delta}${metaLine}${respond}</div>`;
+      proposal}${delta}${metaLine}${respond}</div>`;
   }
   // Answers hang visibly BELOW the parent card — even when it is collapsed,
   // otherwise nobody would see that a follow-up question has been answered.
@@ -276,6 +277,49 @@ export function renderCard(c, opts = {}) {
     : "";
   return `<article class="coach-card${c.parent ? " card-child" : ""}"
              data-card-id="${esc(id)}">${head}${body}${childrenHtml}</article>`;
+}
+
+/** The session the coach filed, and the ONE button that writes to Garmin.
+ *  `p.preview` is text from `planning.describe` (built from the athlete's own
+ *  zones, not from the model) and is escaped like everything else on the card.
+ *  The button is the human's yes: two taps, then `POST /api/plan/apply`.
+ *  `opts.canApply === false` (demo, or no Garmin session) keeps it disabled
+ *  with the reason next to it, so a dead button never has to be explained. */
+export function renderProposal(p, opts = {}) {
+  if (!p || !p.id) return "";
+  const applied = p.status === "applied";
+  const can = opts.canApply !== false;
+  const warn = (p.warnings || []).map(w => `<div class="note proposal-warn">! ${esc(w)}</div>`).join("");
+  const button = applied
+    ? `<span class="pill pill-ok">On Garmin${p.workout_id ? ` · workout ${esc(p.workout_id)}` : ""}${
+        p.day ? ` · ${esc(p.day)}` : ""}</span>`
+    : `<button type="button" class="btn btn-primary" data-apply="${esc(p.id)}"
+               data-arm-label="Sure? It goes on the watch"${can ? "" : " disabled"}
+               title="Upload to Garmin, schedule for ${esc(p.day || "the day")}, push to the watch">
+         Put on watch</button>${can ? "" : `<span class="note">${
+           opts.applyHint ? esc(opts.applyHint) : "needs a Garmin login"}</span>`}`;
+  return `<div class="card-proposal" data-proposal="${esc(p.id)}">
+    <div class="subhead">Proposed session${p.day ? ` · ${esc(p.day)}` : ""}</div>
+    <pre class="proposal-steps">${esc(p.preview || "")}</pre>
+    ${warn}
+    <div class="btn-row">${button}</div>
+  </div>`;
+}
+
+async function applyProposal(id, btn) {
+  if (!id) return;
+  const box = btn?.closest("[data-proposal]");
+  box?.querySelectorAll("button").forEach(b => (b.disabled = true));
+  try {
+    const r = await apiPost("/api/plan/apply", { proposal_id: id });
+    toast(String(r?.result || "On Garmin."), { ms: 8000 });
+  } catch (e) {
+    box?.querySelectorAll("button").forEach(b => (b.disabled = false));
+    if (e.message === "403") return;
+    toast("Not applied: " + (e.message || "server gone"), { warn: true, ms: 8000 });
+    return;
+  }
+  context.onJobStart?.();              // pull fresh state: the card now says "On Garmin"
 }
 
 function renderFeedback(id, fb) {
@@ -444,6 +488,13 @@ function install() {
     }
     const fus = ev.target.closest("[data-fu-send]");
     if (fus) { sendFollowUp(fus.closest("[data-fu-card]")); return; }
+    const apply = ev.target.closest("[data-apply]");
+    if (apply) {
+      // Two taps: this is the write to the athlete's Garmin account.
+      armOrFire(apply, "apply:" + apply.dataset.apply,
+                () => applyProposal(apply.dataset.apply, apply));
+      return;
+    }
     const del = ev.target.closest("[data-card-del]");
     if (del) {
       // Two taps: the card is gone for good, and deleting the newest card of a

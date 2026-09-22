@@ -9,10 +9,12 @@ import json
 import re
 import sys
 import threading
+from datetime import timedelta
 
 import pytest
 
 from runcoach import paths
+from runcoach.store import Store
 from runcoach.web import agent, jobs, server
 
 CARD = {"kind": "week-review", "ref": "", "day": "2026-06-10", "headline": "Solid week.",
@@ -181,6 +183,8 @@ card = {"kind": "spoofed", "ref": "", "headline": "Go easy today.", "bullets": [
         "verdict": "easy", "feedback": {"value": "good", "text": "self-praise"}}
 if mode in ("ok", "one_turn"):
     result = "Here you go: " + json.dumps(card)
+elif mode == "bad_proposal":
+    result = json.dumps({**card, "proposal": "../../etc/passwd"})
 elif mode == "prose":
     result = "I could not produce a card."
 elif mode == "crash":
@@ -512,3 +516,127 @@ def test_token_guards_the_api(monkeypatch):
     finally:
         srv.shutdown()
         srv.server_close()
+
+
+# ── the proposal on the card, and the click that applies it ─────────────────
+
+def _file_proposal(store, today):
+    from conftest import DETAIL, make_activity, make_day
+    from runcoach import plan
+
+    store.upsert_activity(make_activity(9_000_000_001, today - timedelta(days=2)))
+    store.update_activity_detail(9_000_000_001, {**DETAIL, "splits": [], "unknown": set()})
+    d = today - timedelta(days=5)
+    store.upsert_daily(make_day(d))
+    store.upsert_lactate_history([{"day": d, "lthr_bpm": 168, "lt_speed_mps": 3.5}])
+    return plan.propose(store, "vo2max", distance_km=10, today=today)
+
+
+def test_a_card_that_names_a_proposal_carries_its_preview(tmp_path, monkeypatch, today):
+    """The model files a session and puts the id in the card; the page needs
+    the preview and the status, resolved server-side from the proposal file.
+    An id the model invented resolves to nothing and is dropped."""
+    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    app = server.App.__new__(server.App)
+    app.db_path = str(tmp_path / "t.db")
+    app.store = Store(app.db_path)
+    app.demo = False
+    app.token = None
+    app.reset_runtime_state()
+    p = _file_proposal(app.store, today)
+
+    job = jobs.new_job("x", title="t", kind="plan-session")
+    jobs.write_card(job["id"], {"kind": "plan-session", "headline": "4x4", "bullets": ["b"],
+                                "verdict": "v", "proposal": p["id"]})
+    fake = jobs.new_job("y", title="t", kind="plan-session")
+    jobs.write_card(fake["id"], {"kind": "plan-session", "headline": "h", "bullets": [],
+                                 "verdict": "v", "proposal": "p-20260101-000000-beef"})
+    cards = {c["id"]: c for c in app.state()["cards"]}
+    assert cards[job["id"]]["proposal"]["id"] == p["id"]
+    assert cards[job["id"]]["proposal"]["status"] == "open"
+    assert "warmup" in cards[job["id"]]["proposal"]["preview"]
+    assert cards[fake["id"]]["proposal"] is None, "an invented id resolves to nothing"
+
+
+def test_parse_card_keeps_only_a_well_formed_proposal_id():
+    good, _ = agent.parse_card('{"headline":"h","bullets":[],"verdict":"v",'
+                               '"proposal":"p-20260922-101010-abcd"}')
+    assert good["proposal"] == "p-20260922-101010-abcd"
+
+
+def test_the_click_applies_the_proposal_through_the_same_path_as_the_tool(tmp_path, monkeypatch,
+                                                                          today):
+    from conftest import FakeGarmin
+    from runcoach import garmin, plan
+
+    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    app = server.App.__new__(server.App)
+    app.db_path = str(tmp_path / "t.db")
+    app.store = Store(app.db_path)
+    app.demo = False
+    app.token = None
+    app.reset_runtime_state()
+    p = _file_proposal(app.store, today)
+    fake = FakeGarmin()
+    monkeypatch.setattr(garmin, "login", lambda tokenstore=None: fake)
+
+    body, code = app.apply_proposal({"proposal_id": p["id"]})
+    assert code == 200 and body["ok"] and "On Garmin" in body["result"], body
+    assert app.store.is_own_workout(body["proposal"]["workout_id"])
+    assert plan.read(p["id"])["status"] == "applied"
+    # ...and the card the page renders now says so.
+    job = jobs.new_job("x", title="t", kind="plan-session")
+    jobs.write_card(job["id"], {"kind": "plan-session", "headline": "h", "bullets": [],
+                                "verdict": "v", "proposal": p["id"]})
+    assert app.state()["cards"][0]["proposal"]["status"] == "applied"
+
+    # a second click is refused, not repeated
+    body, code = app.apply_proposal({"proposal_id": p["id"]})
+    assert code == 409 and "already applied" in body["error"] and len(fake.data["library"]) == 1
+
+
+@pytest.mark.parametrize("op,code,needle", [
+    ({}, 400, "malformed"),
+    ({"proposal_id": "../etc/passwd"}, 400, "malformed"),
+    ({"proposal_id": "p-20260101-000000-dead"}, 404, "unknown"),
+])
+def test_apply_rejects_bad_input_before_touching_garmin(tmp_path, monkeypatch, op, code, needle):
+    from runcoach import garmin
+
+    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setattr(garmin, "login", lambda tokenstore=None: (_ for _ in ()).throw(
+        AssertionError("login must not be attempted")))
+    app = server.App.__new__(server.App)
+    app.db_path = str(tmp_path / "t.db")
+    app.store = Store(app.db_path)
+    app.demo = False
+    app.token = None
+    app.reset_runtime_state()
+    body, got = app.apply_proposal(op)
+    assert got == code and needle in body["error"]
+
+
+def test_apply_in_the_demo_is_refused(demo_app):
+    body, code = demo_app.apply_proposal({"proposal_id": "p-20260101-000000-dead"})
+    assert code == 400 and "demo" in body["error"]
+
+
+def test_plan_session_template_renders_only_checked_values(demo_app):
+    tpl = next(t for t in demo_app.templates() if t["id"] == "plan-session")
+    out, err = demo_app.render(tpl, {"kind": "vo2max", "distance_km": "10"})
+    assert err == "" and "vo2max session for a 10 km route" in out and "{" not in out
+    for bad in ({"kind": "fartlek", "distance_km": "10"}, {"kind": "easy", "distance_km": "10; rm"},
+                {"kind": "easy", "distance_km": "100"}):
+        assert demo_app.render(tpl, bad)[0] is None
+
+
+def test_run_drops_a_proposal_reference_that_is_not_one(stub_cli, tmp_path):
+    """The model may only REFER to a proposal the app filed. A path, a made-up
+    id, anything not of the app's own shape is dropped before the card is
+    written - `plan.read` would refuse it later anyway, but a card file must
+    not carry model-chosen strings under a key the page treats as an id."""
+    (stub_cli / "mode.txt").write_text("bad_proposal", encoding="utf-8")
+    job = jobs.new_job("x", title="t", kind="plan-session")
+    done = agent.run(job, db=str(tmp_path / "t.db"), snapshot_meta={})
+    assert done["status"] == "done"
+    assert "proposal" not in jobs.read_card(job["id"])

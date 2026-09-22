@@ -173,3 +173,21 @@ test("renderCard escapes everything that comes from a model, a user or Garmin", 
   const withRef = renderCard(card, { open: false, refText: () => EVIL });
   assert.ok(!withRef.includes("<img src=x"), "a refText result is escaped");
 });
+
+test("renderProposal: the preview is escaped, the button is the only write, and it says why it is off", async () => {
+  const { renderProposal } = await import("../src/runcoach/web/static/cards.js");
+  const p = { id: "p-20260922-101010-abcd", day: "2026-09-24", status: "open",
+              preview: "VO2max 4x4 min <img src=x onerror=alert(1)>\n  warmup  2.6 km  no target",
+              warnings: [] };
+  const html = renderProposal(p, {});
+  assert.ok(html.includes("&lt;img"), "the preview is escaped, not rendered");
+  assert.ok(html.includes('data-apply="p-20260922-101010-abcd"'), "the apply button carries the id");
+  assert.ok(!html.includes("disabled"), "with a session the button is live");
+
+  const off = renderProposal(p, { canApply: false, applyHint: "demo data - no Garmin account" });
+  assert.ok(off.includes("disabled") && off.includes("demo data"), "off, and it says why");
+
+  const done = renderProposal({ ...p, status: "applied", workout_id: 900001 }, {});
+  assert.ok(!done.includes("data-apply") && done.includes("On Garmin"), "applied: no button, a pill");
+  assert.equal(renderProposal(null, {}), "");
+});

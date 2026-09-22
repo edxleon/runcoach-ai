@@ -294,6 +294,9 @@ def public_cards(limit: int = 10) -> list[dict]:
             "cost_usd": c.get("cost_usd") if isinstance(c.get("cost_usd"), (int, float)) else None,
             "parent": c.get("parent") or None,
             "ctx": c.get("ctx") if isinstance(c.get("ctx"), dict) else None,
+            # The id of a session the coach filed; `server.App._cards_with_proposals`
+            # resolves it to preview + status (this module cannot import `plan`).
+            "proposal": _cap(c.get("proposal"), 40) if isinstance(c.get("proposal"), str) else None,
             "feedback": ({"value": str(fb.get("value") or "")[:10], "text": _cap(fb.get("text"), 500),
                           "ts": str(fb.get("ts") or "")[:32]} if fb else None),
         })

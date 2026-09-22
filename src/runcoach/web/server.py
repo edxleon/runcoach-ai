@@ -77,6 +77,10 @@ _CTX_RULES = {
     # rendered into the prompt. `date.fromisoformat` rejects it downstream, but
     # the two rules here should not differ in what they consider a digit.
     "day": re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$"),
+    # `plan-session`: the kind is an enum (planning.KINDS), the route length a
+    # small decimal - both inserted into a prompt, so both are shapes, never text.
+    "kind": re.compile(r"^(easy|long|threshold|vo2max|steady)$"),
+    "distance_km": re.compile(r"^[0-9]{1,2}(\.[0-9])?$"),
 }
 
 
@@ -166,7 +170,7 @@ class App:
                            "params": t.get("params") or [], "hint": t.get("hint") or ""}
                           for t in self.templates()],
             "jobs": [jobs.public(j) for j in jobs.read_jobs(20)],
-            "cards": jobs.public_cards(),
+            "cards": self._cards_with_proposals(),
             "worker": self.worker_health(),
             # The startup sync runs before anyone can press ↻, so its outcome has
             # to be readable on a plain page load. Otherwise "your data is 5 days
@@ -179,6 +183,48 @@ class App:
             # state that is simply step one of the README.
             "garmin_session": paths.garmin_session_present(),
         }
+
+    def _cards_with_proposals(self) -> list[dict]:
+        """A card that proposed a session carries the proposal ID the model
+        filed (`FRAME`); the page needs the preview and whether it was applied.
+        Resolved here, not in `jobs.public_cards`: `plan` imports the job-file
+        helpers, so jobs cannot import plan."""
+        from .. import plan
+
+        out = jobs.public_cards()
+        for c in out:
+            pid = c.get("proposal")
+            p = plan.read(pid) if isinstance(pid, str) else None
+            c["proposal"] = ({"id": p["id"], "day": p["day"], "status": p["status"],
+                              "preview": p["preview"], "workout_id": p.get("workout_id"),
+                              "warnings": list(p.get("warnings") or [])[:5]}
+                             if p else None)
+        return out
+
+    def apply_proposal(self, op: dict) -> tuple[dict, int]:
+        """The click on the card. The same `plan.apply` the MCP tool calls -
+        one write path, two ways for a human to say yes."""
+        from .. import garmin, plan
+
+        pid = str(op.get("proposal_id") or "").strip()
+        if not re.match(r"^p-[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$", pid):
+            return {"error": "proposal_id missing or malformed"}, 400
+        if self.demo:
+            return {"error": "the demo has no Garmin account to write to"}, 400
+        if plan.read(pid) is None:
+            return {"error": "unknown or expired proposal - ask the coach again"}, 404
+        try:
+            client = garmin.login()
+        except Exception as exc:  # noqa: BLE001 — reported to the UI, never fatal
+            return {"error": f"Garmin login failed ({type(exc).__name__}) - "
+                             f"run `runcoach login`, nothing was written"}, 502
+        result = plan.apply(self.store, client, pid)
+        if result.get("error"):
+            code = 409 if result.get("status") == "applied" else 502
+            return {"error": result["error"], "proposal": result}, code
+        return {"ok": True, "result": plan.describe_result(result),
+                "proposal": {k: result.get(k) for k in
+                             ("id", "day", "status", "workout_id", "schedule_id", "warnings")}}, 200
 
     def worker_health(self) -> dict:
         """`{ok, reason}` for the Coach tab. A stalled or sick runner is the one
@@ -616,6 +662,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(*self.app.spawn(op))
         if route == "/api/feedback":
             return self._json(*self.app.feedback(op))
+        if route == "/api/plan/apply":
+            return self._json(*self.app.apply_proposal(op))
         m = re.match(r"^/api/jobs/(j-[0-9a-z-]+)/cancel$", route)
         if m and jobs.read_job(m.group(1)):
             jobs.request_cancel(m.group(1))

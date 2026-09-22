@@ -29,7 +29,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-537 tests, 59 frontend tests and that gate on three operating systems and two Python versions, with every
+547 tests, 60 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -235,7 +235,8 @@ builds a session for your route from your own zones and files it, `apply_workout
 it, pushes it to the watch and reads it back to verify — and it is tested against a fake Garmin client
 only. It has not yet been run end to end against a real watch, so it is not in the quick start above;
 the section on planning follows that test, not this commit. The app's card runs cannot apply anything;
-in the app a proposal is applied by a click (in progress), in Claude Code by your answer.
+in the app a proposal is applied by a click on the card ("Put on watch", two taps), in Claude Code by
+your answer.
 
 ## License
 

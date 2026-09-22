@@ -236,3 +236,30 @@ def server_static() -> str:
     from runcoach.web import server as _s
 
     return str(Path(_s.__file__).resolve().parent / "static")
+
+
+def test_a_proposal_card_shows_the_button_and_the_demo_keeps_it_off(base_url, tmp_path, monkeypatch):
+    """The one write action on the page, rendered in a real browser: present on
+    a card that proposed a session, disabled in the demo with the reason
+    beside it. (The demo home is the process's RUNCOACH_HOME once the demo app
+    resolved it, so the proposal and the card land where the server reads.)"""
+    from runcoach import paths, plan
+    from runcoach.store import Store
+    from runcoach.web import jobs as jobs_mod
+
+    monkeypatch.setenv("RUNCOACH_CLAUDE_CMD", '["python", "-c", "pass"]')
+    p = plan.propose(Store(paths.db_path()), "vo2max", distance_km=10)
+    job = jobs_mod.new_job("x", title="t", kind="plan-session")
+    jobs_mod.write_card(job["id"], {"kind": "plan-session", "headline": "Four by four",
+                                    "bullets": ["b"], "verdict": "v", "proposal": p["id"]})
+    try:
+        dom, log = render(f"{base_url}#coach", tmp_path / "profile-proposal")
+    finally:
+        jobs_mod.delete_card(job["id"])
+    bad = ("Uncaught", "SyntaxError", "Content Security Policy", "Refused to")
+    assert not [ln for ln in log.splitlines() if "CONSOLE" in ln and any(w in ln for w in bad)]
+    assert 'data-apply="' + p["id"] in dom, "the proposal's button is not on the page"
+    chunk = dom.split('data-apply="' + p["id"])[1][:400]
+    assert "disabled" in chunk, "the demo must not offer a write to Garmin"
+    assert "demo data" in dom
+    assert "warmup" in dom and "HR zone 5" in dom, "the preview is rendered"

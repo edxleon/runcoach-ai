@@ -35,6 +35,16 @@
 .card-delta { font-size: 13px; line-height: 1.45; border-left: 2px solid var(--accent);
               padding-left: 8px; overflow-wrap: anywhere; }
 .card-metaline { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+/* The proposed session: fixed-width so the step columns line up; the button
+   row below it is the one write action on the page. */
+.card-proposal { display: grid; gap: 8px; border-left: 2px solid var(--accent); padding-left: 10px; }
+.proposal-steps { margin: 0; font-family: "Cascadia Code", "Roboto Mono", ui-monospace, Consolas, monospace;
+                  font-size: 12.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+.proposal-warn { color: var(--warn); }
+.plan-form select, .plan-form input { font: inherit; color: inherit; background: var(--surface2);
+                                      border: 1px solid var(--line); border-radius: var(--r-sm);
+                                      padding: 6px 8px; }
+.plan-form input { width: 5.5em; }
 
 /* Feedback + follow-up: one row that wraps cleanly at 390 px. */
 .card-fb, .card-followup { display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
