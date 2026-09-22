@@ -446,3 +446,54 @@ def test_a_workout_name_arrives_as_one_line_of_printable_text():
     assert len(long_one.name) == 60
     # A name that is nothing but whitespace is no name: the builder's own.
     assert build_session("easy", duration_min=40, zones=ZONES, name="   ").name.startswith("Easy")
+
+
+# ── how a failed upload is classified ───────────────────────────────────────
+
+#: Every exception the vendor library defines, and whether it PROVES Garmin
+#: created nothing. `True` hands the claim back so the session can be tried
+#: again; `False` keeps it, and `runcoach doctor` asks the athlete to look in
+#: their Garmin library - the safe direction when the answer was lost rather
+#: than refused. A new class in a library update makes this table red, which
+#: is the point: the default for something unclassified is "keep the claim",
+#: and that should be a decision, not an accident.
+VENDOR_ERRORS = {
+    "GarminConnectAuthenticationError": True,     # refused before anything ran
+    "GarminConnectConnectionError": True,         # the request never landed
+    "GarminConnectTooManyRequestsError": True,    # refused, nothing created
+    "GarminConnectInvalidFileFormatError": True,  # the workout itself was rejected
+    "GarminConnectNotFoundError": False,          # a 404 mid-write says nothing
+    "HTTPError": False,                           # a 5xx can follow a write
+}
+
+
+def test_every_vendor_error_has_a_deliberate_verdict():
+    import inspect
+
+    import garminconnect
+
+    from runcoach.plan import _created_nothing
+
+    found = {name: cls for name, cls in vars(garminconnect).items()
+             if inspect.isclass(cls) and issubclass(cls, BaseException)}
+    assert set(found) == set(VENDOR_ERRORS), (
+        f"the library's exceptions changed: {sorted(set(found) ^ set(VENDOR_ERRORS))} - "
+        f"decide what each new one proves before the write path meets it")
+    for name, cls in found.items():
+        assert _created_nothing(cls("x")) is VENDOR_ERRORS[name], name
+
+
+@pytest.mark.parametrize("name,expected", [
+    ("ConnectionError", True), ("ConnectTimeout", True), ("SSLError", True),
+    ("ReadTimeout", False), ("Timeout", False), ("HTTPError", False),
+])
+def test_a_lost_answer_is_never_mistaken_for_a_refusal(name, expected):
+    """`requests` has its own hierarchy, and none of it inherits from the
+    builtin `ConnectionError`. A read timeout is the case that matters: the
+    request landed, the answer did not, and handing the claim back there is
+    how the same session reaches the watch twice."""
+    import requests
+
+    from runcoach.plan import _created_nothing
+
+    assert _created_nothing(getattr(requests.exceptions, name)("x")) is expected

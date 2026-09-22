@@ -60,9 +60,15 @@ MAX_WARNINGS = 40
 #: or the connection never carried one. Anything else - above all a read
 #: timeout, where the request landed and the answer did not - leaves the claim
 #: in place, because a retry is what would put the session on the watch twice.
+#: Matched on the exception's NAME, not its class: the vendor library defines
+#: its own hierarchy (`GarminConnectConnectionError` and friends inherit from
+#: plain `Exception`, not from the builtin `ConnectionError`), and `requests`
+#: has a third. A name is the one thing all three agree on.
+#: `InvalidFileFormat` is in here because a rejected workout is a decision the
+#: server made about the request, not a lost answer - nothing was created.
 _CREATED_NOTHING_HINTS = ("ConnectionRefused", "ConnectionError", "NameResolution",
                           "ConnectTimeout", "TooManyRequests", "Authentication",
-                          "Unauthorized", "Forbidden", "SSLError")
+                          "Unauthorized", "Forbidden", "SSLError", "InvalidFileFormat")
 
 
 #: The shape of a proposal id, in ONE place. It guards three entrances - the
