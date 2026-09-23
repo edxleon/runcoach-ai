@@ -64,6 +64,15 @@ model defaults, the inline hints in the tool text, or genuine redundancy. Read i
 the model". Making it the stronger claim needs a third arm with the rule-bearing lines
 stripped from the fixture too.
 
+**Two lessons about the judge, written down because they cost several runs.**
+A criterion that bundles two rules measures neither: the case below asked both
+"is the swap proposed rather than claimed" and "is the day it names allowed",
+and scored about one in two. And a criterion the judge has to do ARITHMETIC for
+- count three days on, work out a weekday - is one it will sometimes get wrong
+and blame on the answer. Both are now fixed by narrowing what the judge is
+asked to look at, not by changing what the coach does. When a case flakes,
+suspect the question before the answer.
+
 **One rule is deliberately not gated.** "No hard session the day before the long run" is in
 `coach.md` and in `build_week`, but the case that once asked for it scored about one in two
 across repeated runs — the model quotes the rule and then names that day anyway. A criterion

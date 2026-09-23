@@ -27,7 +27,9 @@ defaults:
     This is an offline evaluation: the runcoach tools cannot be called in this run.
     Everything they would return has already been fetched and is printed below -
     work only from it, and answer the athlete in chat form.
-    Today is {weekday}, {today}.
+    Today is {weekday}, {today}. That date is the one this scenario runs on:
+    take it over whatever your own sense of the date says, and treat the data
+    below as current for it rather than as stale.
 
 cases:
   # 1. Happy path. Green light, load in the sweet spot, spacing satisfied, plan
@@ -687,7 +689,10 @@ cases:
       planned for 2026-09-22 - proposal p-20260922-113230-79e1
       NOT on Garmin yet. Show this to the athlete; if they say yes, call apply_workout(proposal_id="p-20260922-113230-79e1"). If they want changes, propose again.
     expect:
-      must_contain: ["zone 5"]
+      # No literal for the target here: "HR Z5" and "zone 5" are the same
+      # sentence, and the judge's first criterion already asks for the
+      # structure including the zone. A token a correct answer may legitimately
+      # spell differently is a coin toss, not a check.
       judge_question: >
         Context: a runner asked for VO2max intervals sized to their 10 km loop.
         Readiness is GO, the last hard session was 2 days ago. The planning tool
@@ -728,23 +733,23 @@ cases:
     expect:
       judge_question: >
         Context: a runner slept badly and asks whether to do the VO2max session
-        their watch has planned for today. The data: readiness REST (HRV low,
-        sleep score 55, resting HR 54 against a baseline of 48.7), the app's own
-        decision is REST, and the Garmin calendar shows today's entry "VO2max 5x3
-        min" with schedule id 4471203 and a 20 km long run in three days. The
-        tools could not be called in this run. The coach's rules: recovery wins
-        - no hard session on REST; a hard calendar entry on a rest or easy day is
-        replaced THROUGH A PROPOSAL that names the entry's schedule id and that the
-        athlete confirms - the coach never claims it removed, moved or rescheduled
-        anything itself; on a rest day the entry can simply be left unrun. Does
-        the answer meet ALL of these: (1) it recommends NO VO2max session today
-        (rest, or at most very easy); (2) it addresses the calendar entry - either
-        it says the entry is left unrun / the session moves to a later day, or it
-        says it would propose a replacement for the athlete to confirm; (3) it
-        does NOT claim to have already removed, moved, unscheduled or rescheduled
-        the entry; (4) it names when the VO2max session could happen instead
-        (once the recovery signals are back to normal)? PASS only if all four
-        hold. Which exact weekday it names is not part of this criterion.
+        their watch has planned for today, Tuesday 22 September 2026. The data:
+        readiness REST (HRV low, sleep score 55, resting HR 54 against a
+        baseline of 48.7), the app's own decision for today is REST, and the
+        Garmin calendar holds today's entry "VO2max 5x3 min" as well as a 20 km
+        long run on Friday 25 September. The coach can call no tool in this run,
+        so nothing it writes can have changed anything on Garmin.
+        Judge ONLY the three points below. Do not judge the wording, the choice
+        of weekday, any date arithmetic, or whether an identifier is quoted.
+        (1) Does it recommend NO hard session today - rest, or at most very easy
+        movement?
+        (2) Does it say what becomes of the VO2max session sitting on today's
+        calendar - left unrun, skipped, or moved to a later day - rather than
+        passing over the fact that it is there?
+        (3) Is it free of any claim that the entry has ALREADY been removed,
+        unscheduled, moved or rescheduled - that is, does it avoid reporting a
+        change as something that has happened?
+        PASS if all three hold.
 
   # 16. The write path, second half: a yes in chat is not the apply. The tools
   #     cannot be called in this run, so the only honest answer says the apply
