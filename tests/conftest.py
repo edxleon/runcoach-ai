@@ -175,6 +175,20 @@ class FakeGarmin:
     def upload_running_workout(self, workout):
         return self.upload_workout(workout.to_dict())
 
+    def get_full_name(self):
+        return self.data.get("full_name", "Test Athlete")
+
+    def get_lactate_threshold(self, **kw):
+        """Empty by DEFAULT, not missing. The double used not to have this at
+        all, so `_safe` swallowed an AttributeError and the lactate path came
+        back empty through a mechanism that has nothing to do with Garmin -
+        which is the same answer for "no data" and for "we stopped calling
+        it"."""
+        return self.data.get("lactate", {})
+
+    def get_race_predictions(self, **kw):
+        return self.data.get("race_predictions", {})
+
     def get_workout_by_id(self, workout_id):
         try:
             return self._lib()[int(workout_id)]
