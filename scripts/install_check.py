@@ -33,7 +33,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_TOOLS = 13   # 11 read-only + sync_garmin + apply_workout
+EXPECTED_TOOLS = 14   # 12 read-only + sync_garmin + the two write tools
 failures: list[str] = []
 
 

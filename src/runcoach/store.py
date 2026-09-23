@@ -809,6 +809,15 @@ class Store:
                 "WHERE proposal_id = ? AND item_index >= 0", (str(proposal_id),)).fetchall()
         return {r["item_index"]: r["workout_id"] for r in rows}
 
+    def release_schedule_claim(self, proposal_id: str, index: int) -> None:
+        """Drop the claim on the SCHEDULING of one session (`plan` keeps those
+        under a negative index). Taken back when a session is unscheduled, so
+        the proposal can be applied again without the table refusing the day it
+        just freed."""
+        with self._conn() as conn:
+            conn.execute("DELETE FROM proposal_items WHERE proposal_id = ? AND item_index = ?",
+                         (str(proposal_id), int(-1000 - index)))
+
     def reap_stale_claims(self, minutes: int = CLAIM_STALE_MINUTES) -> int:
         """Drop claims whose apply never came back, so the session can be tried
         again. Only `in_flight` rows: a claim the apply could not resolve is

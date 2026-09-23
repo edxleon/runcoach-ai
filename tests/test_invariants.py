@@ -1520,6 +1520,7 @@ def test_a_busy_file_never_makes_a_queued_job_invisible(tmp_path, monkeypatch):
 #: gates stayed green, while the app's three primary write actions 404 for the
 #: user. `test_ui_smoke.py` renders the page but never clicks.
 _CLIENT_CALL = {
+    "/api/plan/undo": "POST",
     "/api/state": "GET",
     "/api/refresh": "GET",
     "/api/jobs": "GET",

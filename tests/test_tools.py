@@ -30,12 +30,20 @@ def _reset_sync_cooldown():
     tools._last_sync[0] = None
 
 
+#: Everything the MCP server offers that only READS. The write tools live in
+#: `tools.WRITE_TOOLS`; the two together have to be the whole registry.
+READ_ONLY_TOOLS = {
+    "get_training_readiness", "get_recovery_summary", "get_daily_metrics", "get_trend",
+    "get_training_load", "get_recent_activities", "get_intensity_distribution",
+    "analyze_workout", "get_vo2max_history", "sync_garmin",
+    "propose_workout", "propose_week"}
+
 EXPECTED_MCP_TOOLS = {
     "get_training_readiness", "get_recovery_summary", "get_daily_metrics", "get_trend",
     "get_training_load", "get_recent_activities", "get_intensity_distribution",
     "analyze_workout", "get_vo2max_history", "sync_garmin",
     # the write path: propose (local) and, after a human's yes, apply (Garmin)
-    "propose_workout", "propose_week", "apply_workout"}
+    "propose_workout", "propose_week", "apply_workout", "undo_workout"}
 
 
 def test_hm_formatting():
@@ -1616,3 +1624,117 @@ def test_every_claimed_step_of_an_apply_happens_exactly_once(store, today, monke
 
     _race(store, fake, p["id"], today, monkeypatch)
     assert len(calls) == 1, f"{step}: Garmin was asked {len(calls)} times"
+
+
+# ── taking it back off ──────────────────────────────────────────────────────
+
+def test_undo_takes_the_session_off_the_calendar_and_leaves_the_workout(store, today,
+                                                                        monkeypatch):
+    """The counterpart the write path was missing. Without it the first real
+    write is a one-way door - and a one-way door is the reason a first real
+    write does not get made."""
+    from runcoach import plan
+
+    _seed_zones(store, today)
+    fake = FakeGarmin()
+    monkeypatch.setattr(garmin, "login", lambda tokenstore=None: fake)
+    pid = tools.propose_workout(store, "vo2max", distance_km=10).split("proposal ")[1].split()[0]
+    tools.apply_workout(store, pid)
+    wid = plan.workouts_of(plan.read(pid, store))[0]
+    assert store.get_scheduled_workouts(today, today), "it is on the calendar"
+
+    out = tools.undo_workout(store, pid)
+    assert "Taken off the calendar: 1 session" in out and "stay in your Garmin library" in out
+    assert fake.data["schedule"] == {}, "the calendar entry is gone"
+    assert wid in fake.data["library"], "the workout itself is not"
+    assert store.get_scheduled_workouts(today, today) == [], "and the mirror agrees"
+    assert plan.pending_of(plan.read(pid, store)) == 1, "so the proposal has work again"
+
+
+def test_undo_puts_the_proposal_back_within_reach_of_a_second_apply(store, today, monkeypatch):
+    """Undo releases the scheduling claim, otherwise applying again would be
+    refused by the table for the very day it just freed."""
+    from runcoach import plan
+
+    _seed_zones(store, today)
+    fake = FakeGarmin()
+    monkeypatch.setattr(garmin, "login", lambda tokenstore=None: fake)
+    pid = tools.propose_workout(store, "vo2max", distance_km=10).split("proposal ")[1].split()[0]
+    tools.apply_workout(store, pid)
+    tools.undo_workout(store, pid)
+
+    again = tools.apply_workout(store, pid)
+    assert "On Garmin" in again and "scheduled for" in again
+    assert len(fake.data["library"]) == 1, "the workout was NOT uploaded a second time"
+    assert plan.pending_of(plan.read(pid, store)) == 0
+
+
+def test_undo_leaves_alone_what_this_app_did_not_upload(store, today, monkeypatch):
+    """`runcoach_workouts` is the record. A calendar id whose workout is not
+    ours - the athlete's own, or one Garmin has since given to something else -
+    is reported, not removed."""
+    from runcoach import plan
+
+    _seed_zones(store, today)
+    fake = FakeGarmin()
+    monkeypatch.setattr(garmin, "login", lambda tokenstore=None: fake)
+    pid = tools.propose_workout(store, "vo2max", distance_km=10).split("proposal ")[1].split()[0]
+    tools.apply_workout(store, pid)
+
+    # The app forgets it ever made this one - as if the athlete had.
+    p = plan.read(pid, store)
+    wid = plan.workouts_of(p)[0]
+    with __import__("sqlite3").connect(store.path) as conn:
+        conn.execute("DELETE FROM runcoach_workouts WHERE workout_id = ?", (wid,))
+
+    out = tools.undo_workout(store, pid)
+    assert "not one this app uploaded" in out and "left alone" in out
+    assert fake.data["schedule"], "the entry is still there"
+
+
+def test_undo_on_something_that_was_never_applied_says_so(store, today, monkeypatch):
+    from runcoach import plan
+
+    _seed_zones(store, today)
+    monkeypatch.setattr(garmin, "login", lambda tokenstore=None: FakeGarmin())
+    p = plan.propose(store, "easy", duration_min=40, today=today)
+    assert "nothing of this proposal is on the calendar" in tools.undo_workout(store, p["id"])
+    assert "nothing to take back" in tools.undo_workout(store, "p-20260101-000000-dead")
+
+
+def test_undo_is_refused_in_a_card_run_like_every_other_write(store, today, monkeypatch):
+    _seed_zones(store, today)
+    logins = []
+    monkeypatch.setattr(garmin, "login", lambda tokenstore=None: logins.append(1))
+    monkeypatch.setenv("RUNCOACH_UNATTENDED", "1")
+    out = tools.undo_workout(store, "p-20260101-000000-dead")
+    assert "unattended card run" in out
+    assert logins == [], "it does not even reach Garmin"
+
+
+def test_every_registered_tool_is_classified_as_reading_or_writing():
+    """The mechanism, not a third remembered list. `--allowedTools
+    mcp__runcoach` is a PREFIX allow: a tool nobody classified is allowed, and
+    an unattended card run would be able to call it. Adding a tool without
+    deciding what it does makes this red."""
+    import asyncio
+    import pathlib
+    import tempfile
+
+    from runcoach import mcp_server
+    from runcoach.web import agent
+
+    registered = {t.name for t in asyncio.run(mcp_server.mcp.list_tools())}
+    writes = set(tools.WRITE_TOOLS)
+    assert writes <= registered, f"WRITE_TOOLS names something unregistered: {writes - registered}"
+
+    reads = registered - writes
+    assert reads == READ_ONLY_TOOLS, (
+        f"a tool appeared or changed sides: {sorted(reads ^ READ_ONLY_TOOLS)} - list it in "
+        f"READ_ONLY_TOOLS if it only reads, in tools.WRITE_TOOLS if it can change Garmin")
+
+    with tempfile.TemporaryDirectory() as d:
+        cmd = agent.command(pathlib.Path(d), db=None)
+    denied = set(cmd[cmd.index("--disallowedTools") + 1].split(","))
+    assert denied == {f"mcp__runcoach__{n}" for n in writes}, (
+        f"the card run denies {sorted(denied)}, the write tools are {sorted(writes)}")

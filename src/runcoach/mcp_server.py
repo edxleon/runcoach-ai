@@ -219,5 +219,22 @@ def apply_workout(
     return tools.apply_workout(store(), proposal_id)
 
 
+@mcp.tool()
+def undo_workout(
+    proposal_id: Annotated[str, Field(pattern=plan.PROPOSAL_ID_PATTERN,
+                                      description="The id of a proposal that was applied.")],
+) -> str:
+    """Take a session (or a whole applied week) back OFF the athlete's Garmin
+    calendar. The counterpart of apply_workout: use it when the athlete says
+    the session should not be there after all, or after trying the write path
+    out. It unschedules - the workout stays in their Garmin library, so
+    applying the same proposal again puts it back on a day without building or
+    uploading anything a second time. Only sessions this app uploaded and
+    scheduled are touched; a calendar entry that has changed hands since is
+    left alone and reported. Like apply_workout it needs the athlete's explicit
+    yes, and it is not available to the app's own card runs."""
+    return tools.undo_workout(store(), proposal_id)
+
+
 def main() -> None:
     mcp.run()

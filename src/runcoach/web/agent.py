@@ -29,7 +29,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from .. import paths, plan
+from .. import paths, plan, tools
 from . import jobs
 
 PKG = Path(__file__).resolve().parent.parent
@@ -170,7 +170,12 @@ def child_env() -> dict:
 #: Fully qualified, as the CLI names MCP tools: server `runcoach`, tool
 #: `apply_workout`. `tests/test_tools.py` pins that the server really
 #: registers a tool of this name, so the flag cannot silently point at nothing.
-WRITE_TOOL = "mcp__runcoach__apply_workout"
+#: Derived from `tools.WRITE_TOOLS`, not written down again: the second write
+#: tool is the one that gets forgotten, and `--allowedTools mcp__runcoach` is a
+#: PREFIX allow, so anything unlisted is allowed by default.
+WRITE_TOOLS = tuple(f"mcp__runcoach__{n}" for n in tools.WRITE_TOOLS)
+#: Kept for the tests and docs that name the first one by itself.
+WRITE_TOOL = WRITE_TOOLS[0]
 
 
 def command(workdir: Path, db: str | None) -> list[str]:
@@ -192,7 +197,7 @@ def command(workdir: Path, db: str | None) -> list[str]:
            # is a human's click on the card (or their word in a Claude Code
            # session, where this flag is not set). Configuration, not a
            # sentence in coach.md - a prompt is not a permission system.
-           "--disallowedTools", WRITE_TOOL]
+           "--disallowedTools", ",".join(WRITE_TOOLS)]
     if os.environ.get("RUNCOACH_MODEL"):
         cmd += ["--model", os.environ["RUNCOACH_MODEL"]]
     return cmd

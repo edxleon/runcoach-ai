@@ -138,7 +138,11 @@ def test_command_is_an_allowlist(tmp_path, monkeypatch):
     # The prefix allow above would cover the one tool that writes to Garmin;
     # an unattended card run must not be able to call it. A click or the
     # athlete's word in a Claude Code session applies a proposal, never a job.
-    assert cmd[cmd.index("--disallowedTools") + 1] == "mcp__runcoach__apply_workout"
+    # BOTH write tools, by their literal names: the allow above is a PREFIX, so
+    # anything not named here is allowed. `tests/test_tools.py` pins separately
+    # that this list is DERIVED from `tools.WRITE_TOOLS` rather than remembered.
+    assert (cmd[cmd.index("--disallowedTools") + 1].split(",")
+            == ["mcp__runcoach__apply_workout", "mcp__runcoach__undo_workout"])
     # ...and the second lock, which does not depend on that flag: the child
     # server is told it is a card run, and refuses the write itself.
     assert agent.mcp_config(None)["mcpServers"]["runcoach"]["env"]["RUNCOACH_UNATTENDED"] == "1"
@@ -234,8 +238,9 @@ def test_run_round_trip_writes_a_validated_card(stub_cli, tmp_path, today):
     assert "Should I train today?" in (stub_cli / "stdin.txt").read_text(encoding="utf-8")
     argv = json.loads((stub_cli / "argv.json").read_text(encoding="utf-8"))
     assert argv[argv.index("--tools") + 1] == "" and "--strict-mcp-config" in argv
-    assert argv[argv.index("--disallowedTools") + 1] == "mcp__runcoach__apply_workout", \
-        "the real spawn reached the CLI without the write tool denied"
+    denied = argv[argv.index("--disallowedTools") + 1].split(",")
+    assert denied == ["mcp__runcoach__apply_workout", "mcp__runcoach__undo_workout"], \
+        "the real spawn reached the CLI without every write tool denied"
     assert "exit=0" in jobs.log_path(job["id"]).read_text(encoding="utf-8")
     assert [c["id"] for c in jobs.public_cards()] == [job["id"]]
 

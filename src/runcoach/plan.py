@@ -199,8 +199,11 @@ def _reconcile(store: Store, p: dict) -> dict:
     for idx, it in enumerate(p["items"]):
         if claimed.get(idx) and not it.get("workout_id"):
             it["workout_id"] = claimed[idx]
-        if it.get("workout_id") and not it.get("schedule_id"):
-            it["schedule_id"] = scheduled.get(it["workout_id"])
+        # In BOTH directions for a workout the database knows: after an undo
+        # the day is gone, and a merge that only ever fills in a missing value
+        # would hand the stale one back from the file.
+        if it.get("workout_id") in scheduled:
+            it["schedule_id"] = scheduled[it["workout_id"]]
     if any(it.get("workout_id") for it in p["items"]):
         # "applied" = this proposal has touched Garmin, which is what decides
         # whether a second apply may upload. Whether every session also got a
@@ -597,6 +600,81 @@ def _place(store: Store, client, proposal_id: str, idx: int, it: dict,
         problems = [f"could not read the workout back: {type(exc).__name__}: {exc}"]
     it["verified"] = not problems
     warnings.extend(f"MISMATCH on Garmin, {day} \"{spec.name}\": {x}" for x in problems)
+
+
+def undo(store: Store, client, proposal_id: str, *, today: date | None = None) -> dict:
+    """Take an applied proposal back off the calendar.
+
+    The counterpart the write path was missing: a session could go onto the
+    watch and never come off it again, which makes the first real write a
+    one-way door - and a one-way door is the reason a first real write does
+    not get made. It UNSCHEDULES; the workout stays in the athlete's Garmin
+    library, because deleting is a door of its own and v1 does not open it.
+
+    Only sessions THIS proposal placed, and only those this app uploaded -
+    `runcoach_workouts` is the record, and a calendar id that no longer holds
+    our workout belongs to something else by now."""
+    anchor = today or paths.today()
+    p = read(proposal_id, store)
+    if p is None:
+        return {"id": proposal_id, "status": "unknown",
+                "error": f"no proposal {proposal_id} - nothing to take back"}
+    placed = [it for it in p["items"] if it.get("schedule_id")]
+    if not placed:
+        return {**p, "error": ("nothing of this proposal is on the calendar"
+                               + (" any more" if p.get("status") == "applied" else ""))}
+
+    ours = {w["workout_id"] for w in store.own_workouts() if w["workout_id"]}
+    warnings: list[str] = []
+    removed = 0
+    for it in placed:
+        sid, wid = int(it["schedule_id"]), it.get("workout_id")
+        if wid not in ours:
+            warnings.append(f"{it['day']}: workout {wid} is not one this app uploaded - left alone")
+            continue
+        now_is = _scheduled_workout_id(store, sid, today=anchor)
+        if now_is is not None and now_is != wid:
+            warnings.append(f"{it['day']}: schedule {sid} no longer holds workout {wid} - "
+                            f"left alone, the calendar changed")
+            continue
+        try:
+            garmin.unschedule(client, sid)
+        except Exception as exc:  # noqa: BLE001
+            warnings.append(f"{it['day']}: could not take it off ({type(exc).__name__}: {exc})")
+            continue
+        log.info("unscheduled %s (workout %s) undoing proposal %s", sid, wid, proposal_id)
+        it["schedule_id"] = None
+        it["pushed"] = None
+        store.record_workout(wid, name=planning.from_json(it["spec"]).name,
+                             kind=it["spec"]["kind"], spec_json=json.dumps(it["spec"]),
+                             schedule_id=None, scheduled_day=None)
+        # The scheduling claim goes with it, so the proposal can be applied
+        # again later without the claim table refusing the day it just freed.
+        store.release_schedule_claim(proposal_id, p["items"].index(it))
+        removed += 1
+
+    start, end = anchor - timedelta(days=CALENDAR_WINDOW[0]), anchor + timedelta(days=CALENDAR_WINDOW[1])
+    try:
+        entries, complete = garmin.fetch_scheduled_workouts(client, start, end)
+        if complete:
+            store.replace_scheduled_workouts(entries, start, end)
+    except Exception as exc:  # noqa: BLE001
+        warnings.append(f"calendar mirror not refreshed ({type(exc).__name__})")
+
+    out = _finish(store, proposal_id, p, warnings)
+    out["undone"] = removed
+    return out
+
+
+def describe_undo(p: dict) -> str:
+    if p.get("error") and not p.get("undone"):
+        return p["error"]
+    n = p.get("undone", 0)
+    lines = [f"Taken off the calendar: {n} session(s). The workout(s) stay in your Garmin "
+             f"library, so applying this proposal again puts them back on a day."
+             if n else "Nothing was taken off the calendar."]
+    lines.extend(f"  ! {w}" for w in p.get("warnings", []))
+    return "\n".join(lines)
 
 
 def workouts_of(p: dict) -> list[int]:

@@ -303,7 +303,11 @@ export function renderProposal(p, opts = {}) {
   const week = Number(p.days) > 1;
   const button = applied
     ? `<span class="pill pill-ok">On Garmin${ids.length > 1 ? ` · ${ids.length} workouts`
-        : ids.length ? ` · workout ${esc(ids[0])}` : ""}${p.day ? ` · ${esc(p.day)}` : ""}</span>`
+        : ids.length ? ` · workout ${esc(ids[0])}` : ""}${p.day ? ` · ${esc(p.day)}` : ""}</span>
+       <button type="button" class="btn btn-quiet" data-undo="${esc(p.id)}"
+               data-arm-label="Sure? It comes off the calendar"${can ? "" : " disabled"}
+               title="Take it off the Garmin calendar - the workout stays in your library">
+         Take off watch</button>`
     : `<button type="button" class="btn btn-primary" data-apply="${esc(p.id)}"
                data-arm-label="Sure? ${partial ? `${esc(pending)} more go` :
                  week ? "The whole week goes" : "It goes"} on the watch"${can ? "" : " disabled"}
@@ -321,6 +325,28 @@ export function renderProposal(p, opts = {}) {
     <div class="btn-row">${button}</div>
   </div>`;
 }
+
+async function undoProposal(id, btn) {
+  if (!id) return;
+  const box = btn?.closest("[data-proposal]");
+  box?.querySelectorAll("button").forEach(b => (b.disabled = true));
+  try {
+    const r = await apiPost("/api/plan/undo", { proposal_id: id }, APPLY_TIMEOUT_MS);
+    toast(String(r?.result || "Taken off the calendar."), { ms: 8000 });
+  } catch (e) {
+    if (/timed out|timeout/i.test(String(e.message || ""))) {
+      toast("Still talking to Garmin - refresh in a moment to see what changed.",
+            { warn: true, ms: 10000 });
+      return;
+    }
+    box?.querySelectorAll("button").forEach(b => (b.disabled = false));
+    if (e.message === "403") return;
+    toast("Not taken off: " + (e.message || "server gone"), { warn: true, ms: 8000 });
+    return;
+  }
+  context.onJobStart?.();
+}
+
 
 async function applyProposal(id, btn) {
   if (!id) return;
@@ -523,6 +549,14 @@ function install() {
       // Two taps: this is the write to the athlete's Garmin account.
       armOrFire(apply, "apply:" + apply.dataset.apply,
                 () => applyProposal(apply.dataset.apply, apply));
+      return;
+    }
+    const undo = ev.target.closest("[data-undo]");
+    if (undo) {
+      // Two taps as well: it changes the athlete's Garmin calendar, and a
+      // session taken off by accident is a session they turn up without.
+      armOrFire(undo, "undo:" + undo.dataset.undo,
+                () => undoProposal(undo.dataset.undo, undo));
       return;
     }
     const del = ev.target.closest("[data-card-del]");

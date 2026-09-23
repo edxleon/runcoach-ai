@@ -252,6 +252,33 @@ class App:
                 "proposal": {**{k: result.get(k) for k in ("id", "day", "days", "status", "warnings")},
                              "workouts": written, "pending": pending}}, 200
 
+    def undo_proposal(self, op: dict) -> tuple[dict, int]:
+        """The other click: take an applied proposal back off the calendar.
+
+        Same shape as `apply_proposal`, same two locks - a write is a write."""
+        from .. import garmin, plan
+
+        pid = str(op.get("proposal_id") or "").strip()
+        if not plan.PROPOSAL_ID_RE.match(pid):
+            return {"error": "proposal_id missing or malformed"}, 400
+        if self.demo:
+            return {"error": "the demo has no Garmin account to change"}, 400
+        current = plan.read(pid, self.store)
+        if current is None:
+            return {"error": "unknown or expired proposal"}, 404
+        if not any(it.get("schedule_id") for it in current["items"]):
+            return {"error": "nothing of this proposal is on the calendar"}, 409
+        try:
+            client = garmin.login()
+        except Exception as exc:  # noqa: BLE001 — reported to the UI, never fatal
+            return {"error": f"Garmin login failed ({type(exc).__name__}) - "
+                             f"run `runcoach login`, nothing was changed"}, 502
+        result = plan.undo(self.store, client, pid)
+        return {"ok": bool(result.get("undone")), "undone": result.get("undone", 0),
+                "result": plan.describe_undo(result),
+                "proposal": {k: result.get(k) for k in ("id", "day", "days", "status",
+                                                        "warnings")}}, 200
+
     def worker_health(self) -> dict:
         """`{ok, reason}` for the Coach tab. A stalled or sick runner is the one
         failure that otherwise looks like nothing at all: jobs simply stay
@@ -688,6 +715,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(*self.app.spawn(op))
         if route == "/api/feedback":
             return self._json(*self.app.feedback(op))
+        if route == "/api/plan/undo":
+            return self._json(*self.app.undo_proposal(op))
         if route == "/api/plan/apply":
             return self._json(*self.app.apply_proposal(op))
         m = re.match(r"^/api/jobs/(j-[0-9a-z-]+)/cancel$", route)

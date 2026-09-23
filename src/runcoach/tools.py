@@ -562,20 +562,56 @@ def propose_week(store: Store, start_day: str | None = None, days_per_week: int 
     return _proposal_text(p)
 
 
+#: The tools that CHANGE the athlete's Garmin account. Named here so the agent
+#: can deny all of them without anyone remembering to add the new one, and so a
+#: test can insist that every registered tool is classified one way or the
+#: other. A write tool that nobody classified would be allowed by the prefix
+#: allow, which is how the second one of these would have slipped through.
+WRITE_TOOLS = ("apply_workout", "undo_workout")
+
+
+def _unattended_refusal(what: str) -> str | None:
+    import os
+
+    if not os.environ.get("RUNCOACH_UNATTENDED"):
+        return None
+    return (f"This run cannot {what}: it is an unattended card run. Nobody is reading it while "
+            f"it happens, so there is no yes to be had - the athlete decides on the card.")
+
+
+def undo_workout(store: Store, proposal_id: str) -> str:
+    """Take an applied proposal back off the Garmin calendar."""
+    import os
+
+    from . import garmin, plan
+
+    refusal = _unattended_refusal("change Garmin")
+    if refusal:
+        return refusal
+    if os.environ.get("RUNCOACH_DEMO"):
+        return "Demo mode has no Garmin account to change - run with real data and a login."
+    if plan.read(proposal_id, store) is None:
+        return f"no proposal {proposal_id} - nothing to take back"
+    try:
+        client = garmin.login()
+    except Exception as exc:  # noqa: BLE001 — a tool returns text, never an exception
+        return (f"Garmin login failed ({type(exc).__name__}) - nothing was changed. "
+                f"Ask the athlete to run `runcoach login`, then try again.")
+    return plan.describe_undo(plan.undo(store, client, proposal_id, today=paths.today()))
+
+
 def apply_workout(store: Store, proposal_id: str) -> str:
     """Write ONE proposal to Garmin. The only tool that changes the account."""
     import os
 
     from . import garmin, plan
 
-    if os.environ.get("RUNCOACH_UNATTENDED"):
-        # A card run. Nobody is reading this when it happens, so there is no
-        # yes to be had - the athlete applies with a click on the card the run
-        # produces. `web/agent.py` also denies the tool on the command line;
-        # this is the half that does not depend on a CLI flag keeping its name.
-        return ("This run cannot write to Garmin: it is an unattended card run. File the session "
-                "with propose_workout and put its id in the card - the athlete applies it with "
-                "a click.")
+    # A card run. `web/agent.py` also denies the tool on the command line; this
+    # is the half that does not depend on a CLI flag keeping its name.
+    refusal = _unattended_refusal("write to Garmin")
+    if refusal:
+        return (refusal + " File the session with propose_workout and put its id in the card - "
+                          "the athlete applies it with a click.")
     if os.environ.get("RUNCOACH_DEMO"):
         return "Demo mode has no Garmin account to write to - run with real data and a login."
     if plan.read(proposal_id) is None:

@@ -197,6 +197,13 @@ test("renderProposal: the preview is escaped, the button is the only write, and 
   assert.ok(week.includes("The whole week goes"), "the arm label names the scale of the write");
   const weekDone = renderProposal({ ...p, days: 4, status: "applied", workouts: [1, 2, 3, 4] }, {});
   assert.ok(weekDone.includes("4 workouts"));
+  // Applied is not the end of the story: taking it back off is the other half,
+  // and a write that cannot be undone is a write nobody makes the first time.
+  assert.ok(done.includes('data-undo="p-20260922-101010-abcd"'), "applied offers the way back");
+  assert.ok(done.includes("Take off watch"));
+  const offNoSession = renderProposal({ ...p, status: "applied", workouts: [900001] },
+                                      { canApply: false });
+  assert.ok(/data-undo[^>]*disabled/s.test(offNoSession), "and it is off without a login too");
 
   // "applied" is not "finished": three of four uploaded means one is still
   // waiting, and the pill used to take away the only button that could add it.
