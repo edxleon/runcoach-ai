@@ -694,7 +694,8 @@ def test_the_templates_explain_the_week_rules_instead_of_overriding_them(demo_ap
     week = tpls["plan-week"]
     assert "file a LIGHTER one" not in week
     assert "do not override it with a smaller or larger days_per_week" in week
-    for rule in ("held or unloaded", "down week", "return week", "measurement week"):
+    for rule in ("held or unloaded", "every fourth week a down week", "return week",
+                 "measurement week"):
         assert rule in week, rule
     day = tpls["train-today"]
-    assert "names WHICH hard session" in day and "what the week still lacks" in day
+    assert "names WHICH hard session" in day and "has a run for today - then that run is the plan" in day

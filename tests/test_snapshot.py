@@ -668,11 +668,19 @@ def test_runs_shown_are_capped_but_factors_read_wider(store, today):
 # ── What comes next ──────────────────────────────────────────────────────────
 
 def test_last_steady_day_reads_this_apps_own_workouts():
-    own = [{"kind": "steady", "scheduled_day": "2026-06-01"},
-           {"kind": "steady", "scheduled_day": None},
-           {"kind": "vo2max", "scheduled_day": "2026-06-08"},
-           {"kind": "steady", "scheduled_day": "2026-05-20"}]
+    own = [{"kind": "steady", "scheduled_day": "2026-06-01", "schedule_id": 3},
+           {"kind": "steady", "scheduled_day": None, "schedule_id": None},
+           {"kind": "vo2max", "scheduled_day": "2026-06-08", "schedule_id": 4},
+           {"kind": "steady", "scheduled_day": "2026-05-20", "schedule_id": 5}]
     assert snapshot.last_steady_day(own) == date(2026, 6, 1)
+    # ...and a block run without the app: >= 12 min at threshold, not intervals.
+    run = {"day": "2026-06-07", "type": "running", "has_detail": True,
+           "zones_s": {"z4": 600, "z5": 180}, "structure": {"kind": "steady"}}
+    assert snapshot.last_steady_day(own, [run]) == date(2026, 6, 7)
+    reps = {**run, "structure": {"kind": "intervals", "rep_count": 5}}
+    assert snapshot.last_steady_day(own, [reps]) == date(2026, 6, 1)
+    assert snapshot.last_steady_day(own, [{**run, "zones_s": {"z4": 600}}]) == date(2026, 6, 1)
+    assert snapshot.last_steady_day(own, [{**run, "type": "cycling"}]) == date(2026, 6, 1)
     assert snapshot.last_steady_day([]) is None
 
 
@@ -682,9 +690,11 @@ def test_the_vo2max_block_carries_the_measurement_rule():
               for i in range(40)][::-1]
     v = snapshot.build_vo2max(series, [], today=today)
     assert v["last_change_day"] is None and v["last_change_days"] is None
-    assert v["measurement"]["due"] is True and v["measurement"]["days"] == 40
-    series[-5]["vo2max"] = 50.4                      # a real change, four and three days ago
-    v = snapshot.build_vo2max(series, [], today=today)
+    assert v["measurement"]["due"] is True and v["measurement"]["days"] == 39   # forty values, 39 days
+    series[-5]["vo2max"] = 50.4                      # a change, four and three days ago...
+    runs = [{"day": series[-5]["day"], "type": "running"},
+            {"day": series[-4]["day"], "type": "running"}]   # ...on run days: measured
+    v = snapshot.build_vo2max(series, runs, today=today)
     assert v["last_change_day"] == (today - timedelta(days=3)).isoformat()
     assert v["last_change_days"] == 3 and v["measurement"]["due"] is False
     empty = snapshot.build_vo2max([], [], today=today)

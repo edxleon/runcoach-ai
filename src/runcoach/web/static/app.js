@@ -168,25 +168,26 @@ function decisionHtml() {
 }
 
 /* WHICH hard session, on a hard day - the server's `next_stimulus`, read and
-   not recomputed. With an entry on today's calendar the entry is the plan and
-   the stimulus is what the week still lacks: the same rule the readiness tool
-   applies, so the page and the coach never put two sessions on one day. */
+   not recomputed. With a run on today's calendar the run is the plan and no
+   second session is named: the same rule the readiness tool applies, so the
+   page and the coach never put two sessions on one day. */
 const STIMULUS_LABEL = {
   vo2max: "VO2max intervals", threshold: "Threshold reps",
   steady: "Steady block at threshold (the measurement)", unknown: "Not known yet",
+  easy: "None - easy running",
 };
 
 function plannedToday() {
   const today = appToday();
-  return ((D().plan || {}).days || []).some(t => t.day === today && (t.planned || []).length);
+  return ((D().plan || {}).days || []).some(t => t.day === today
+    && (t.planned || []).some(p => /run/i.test(p.sport || "running")));
 }
 
 function stimulusHtml(s) {
   if (!s || !s.kind) return "";
+  if (plannedToday()) return `<li><span>The calendar has a run for today: that is the plan.</span></li>`;
   const label = STIMULUS_LABEL[s.kind] || s.kind;
-  const lead = plannedToday() ? "The calendar has today's session; what the week still lacks:"
-                              : "Which hard session:";
-  return `<li><span>${esc(lead)} <b>${esc(label)}</b> — ${esc(s.reason || "")}</span></li>`;
+  return `<li><span>Which hard session: <b>${esc(label)}</b> — ${esc(s.reason || "")}</span></li>`;
 }
 
 /* The number this app is about, where the daily user looks: the value, how
@@ -197,8 +198,8 @@ function vo2LineHtml() {
   if (v.current == null) return "";
   const n = v.last_change_days;
   const age = n == null
-    ? `no new value in the ${plural(v.days_with_value || 0, "day", "days")} on record`
-    : n === 0 ? "new value today" : `last real change ${plural(n, "day", "days")} ago`;
+    ? "no new value from a run in the last 8 weeks"
+    : n === 0 ? "new value from today's run" : `last new value from a run ${plural(n, "day", "days")} ago`;
   const due = (v.measurement || {}).due;
   return `<div class="goal-line">VO2max ${esc(fmtNum(v.current, 1))} · ${esc(age)}${
     due ? " · <b>measurement due</b> — a steady block gives Garmin a reading" : ""}</div>`;
@@ -832,7 +833,8 @@ function renderVo2() {
                                "marked jumps are new measurements")}.`;
       })()} ${(() => {
         const n = v.last_change_days, m = v.measurement || {};
-        const age = n == null ? "No new value in the window" : `Last real change ${plural(n, "day", "days")} ago`;
+        const age = n == null ? "No new value from a run in the window"
+                              : `Last new value from a run ${plural(n, "day", "days")} ago`;
         return m.due
           ? `${age} — <b>a measurement is due</b>: the next quality session is a steady block of at least 12 minutes at threshold, the one shape Garmin re-measures from.`
           : `${age}.`;

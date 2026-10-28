@@ -105,6 +105,7 @@ def decide_today(
     verdict: str | None, *, days_since_hard: int | None, hard_min: int, target_min: int,
     quality_min: int | None = None, quality_s: int | None = None,
     week_start: str | None = None, stimulus: dict | None = None,
+    comeback_state: dict | None = None, today: date | None = None,
 ) -> dict:
     """`_decide_today`, plus WHICH hard session when the day is hard.
 
@@ -116,6 +117,14 @@ def decide_today(
     out = _decide_today(verdict, days_since_hard=days_since_hard, hard_min=hard_min,
                         target_min=target_min, quality_min=quality_min, quality_s=quality_s,
                         week_start=week_start)
+    # After a pause the first runs back are easy, whatever the light and the
+    # week's share say: "below its hard share" after three weeks off is a week
+    # of nothing, not a reason for intervals. The same threshold that makes
+    # the planner's return week, so the day and the week cannot disagree.
+    if out["decision"] == "hard" and in_comeback(comeback_state) and today is not None:
+        out.update(decision="easy", reason="pause",
+                   sentence=(f"Easy today - {_comeback_words(comeback_state, today)}; the first "
+                             f"runs back are easy, the hard sessions come back the week after."))
     if stimulus and out["decision"] == "hard":
         out["stimulus"] = {"kind": stimulus.get("kind"), "reason": stimulus.get("reason")}
     return out
@@ -293,24 +302,84 @@ MEASUREMENT_DUE_DAYS = 28
 MEASUREMENT_RETRY_DAYS = 21
 #: Days without a run after which the next week is a return week, not a step.
 RETURN_AFTER_DAYS = 10
+#: How long the return phase lasts after the first run back: these days are
+#: easy, and a week planned to start inside them is a return week...
+RETURN_PHASE_DAYS = 7
+#: ...and it lasts until there are this many runs back, too: one jog after
+#: two weeks off does not make the next week an ordinary one.
+RETURN_PHASE_RUNS = 2
 
 
-def measurement_due(last_change_day: date | None, days_with_value: int,
+def comeback(run_days: list[date], today: date, prior: date | None = None) -> dict | None:
+    """The pause the athlete is in or coming back from - ONE definition, read
+    by the day's decision, the next stimulus and the week planner alike, so
+    the day and the week cannot disagree about it.
+
+    `run_days`: days with a run, ascending; `prior`: the last run before them.
+    Returns `None` when there is no pause in sight, else a dict:
+
+    * `phase`: `pause` (no run for `RETURN_AFTER_DAYS`), `return` (the first
+      `RETURN_PHASE_DAYS` after the first run back, and until there are
+      `RETURN_PHASE_RUNS` runs back) or `settled` (back for longer than that -
+      the week planner still uses `first_back`);
+    * `runs_back`: how many days with a run since the first run back;
+    * `pause_days`: how long the gap was (or is, in a pause);
+    * `first_back`: the first run after the gap (`None` in a pause);
+    * `last_before`: the last run before the gap."""
+    days = ([prior] if prior else []) + list(run_days)
+    if not days:
+        return None
+    last = days[-1]
+    if (today - last).days >= RETURN_AFTER_DAYS:
+        return {"phase": "pause", "pause_days": (today - last).days, "first_back": None,
+                "last_before": last}
+    i = len(days) - 1
+    while i > 0 and (days[i] - days[i - 1]).days < RETURN_AFTER_DAYS:
+        i -= 1
+    if i == 0:
+        return None
+    first_back, last_before = days[i], days[i - 1]
+    runs_back = len(days) - i
+    back = (today - first_back).days < RETURN_PHASE_DAYS or runs_back < RETURN_PHASE_RUNS
+    return {"phase": "return" if back else "settled",
+            "pause_days": (first_back - last_before).days, "first_back": first_back,
+            "last_before": last_before, "runs_back": runs_back}
+
+
+def in_comeback(state: dict | None) -> bool:
+    """A pause or the first days back: no hard session today."""
+    return bool(state) and state["phase"] in ("pause", "return")
+
+
+def _comeback_words(state: dict, today: date) -> str:
+    if state["phase"] == "pause":
+        return f"{state['pause_days']} days without a run"
+    if state.get("runs_back", 0) < RETURN_PHASE_RUNS and \
+            (today - state["first_back"]).days >= RETURN_PHASE_DAYS:
+        return f"one run back after {state['pause_days']} days without a run"
+    back = (today - state["first_back"]).days
+    when = "today" if back == 0 else "yesterday" if back == 1 else f"{back} days ago"
+    return f"back {when} after {state['pause_days']} days without a run"
+
+
+def measurement_due(last_change_day: date | None, first_value_day: date | None,
                     last_steady_day: date | None, today: date) -> dict:
     """Is it time for a steady block so Garmin can re-measure VO2max?
 
     `last_change_day`: the last day the stored VO2max CHANGED (`None` if it
-    never did in the window), `days_with_value`: how many days carry a value
-    at all, `last_steady_day`: when this app last scheduled a steady session.
+    never did in the window), `first_value_day`: the first day with a value
+    (Garmin leaves most days empty, so the span is counted in days of the
+    calendar, never in rows), `last_steady_day`: the last steady block -
+    scheduled by this app or run without it.
 
     A flat line cannot tell "measured again, same value" from "not measured",
     so the wording is "no new value for N days", never "not measured". And a
     steady block scheduled recently is given its chance first, or a true
     plateau would ask for a measurement every single week."""
-    if days_with_value <= 0:
+    if first_value_day is None:
         return {"due": False, "days": None, "reason": "no VO2max on record"}
     if last_change_day is None:
-        days = int(days_with_value)
+        days = (today - first_value_day).days
         if days < MEASUREMENT_DUE_DAYS:
             return {"due": False, "days": days, "reason": f"only {days} days of VO2max on record"}
     else:
@@ -319,9 +388,11 @@ def measurement_due(last_change_day: date | None, days_with_value: int,
             return {"due": False, "days": days, "reason": f"VO2max changed {days} day(s) ago"}
     if last_steady_day is not None and (today - last_steady_day).days < MEASUREMENT_RETRY_DAYS:
         since = (today - last_steady_day).days
+        when = (f"is scheduled for {last_steady_day.isoformat()}" if since < 0
+                else f"was run or scheduled {since} day(s) ago")
         return {"due": False, "days": days,
-                "reason": f"no new VO2max value for {days} days, but a steady block was "
-                          f"scheduled {since} day(s) ago; that reading gets its chance first"}
+                "reason": f"no new VO2max value for {days} days, but a steady block {when}; "
+                          f"that reading gets its chance first"}
     return {"due": True, "days": days,
             "reason": f"no new VO2max value for {days} days; >= 12 min of even effort at "
                       f"threshold is what Garmin measures from"}
@@ -331,7 +402,8 @@ def _is_run_row(r: dict) -> bool:
     return "running" in str(r.get("type") or r.get("activity_type") or "").lower()
 
 
-def next_stimulus(runs: list[dict], *, today: date, measurement: dict | None = None) -> dict:
+def next_stimulus(runs: list[dict], *, today: date, measurement: dict | None = None,
+                  comeback_state: dict | None = None, planned_ahead: dict | None = None) -> dict:
     """WHICH quality session a hard day calls for - a recommendation, never
     the decision (`decide_today` says hard/easy/rest; this says which hard).
 
@@ -339,15 +411,21 @@ def next_stimulus(runs: list[dict], *, today: date, measurement: dict | None = N
     `has_detail`, `anaerobic_te`). Returns `{"kind", "reason"}` with kind
     `steady` | `vo2max` | `threshold` | `unknown`.
 
-    The order: a due measurement first - the number this app is about cannot
-    move on the chart without one. Then VO2max if no run of the last 7 days
-    set a Z5 stimulus (>= 3 min in zone 5, or anaerobic TE >= 2: the same
-    stimulus `coach.md` tells the model to look for before claiming "too
-    little VO2max work"). Else threshold, the other quality session of a
-    polarised week. A run without zone detail says so instead of counting as
-    "no stimulus": absence of data is not absence of training."""
-    if measurement and measurement.get("due"):
-        return {"kind": "steady", "reason": measurement["reason"]}
+    The order: in a pause or the first days back (`comeback`) easy running,
+    nothing hard. Then VO2max if no run of the last 7 days set a Z5
+    stimulus (>= 3 min in zone 5, or anaerobic TE >= 2: the same stimulus
+    `coach.md` tells the model to look for before claiming "too little VO2max
+    work"). With the Z5 stimulus set, a due measurement takes the hard day -
+    the steady block goes where threshold would go, exactly as in the week
+    planner, so a plateau never starves the VO2max work. Else threshold. A run
+    without zone detail says so instead of counting as "no stimulus": absence
+    of data is not absence of training. `planned_ahead` (kind -> day of this
+    app's own sessions on the calendar in the next days) moves the answer to
+    the other quality kind when the named one is already planned."""
+    if in_comeback(comeback_state):
+        return {"kind": "easy",
+                "reason": f"{_comeback_words(comeback_state, today)}; the first runs back are easy"}
+    due = bool(measurement and measurement.get("due"))
     lo = today - timedelta(days=STIMULUS_WINDOW_DAYS - 1)
     best: tuple[int, int, float] | None = None       # (days ago, z5 seconds, anaerobic TE)
     undetailed = 0
@@ -365,21 +443,35 @@ def next_stimulus(runs: list[dict], *, today: date, measurement: dict | None = N
                 best = (ago, z5, an)
         elif not r.get("has_detail"):
             undetailed += 1
+    planned = planned_ahead or {}
     if best is not None:
         ago, z5, an = best
         when = "today" if ago == 0 else "yesterday" if ago == 1 else f"{ago} days ago"
         what = (f"{round(z5 / 60)} min in zone 5" if z5 >= STIMULUS_Z5_MIN_S
                 else f"anaerobic TE {an:.1f}")
-        return {"kind": "threshold",
-                "reason": f"the Z5 stimulus is set ({what}, {when}); threshold is the other "
-                          f"quality session of a polarised week"}
-    if undetailed:
+        if due:
+            out = {"kind": "steady", "reason": f"{measurement['reason']} - and the Z5 stimulus "
+                                               f"is set ({what}, {when})"}
+        else:
+            out = {"kind": "threshold",
+                   "reason": f"the Z5 stimulus is set ({what}, {when}); threshold is the other "
+                             f"quality session of a polarised week"}
+    elif undetailed:
         return {"kind": "unknown",
                 "reason": f"{undetailed} run(s) of the last {STIMULUS_WINDOW_DAYS} days have no "
                           f"zone detail yet; sync, then ask again"}
-    return {"kind": "vo2max",
-            "reason": f"no Z5 stimulus in the last {STIMULUS_WINDOW_DAYS} days; reps of 3-5 min "
-                      f"in zone 5 are what moves VO2max"}
+    else:
+        out = {"kind": "vo2max",
+               "reason": f"no Z5 stimulus in the last {STIMULUS_WINDOW_DAYS} days; reps of 3-5 "
+                         f"min in zone 5 are what moves VO2max"
+                         + ("; the measurement follows once it is set" if due else "")}
+    if out["kind"] in planned:
+        other = "threshold" if out["kind"] == "vo2max" else "vo2max"
+        if other not in planned:
+            return {"kind": other,
+                    "reason": f"{out['kind']} is already on the calendar for "
+                              f"{planned[out['kind']]}; {other} is the other quality session"}
+    return out
 
 
 # ── Interval structure ───────────────────────────────────────────────────────

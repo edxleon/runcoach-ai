@@ -2169,17 +2169,18 @@ def test_training_readiness_names_the_hard_session_on_a_hard_day(store, today):
     assert "The app's decision for today: HARD" in out
     assert ("Which hard session: VO2max intervals - no Z5 stimulus in the last 7 days; reps of "
             "3-5 min in zone 5 are what moves VO2max." in out)
-    # With an entry on today's calendar the entry is the plan, and the stimulus
-    # is what the week still lacks - never a second session for the same day.
+    # With a run on today's calendar that run is the plan - never a second
+    # session named beside it for the same day.
     store.replace_scheduled_workouts(
         [ScheduledWorkout(1, today, title="Threshold 3x10", sport="running")],
         today - timedelta(days=7), today + timedelta(days=14))
     out = tools.get_training_readiness(store)
-    assert "What the week still lacks: VO2max intervals" in out and "Which hard session" not in out
+    assert "The calendar has a run for today (below): that is the plan." in out
+    assert "Which hard session" not in out
     # ...and on an easy day there is no stimulus line at all.
     store.upsert_daily(make_day(today, hrv_status="UNBALANCED"))
     out = tools.get_training_readiness(store)
-    assert "EASY" in out and "hard session:" not in out and "still lacks" not in out
+    assert "EASY" in out and "hard session:" not in out and "that is the plan" not in out
 
 
 def test_training_readiness_asks_for_the_measurement_when_vo2max_went_flat(store, today):
@@ -2187,23 +2188,46 @@ def test_training_readiness_asks_for_the_measurement_when_vo2max_went_flat(store
         store.upsert_daily(make_day(today - timedelta(days=i), vo2max=50.0, hrv_status="BALANCED",
                                     sleep_score=85, body_battery_high=90))
     out = tools.get_training_readiness(store)
+    # The Z5 stimulus first: a plateau must not starve the VO2max work.
+    assert ("Which hard session: VO2max intervals - no Z5 stimulus in the last 7 days; reps of "
+            "3-5 min in zone 5 are what moves VO2max; the measurement follows once it is set."
+            in out)
+    store.upsert_activity(make_activity(77, today - timedelta(days=3), aerobic_te=3.2,
+                                        anaerobic_te=2.4, load=None))
+    out = tools.get_training_readiness(store)
     assert ("Which hard session: a steady block at threshold (the measurement) - no new VO2max "
-            "value for 30 days; >= 12 min of even effort at threshold is what Garmin measures "
-            "from." in out)
+            "value for 29 days; >= 12 min of even effort at threshold is what Garmin measures "
+            "from - and the Z5 stimulus is set (anaerobic TE 2.4, 3 days ago)." in out)
 
 
 def test_propose_week_puts_the_measurement_in_the_threshold_slot(store, today):
-    _seed_zones(store, today)
+    # The zone-bearing run 25 days back: it held 21 min in zone 4, which is a
+    # steady block, and inside 21 days it would rightly hold the rule back.
+    store.upsert_activity(make_activity(9_000_000_002, today - timedelta(days=25)))
+    store.update_activity_detail(9_000_000_002, {**DETAIL, "splits": [], "unknown": set()})
+    store.upsert_lactate_history([{"day": today - timedelta(days=25), "lthr_bpm": 168,
+                                   "lt_speed_mps": 3.5}])
+    for k, back in enumerate((2, 5, 9, 12, 16, 19, 23)):      # ordinary running, no pause
+        store.upsert_activity(make_activity(9_000_000_100 + k, today - timedelta(days=back),
+                                            duration_s=2700, load=None))
     for i in range(30):
         store.upsert_daily(make_day(today - timedelta(days=i), vo2max=50.0))
     out = tools.propose_week(store, days_per_week=4, long_run_day="sun")
     sessions = out.split("assumption:")[0]
-    assert "Steady threshold 15 min" in sessions and "HR zone 5" in sessions
+    import re
+
+    steady = re.search(r"Steady threshold (\d+) min", sessions)
+    assert steady and int(steady.group(1)) >= 12, "the block Garmin measures from is >= 12 min"
+    assert "HR zone 5" in sessions
     assert "HR zone 4" not in sessions, "the steady block took the threshold slot"
-    assert "assumption: measurement week: no new VO2max value for 30 days" in out
-    # A steady block this app scheduled recently holds the rule back.
+    assert "assumption: measurement week: no new VO2max value for 29 days" in out
+    # A steady block this app has on the calendar ahead holds the rule back.
     store.record_workout(4242, name="Steady threshold 15 min", kind="steady", spec_json="{}",
-                         schedule_id=77, scheduled_day=today - timedelta(days=5))
+                         schedule_id=77, scheduled_day=today + timedelta(days=2))
+    store.replace_scheduled_workouts(
+        [ScheduledWorkout(77, today + timedelta(days=2), workout_id=4242,
+                          title="Steady threshold 15 min", sport="running")],
+        today - timedelta(days=7), today + timedelta(days=14))
     out = tools.propose_week(store, days_per_week=4, long_run_day="sun")
     assert "measurement week" not in out and "HR zone 4" in out.split("assumption:")[0]
 

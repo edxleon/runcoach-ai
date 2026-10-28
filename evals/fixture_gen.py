@@ -55,7 +55,9 @@ def build_store(tmp_db: str):
         # the stimulus the week lacks, not about a measurement being due - a
         # value flat for the whole window would make the next stimulus the
         # steady block and move the case off the rule it tests.
-        m.vo2max = 52.0 if i < 10 else 51.8
+        # The step lands on day 10, a run day (runs are every second day):
+        # only a change on a run day is a measurement.
+        m.vo2max = 52.0 if i <= 10 else 51.8
         store.upsert_daily(m)
 
     # Four weeks of steady running, every session in the grey middle.

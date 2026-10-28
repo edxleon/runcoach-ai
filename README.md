@@ -29,7 +29,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-763 tests, 66 frontend tests and that gate on three operating systems and two Python versions, with every
+795 tests, 66 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -203,12 +203,15 @@ the frontend, which draws curves, gets points.
   a lie from a degraded source).
 - Garmin's lactate-threshold pace field is off by a factor of ten; it is normalised, range-checked, and
   loudly dropped if the unit ever changes.
-- A planned week is sized from the athlete's own running weeks and then read against their history,
-  in code: the load ratio can hold or unload it, three weeks up make the fourth a down week, ten
-  days without a run make a return week, and twenty-eight days without a new VO2max value put a
-  steady block in the threshold slot - each one a named assumption on the proposal, none of them a
-  prompt's discretion. On a hard day the decision also says *which* hard session, from what the
-  last seven days did and did not contain.
+- A planned week is sized from the athlete's own running weeks - rolling weeks ending on the day of
+  planning, never more than 10 % over the bigger of the last two - and then read against their
+  history, in code: the load ratio can hold or unload it, every fourth week is a down week, ten
+  days without a run make a return week of easy running only (half the weeks before after more
+  than three weeks off), and twenty-eight days without a new VO2max value put a steady block in
+  the threshold slot. A budget too small for the planned days drops days instead of inflating the
+  sessions. Each rule is a named assumption on the proposal, none of them a prompt's discretion.
+  On a hard day the decision also says *which* hard session, from what the last seven days did
+  and did not contain; after a pause the day is easy instead.
 - Without a measured threshold pace, sessions are sized from Garmin's own 5 km and 10 km predictions
   rather than from a 5:00/km default that fitted one athlete.
 

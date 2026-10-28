@@ -560,23 +560,26 @@ def test_rides_and_runs_outside_the_window_do_not_count():
 
 
 def test_measurement_due_at_the_boundaries():
-    assert measurement_due(TODAY - timedelta(days=27), 56, None, TODAY)["due"] is False
-    d = measurement_due(TODAY - timedelta(days=28), 56, None, TODAY)
+    first = TODAY - timedelta(days=56)
+    assert measurement_due(TODAY - timedelta(days=27), first, None, TODAY)["due"] is False
+    d = measurement_due(TODAY - timedelta(days=28), first, None, TODAY)
     assert d["due"] is True and d["days"] == 28 and "no new VO2max value for 28 days" in d["reason"]
-    # No change in the window at all: the days ON RECORD are what is known.
-    assert measurement_due(None, 27, None, TODAY)["due"] is False
-    assert measurement_due(None, 28, None, TODAY) == {
+    # No change in the window at all: the span since the first value counts,
+    # in calendar days - Garmin leaves most days without a value.
+    assert measurement_due(None, TODAY - timedelta(days=27), None, TODAY)["due"] is False
+    assert measurement_due(None, TODAY - timedelta(days=28), None, TODAY) == {
         "due": True, "days": 28,
         "reason": "no new VO2max value for 28 days; >= 12 min of even effort at threshold "
                   "is what Garmin measures from"}
-    assert measurement_due(None, 0, None, TODAY) == {"due": False, "days": None,
+    assert measurement_due(None, None, None, TODAY) == {"due": False, "days": None,
                                                      "reason": "no VO2max on record"}
 
 
 def test_a_scheduled_steady_block_gets_its_chance_before_the_next_one_is_asked_for():
-    d = measurement_due(TODAY - timedelta(days=40), 56, TODAY - timedelta(days=10), TODAY)
+    first = TODAY - timedelta(days=56)
+    d = measurement_due(TODAY - timedelta(days=40), first, TODAY - timedelta(days=10), TODAY)
     assert d["due"] is False and "10 day(s) ago" in d["reason"] and "40 days" in d["reason"]
-    assert measurement_due(TODAY - timedelta(days=40), 56, TODAY - timedelta(days=21), TODAY)["due"]
+    assert measurement_due(TODAY - timedelta(days=40), first, TODAY - timedelta(days=21), TODAY)["due"]
 
 
 def test_decide_today_carries_the_stimulus_only_on_a_hard_day():

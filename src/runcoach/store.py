@@ -865,13 +865,46 @@ class Store:
                 "SELECT proposal_id, item_index, claimed_at FROM proposal_items "
                 "WHERE state = 'unknown' ORDER BY claimed_at").fetchall()
 
-    def last_run_day(self) -> date | None:
-        """The local day of the most recent RUN - the input of the return-week
-        rule. Runs only: a week of walking after an injury is still a pause
-        from running."""
+    def running_seconds_by_day(self, start: date, end: date) -> dict[date, int]:
+        """Seconds of RUNNING per local day - the input of the week budget,
+        which buckets them into rolling 7-day weeks ending on the planning
+        day, so the week being run counts when the athlete plans on Sunday."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"SELECT local_day, SUM(COALESCE(duration_s, 0)) AS s FROM activities "
+                f"WHERE {_RUNNING} AND local_day BETWEEN ? AND ? GROUP BY local_day",
+                (_v(start), _v(end))).fetchall()
+        return {_d(r["local_day"]): int(r["s"] or 0) for r in rows}
+
+    def run_days(self, start: date, end: date) -> list[date]:
+        """Local days with at least one RUN, ascending - the input of
+        `logic.comeback`, which reads pauses in days, not in weekly buckets."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"SELECT DISTINCT local_day FROM activities WHERE {_RUNNING} "
+                f"AND local_day BETWEEN ? AND ? ORDER BY local_day", (_v(start), _v(end))).fetchall()
+        return [_d(r["local_day"]) for r in rows]
+
+    def longest_run_s(self, start: date, end: date) -> int | None:
+        """The longest single run between the two days, in seconds - what a
+        planned session may not outgrow by much."""
         with self._conn() as conn:
             row = conn.execute(
-                f"SELECT MAX(local_day) AS d FROM activities WHERE {_RUNNING}").fetchone()
+                f"SELECT MAX(duration_s) AS s FROM activities WHERE {_RUNNING} "
+                f"AND local_day BETWEEN ? AND ?", (_v(start), _v(end))).fetchone()
+        return int(row["s"]) if row and row["s"] else None
+
+    def last_run_day(self, before: date | None = None) -> date | None:
+        """The local day of the most recent RUN (strictly before `before`, if
+        given) - the input of the return-week rule. Runs only: a week of
+        walking after an injury is still a pause from running."""
+        sql = f"SELECT MAX(local_day) AS d FROM activities WHERE {_RUNNING}"
+        args: tuple = ()
+        if before is not None:
+            sql += " AND local_day < ?"
+            args = (_v(before),)
+        with self._conn() as conn:
+            row = conn.execute(sql, args).fetchone()
         return _d(row["d"]) if row and row["d"] else None
 
     def latest_race_predictions(self) -> dict | None:

@@ -145,7 +145,7 @@ def _monday(day: date) -> str:
 
 
 def build_decision(today_block: dict, weeks: list[dict], today: date,
-                   stimulus: dict | None = None) -> dict:
+                   stimulus: dict | None = None, comeback: dict | None = None) -> dict:
     """The ONE sentence for the Today tab (rule: `logic.decide_today`), and
     under it - on a hard day - WHICH hard session (`logic.next_stimulus`).
 
@@ -185,7 +185,8 @@ def build_decision(today_block: dict, weeks: list[dict], today: date,
         days_since_hard=signals.get("days_since_hard_workout") if fresh else None,
         hard_min=hard_min, target_min=target_min, quality_min=quality_min,
         quality_s=quality_s,
-        week_start=monday if week else None, stimulus=stimulus)
+        week_start=monday if week else None, stimulus=stimulus,
+        comeback_state=comeback, today=today)
 
 
 def build_sleep(series: list[dict]) -> dict:
@@ -266,7 +267,7 @@ def build_vo2max(series: list[dict], runs: list[dict], *, today: date,
         return {"current": None, "change_28d": None, "change_56d": None,
                 "carry_forward": True, "changed_days": [], "days_with_value": 0, "factors": {},
                 "last_change_day": None, "last_change_days": None,
-                "measurement": logic.measurement_due(None, 0, last_steady_day, today)}
+                "measurement": logic.measurement_due(None, None, last_steady_day, today)}
 
     def delta(days: int):
         ref = pts[-1][0] - timedelta(days=days)
@@ -275,11 +276,17 @@ def build_vo2max(series: list[dict], runs: list[dict], *, today: date,
 
     changed = [{"day": d.isoformat(), "value": round(v, 1)}
                for (_, pv), (d, v) in zip(pts, pts[1:], strict=False) if v != pv]
-    last_change = date.fromisoformat(changed[-1]["day"]) if changed else None
+    # A MEASUREMENT is a change on a day with a run. Garmin's precise value
+    # also moves by tenths on days without one (measured on a real account:
+    # 48.8 -> 48.4 over a week of strength training only), and counting that
+    # drift as a new reading kept the measurement rule from ever firing.
+    run_days = {r["day"] for r in runs if r.get("day") and _is_run(r)}
+    measured = [c for c in changed if c["day"] in run_days]
+    last_change = date.fromisoformat(measured[-1]["day"]) if measured else None
     return {
         "last_change_day": last_change.isoformat() if last_change else None,
         "last_change_days": (today - last_change).days if last_change else None,
-        "measurement": logic.measurement_due(last_change, len(pts), last_steady_day, today),
+        "measurement": logic.measurement_due(last_change, pts[0][0], last_steady_day, today),
         "current": round(pts[-1][1], 1),
         "current_day": pts[-1][0].isoformat(),
         "change_28d": delta(28),
@@ -473,12 +480,52 @@ def build_zones(runs: list[dict], lt: dict | None, lt_history: list[dict] | None
             "note": "No zone bounds in the recent runs."}
 
 
-def last_steady_day(own_workouts: list[dict]) -> date | None:
-    """When this app last put a steady block on the calendar - the guard that
-    keeps the measurement rule from asking for one every week of a plateau."""
-    days = [w.get("scheduled_day") for w in own_workouts
-            if w.get("kind") == "steady" and w.get("scheduled_day")]
-    return max(date.fromisoformat(str(d)) for d in days) if days else None
+#: Time at or above the threshold bound (Z4 + Z5) in one run that counts as
+#: the steady block Garmin measures VO2max from - the 12 minutes of zones.md.
+STEADY_EFFORT_S = 12 * 60
+
+
+#: How far back the comeback state looks for the gap before the current
+#: streak; `last_run_day(before=...)` covers anything older.
+COMEBACK_WINDOW_DAYS = 120
+
+
+def comeback_state(store: Store, today: date) -> dict | None:
+    """`logic.comeback` on this athlete's runs - the one pause state the day's
+    decision, the stimulus and the week planner all read."""
+    start = today - timedelta(days=COMEBACK_WINDOW_DAYS)
+    return logic.comeback(store.run_days(start, today), today,
+                          prior=store.last_run_day(before=start))
+
+
+def last_steady_day(own_workouts: list[dict], runs: list[dict] | None = None, *,
+                    today: date | None = None, on_calendar: set | None = None) -> date | None:
+    """The last steady block - the guard that keeps the measurement rule from
+    asking for one every week of a plateau. Two sources:
+
+    * a RUN that held >= 12 min at threshold and was not a session of several
+      reps - the athlete who only reads the Today tab runs the block on their
+      own, and a steady workout from this app shows up here once it was run
+      (one ACTIVE step, `rep_count` 1);
+    * a steady session this app has put on the calendar AHEAD, still there
+      (`on_calendar`: the schedule ids the mirror holds). A past one counts
+      only through the run it produced: one taken off the calendar by a swap
+      or by hand, or simply not run, was never a reading."""
+    days = []
+    for w in own_workouts:
+        if w.get("kind") != "steady" or not w.get("scheduled_day") or not w.get("schedule_id"):
+            continue
+        d = date.fromisoformat(str(w["scheduled_day"]))
+        if today is not None and (d < today or w["schedule_id"] not in (on_calendar or set())):
+            continue
+        days.append(d)
+    for r in runs or []:
+        z = r.get("zones_s") or {}
+        reps = (r.get("structure") or {}).get("rep_count") or 0
+        if (r.get("day") and r.get("has_detail") and _is_run(r)
+                and (z.get("z4") or 0) + (z.get("z5") or 0) >= STEADY_EFFORT_S and reps < 2):
+            days.append(date.fromisoformat(r["day"]))
+    return max(days) if days else None
 
 
 def aerobic_ref_hr(profile: dict, lt: dict | None) -> int:
@@ -564,9 +611,23 @@ def assemble(store: Store, *, today: date | None = None) -> dict:
     # VO2max steps and the last steady block this app scheduled, the stimulus
     # rule needs the runs - and the decision, the readiness tool, the plan
     # form and the Trend tab all read the result instead of deriving their own.
-    last_steady = last_steady_day(soft(store.own_workouts, default=[]) or [])
+    own = soft(store.own_workouts, default=[]) or []
+    ahead = soft(store.get_scheduled_workouts, today, today + timedelta(days=14), default=[]) or []
+    last_steady = last_steady_day(own, runs_wide, today=today,
+                                  on_calendar={e["schedule_id"] for e in ahead})
     vo2 = build_vo2max(series_rows, runs_wide, today=today, last_steady_day=last_steady)
-    stimulus = logic.next_stimulus(runs_wide, today=today, measurement=vo2["measurement"])
+    cb = soft(comeback_state, store, today)
+    # This app's own quality sessions already on the calendar in the coming
+    # days: the stimulus does not name a session that is planned anyway.
+    own_kind = {w["workout_id"]: w["kind"] for w in own if w.get("workout_id")}
+    planned_ahead: dict[str, str] = {}
+    for e in soft(store.get_scheduled_workouts, today + timedelta(days=1),
+                  today + timedelta(days=6), default=[]) or []:
+        k = own_kind.get(e.get("workout_id"))
+        if k and k not in planned_ahead:
+            planned_ahead[k] = e["day"]
+    stimulus = logic.next_stimulus(runs_wide, today=today, measurement=vo2["measurement"],
+                                   comeback_state=cb, planned_ahead=planned_ahead)
 
     return {
         "schema": SCHEMA,
@@ -574,7 +635,8 @@ def assemble(store: Store, *, today: date | None = None) -> dict:
         "data_through": latest.isoformat() if latest else None,
         "stale_days": (today - latest).days if latest else None,
         "today": today_block,
-        "decision_today": build_decision(today_block, weeks, today, stimulus=stimulus),
+        "decision_today": build_decision(today_block, weeks, today, stimulus=stimulus,
+                                         comeback=cb),
         "next_stimulus": stimulus,
         "sleep": build_sleep(series_rows),
         "load": {

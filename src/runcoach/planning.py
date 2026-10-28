@@ -29,6 +29,7 @@ before anyone else sees it, and says so in the proposal.
 
 from __future__ import annotations
 
+import datetime as _dt
 import re
 from dataclasses import dataclass, field
 
@@ -140,13 +141,41 @@ def easy_cap(zones: dict | None) -> tuple[dict | None, str | None]:
 #: A predicted race pace outside this band is not a pace anyone runs at; it
 #: is a stale or broken prediction, and the default is the honest fallback.
 _PACE_SANE_S = (150, 900)
+#: Garmin re-predicts on every sync. A prediction this old means the sync
+#: stopped reaching it, and a pace from a fitter or a less fit athlete is
+#: worse than the stated default.
+PREDICTION_MAX_AGE_DAYS = 45
+
+
+def _prediction_usable(p10, p5, pred_day, today) -> bool:
+    """Both predictions present, each a pace someone runs at, the 5 km one
+    FASTER per kilometre than the 10 km one (a pair the other way round is a
+    broken record, and the steady block's pace target would land above the
+    threshold), and not older than `PREDICTION_MAX_AGE_DAYS`."""
+    from datetime import date as _date
+
+    if not (p10 and p5):
+        return False
+    if not (_PACE_SANE_S[0] <= p10 / 10 <= _PACE_SANE_S[1]
+            and _PACE_SANE_S[0] <= p5 / 5 <= _PACE_SANE_S[1]):
+        return False
+    if p5 / 5 >= p10 / 10:
+        return False
+    if today is not None and pred_day:
+        try:
+            age = (today - _date.fromisoformat(str(pred_day))).days
+        except ValueError:
+            return False
+        if age > PREDICTION_MAX_AGE_DAYS:
+            return False
+    return True
 
 
 def _mmss(s: int) -> str:
     return f"{s // 60}:{s % 60:02d}"
 
 
-def _paces(zones: dict | None) -> tuple[int, int, int, list[str]]:
+def _paces(zones: dict | None, *, today=None) -> tuple[int, int, int, list[str]]:
     """(lt, vo2max, easy) in s/km, plus the assumptions made.
 
     Three sources, best first: the lactate-threshold pace Garmin measured
@@ -160,8 +189,7 @@ def _paces(zones: dict | None) -> tuple[int, int, int, list[str]]:
     if lt:
         return int(lt), int(round(lt * VO2MAX_PACE_FACTOR)), int(round(lt * RECOVERY_PACE_FACTOR)), notes
     p10, p5 = z.get("pred_10k_s"), z.get("pred_5k_s")
-    if p10 and p5 and _PACE_SANE_S[0] <= p10 / 10 <= _PACE_SANE_S[1] \
-            and _PACE_SANE_S[0] <= p5 / 5 <= _PACE_SANE_S[1]:
+    if _prediction_usable(p10, p5, z.get("pred_day"), today):
         lt, fast = int(round(p10 / 10)), int(round(p5 / 5))
         easy = int(round(lt * RECOVERY_PACE_FACTOR))
         when = f" of {z['pred_day']}" if z.get("pred_day") else ""
@@ -172,7 +200,7 @@ def _paces(zones: dict | None) -> tuple[int, int, int, list[str]]:
         return lt, fast, easy, notes
     lt = DEFAULT_LT_PACE_S
     easy = int(round(lt * RECOVERY_PACE_FACTOR))
-    notes.append(f"no measured threshold pace and no Garmin race prediction - threshold "
+    notes.append(f"no measured threshold pace and no usable Garmin race prediction - threshold "
                  f"estimated at {_mmss(lt)}/km, easy at {_mmss(easy)}/km")
     return int(lt), int(round(lt * VO2MAX_PACE_FACTOR)), easy, notes
 
@@ -245,7 +273,7 @@ def clean_name(name: str | None) -> str | None:
 
 def build_session(kind: str, *, distance_km: float | None = None,
                   duration_min: int | None = None, zones: dict | None = None,
-                  name: str | None = None, variant: int = 0) -> SessionSpec:
+                  name: str | None = None, variant: int = 0, today=None) -> SessionSpec:
     """A complete session for one of `KINDS`, sized to a route or a duration.
 
     `zones` is `snapshot.build_zones`' block (`z4_low`, `z5_low`, `lthr_bpm`,
@@ -261,7 +289,7 @@ def build_session(kind: str, *, distance_km: float | None = None,
     if duration_min is not None and not 10 <= int(duration_min) <= 300:
         raise ValueError("duration_min must be between 10 and 300")
 
-    lt, fast, jog, notes = _paces(zones)
+    lt, fast, jog, notes = _paces(zones, today=today)
     z = zones or {}
     blocks: list = []
     label = clean_name(name)
@@ -473,7 +501,10 @@ def min_minutes(kind: str) -> int:
     return -(-need // 60)          # round UP: one second short is a refusal
 #: How far the week may be scaled from the built-in shape before the shape
 #: itself is the wrong answer.
-_SCALE_LIMITS = (0.5, 2.0)
+#: No lower bound: a small week is made of fewer days (`build_week` drops
+#: them), not of sessions inflated back up to a share of the built-in week -
+#: that floor turned a 39-minute return week into 130 minutes on the page.
+_SCALE_LIMITS = (0.0, 2.0)
 
 
 def _week_sizes(kinds: list[str], total_minutes: int | None,
@@ -499,10 +530,7 @@ def _week_sizes(kinds: list[str], total_minutes: int | None,
     got = sum(scaled[k] for k in kinds)
     note = (f"sessions scaled to {int(round(factor * 100))} % of the built-in week "
             f"(~{got} min across {len(kinds)} days)")
-    if raw < lo:
-        note += (f" - your recent weeks are smaller than {int(lo * 100)} % of it, so this week is "
-                 f"still a step up; drop a day if it is too much")
-    elif raw > hi:
+    if raw > hi:
         note += f" - capped at {int(hi * 100)} %, the shape does not grow past that"
     return scaled, note
 
@@ -512,7 +540,8 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
                minutes: dict | None = None,
                total_minutes: int | None = None,
                quality: tuple[str, ...] | None = None,
-               variant: int = 0) -> tuple[list[tuple], list[str]]:
+               variant: int = 0, long_run: bool = True,
+               today=None, max_session_min: int | None = None) -> tuple[list[tuple], list[str]]:
     """Seven days from `start`: a polarised week as `[(date, SessionSpec), …]`
     sorted by day, plus the assumptions that shaped it.
 
@@ -522,15 +551,22 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
     is rest. A three-day week has one quality slot and takes `quality[0]`. The
     rhythm is CYCLIC: with the long run on Sunday and the week starting Monday,
     "two days after the long run" is Tuesday - counted from last Sunday's run.
-    `variant` alternates the rep structure (see `_pick`)."""
+    `variant` alternates the rep structure (see `_pick`). `quality=()` and
+    `long_run=False` make a week of easy running only - the return week.
+
+    A budget too small for this many days at the shortest useful length of
+    each session does not inflate the sessions: days are dropped, easy ones
+    first, and the rest keep the size they had - a dropped day never pours
+    into the others. `max_session_min` caps every session; a kind whose
+    shortest useful form is longer than the cap becomes an easy run."""
     from datetime import timedelta
 
     if not 3 <= int(days_per_week) <= 7:
         raise ValueError("days_per_week must be between 3 and 7")
     if long_run_day not in WEEKDAYS:
         raise ValueError(f"long_run_day must be one of {', '.join(WEEKDAYS)}")
-    quality = tuple(quality or DEFAULT_QUALITY)
-    if not quality or any(q not in HARD_KINDS for q in quality):
+    quality = DEFAULT_QUALITY if quality is None else tuple(quality)
+    if any(q not in HARD_KINDS for q in quality):
         raise ValueError(f"quality sessions must be among {', '.join(HARD_KINDS)}")
     assumptions: list[str] = []
     n = int(days_per_week)
@@ -545,24 +581,52 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
         d = long_date + timedelta(days=offset)
         return d if d <= window[-1] else d - timedelta(days=7)
 
-    plan: dict = {long_date: "long"}
+    plan: dict = {long_date: "long" if long_run else "easy"}
     slots = _QUALITY_SLOTS[1 if n == 3 else 2]
-    for offset, kind in zip(slots, (quality * 2)[:len(slots)], strict=False):
-        plan[at(offset)] = kind
+    if quality:
+        for offset, kind in zip(slots, (quality * 2)[:len(slots)], strict=False):
+            plan[at(offset)] = kind
     for offset in _EASY_OFFSETS:
         if len(plan) >= n:
             break
         if at(offset) not in plan:      # a 3-day week has its quality day here
             plan[at(offset)] = "easy"
 
+    capped = False
+    if max_session_min:
+        for day, kind in list(plan.items()):
+            if min_minutes(kind) > max_session_min:
+                plan[day] = "easy"
+                capped = True
     sizes, scale_note = _week_sizes(list(plan.values()), total_minutes, minutes)
+    if max_session_min:
+        for kind in list(sizes):
+            if sizes[kind] > max_session_min:
+                sizes[kind] = max(min_minutes(kind), max_session_min)
+                capped = capped or kind in plan.values()
+    dropped = 0
+    while total_minutes and len(plan) > 1 and \
+            sum(sizes[k] for k in plan.values()) > total_minutes * BUDGET_SLACK:
+        del plan[_day_to_drop(plan)]
+        dropped += 1
+    if scale_note:
+        got = sum(sizes[k] for k in plan.values())
+        scale_note = re.sub(r"\(~\d+ min across \d+ days\)",
+                            f"(~{got} min across {len(plan)} days)", scale_note)
+    if capped:
+        assumptions.append(f"sessions capped at ~{max_session_min} min")
+    if dropped:
+        assumptions.append(f"{len(plan)} running day(s) instead of {len(plan) + dropped}: "
+                           f"~{total_minutes} min do not fill more days without going below the "
+                           f"shortest useful session")
     if scale_note:
         assumptions.append(scale_note)
 
     sessions = []
     for day in sorted(plan):
         kind = plan[day]
-        spec = build_session(kind, duration_min=sizes[kind], zones=zones, variant=variant)
+        spec = build_session(kind, duration_min=sizes[kind], zones=zones, variant=variant,
+                             today=today)
         sessions.append((day, spec))
     # The zone assumptions are the same for every session; say them once.
     seen: set[str] = set()
@@ -573,6 +637,23 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
                 assumptions.append(a)
         spec.assumptions = []
     return sessions, assumptions
+
+
+#: How far over the budget the sessions' floors may take a week before a day
+#: is dropped: the floors are whole sessions, so an exact fit is rare.
+BUDGET_SLACK = 1.15
+#: The order days go when the budget is too small: easy runs first, then the
+#: threshold-type sessions, the VO2max session after them, the long run last.
+_DROP_ORDER = ("easy", "steady", "threshold", "vo2max", "long")
+
+
+def _day_to_drop(plan: dict):
+    """The day whose session goes first (`_DROP_ORDER`), the latest of them."""
+    for kind in _DROP_ORDER:
+        days = [d for d, k in plan.items() if k == kind]
+        if days:
+            return max(days)
+    return max(plan)
 
 
 #: Whole words only: "lang" anywhere made "Langsamer Dauerlauf" a long run.
@@ -669,13 +750,6 @@ WEEK_HOLD = 1.0
 WEEK_UNLOAD = 0.75
 #: A down week and a return week: zones.md's "-30-40 %", at the gentler end.
 WEEK_DOWN = 0.70
-#: Three weeks up - each at least the one before, the third this much over the
-#: first - and the fourth is a down week. 1.15, not 1.21: two planner steps of
-#: +10 % land on 1.21 exactly, and a rule that fires on a rounding is a coin.
-DOWN_WEEK_AFTER = 3
-DOWN_WEEK_RISE = 1.15
-
-
 def brake(acwr: float | None, acwr_source: str | None) -> tuple[float, str | None]:
     """The factor a week may grow by, given the load ratio: the step, a hold,
     or an unload - with the sentence that says why, or `None` for the plain
@@ -696,49 +770,58 @@ def brake(acwr: float | None, acwr_source: str | None) -> tuple[float, str | Non
     return WEEK_STEP, None
 
 
-def down_week_due(weekly_minutes: list[int]) -> tuple[bool, str | None]:
-    """`weekly_minutes`: completed weeks of running, oldest first, 0 for a
-    week without a run. Three weeks up in a row and the next one is a down
-    week; a week off or a smaller week in between restarts the count, so the
-    rule reads the athlete's actual weeks and never a calendar."""
-    last = [int(m or 0) for m in weekly_minutes][-DOWN_WEEK_AFTER:]
-    if len(last) < DOWN_WEEK_AFTER or last[0] <= 0:
-        return False, None
-    rising = all(b >= a for a, b in zip(last, last[1:], strict=False))
-    if rising and last[-1] >= DOWN_WEEK_RISE * last[0]:
-        return True, (f"down week: {DOWN_WEEK_AFTER} weeks up "
-                      f"({', '.join(str(m) for m in last)} min), so this one is sized at "
-                      f"{int(WEEK_DOWN * 100)} % and the adaptation can land (zones.md: "
-                      f"every 3-4 weeks)")
+#: Every fourth week is a down week (zones.md: every 3-4 weeks, -30-40 %). A
+#: fixed cadence counted from `CADENCE_EPOCH`, not detected from the history:
+#: a detector read the week after an illness as "three weeks up", and the
+#: planner's own slow progression never reached its threshold - measured both
+#: ways in the v0.3 review. No state, the calendar decides.
+DOWN_WEEK_EVERY = 4
+#: A Monday. Weeks are counted from here, so a 53-week year does not give two
+#: weeks in a row the same parity, as the ISO week number does (53, then 1).
+CADENCE_EPOCH = _dt.date(2024, 1, 1)
+
+
+def weeks_since_epoch(monday) -> int:
+    return (monday - CADENCE_EPOCH).days // 7
+
+
+def week_variant(monday) -> int:
+    """0 or 1: which of the two largest fitting rep structures this week gets."""
+    return weeks_since_epoch(monday) % 2
+
+
+def down_week_due(monday) -> tuple[bool, str | None]:
+    """Is the week starting `monday` a down week? Every `DOWN_WEEK_EVERY`th."""
+    if weeks_since_epoch(monday) % DOWN_WEEK_EVERY == DOWN_WEEK_EVERY - 1:
+        return True, (f"down week: every {DOWN_WEEK_EVERY}th week is lighter, so this one is "
+                      f"sized at {int(WEEK_DOWN * 100)} % and the adaptation of the weeks "
+                      f"before can land (zones.md: every 3-4 weeks)")
     return False, None
 
 
-#: Completed weeks without a run that make the week being planned a return
-#: week even when the athlete has run again since: the first run back does
-#: not turn the weeks before the pause into a base for a step up.
-RETURN_AFTER_EMPTY_WEEKS = 2
+#: A pause longer than this is a longer way back: the first week is half of
+#: what the weeks before it held, not 70 % of it.
+LONG_PAUSE_DAYS = 21
+WEEK_RETURN_LONG = 0.50
+#: After a pause longer than this the weeks before it are no base at all,
+#: and the return week is this much easy running.
+LONG_PAUSE_FLOOR_DAYS = 56
+RETURN_FLOOR_MIN = 60
 
 
-def return_week_due(last_run_day, today, *, empty_weeks: int = 0) -> tuple[bool, str | None]:
+def return_week_due(pause_days: int | None) -> tuple[float | None, str | None]:
     """After a pause the first week back is sized DOWN from the weeks before
-    it, not up: the size of the jump is the best-evidenced injury factor there
-    is, and the weeks before a pause are the wrong base for a step.
-
-    Two ways to be a pause: `RETURN_AFTER_DAYS` days since the last run, or
-    `empty_weeks` (the completed weeks just before this one without a run)
-    reaching `RETURN_AFTER_EMPTY_WEEKS` - the athlete who already ran once
-    this week after two empty ones is still coming back."""
-    if last_run_day is not None:
-        days = (today - last_run_day).days
-        if days >= logic.RETURN_AFTER_DAYS:
-            return True, (f"return week: {days} days without a run, so the week is sized at "
-                          f"{int(WEEK_DOWN * 100)} % of your running weeks before the pause, "
-                          f"no step up")
-    if int(empty_weeks) >= RETURN_AFTER_EMPTY_WEEKS:
-        return True, (f"return week: the last {int(empty_weeks)} completed weeks had no run, so "
-                      f"the week is sized at {int(WEEK_DOWN * 100)} % of your running weeks "
-                      f"before the pause, no step up")
-    return False, None
+    it, not up, and holds no hard session: the size of the jump is the
+    best-evidenced injury factor there is, and the weeks before a pause are
+    the wrong base for a step. `pause_days`: how long the athlete did not run
+    (the caller decides what counts). Returns the factor and the line, or
+    `(None, None)`."""
+    if pause_days is None or pause_days < logic.RETURN_AFTER_DAYS:
+        return None, None
+    factor = WEEK_RETURN_LONG if pause_days > LONG_PAUSE_DAYS else WEEK_DOWN
+    return factor, (f"return week: {pause_days} days without running, so the week is sized at "
+                    f"{int(factor * 100)} % of your running weeks before the pause, easy running "
+                    f"only - the hard sessions come back the week after")
 
 
 def swap_for_readiness(decision: str, scheduled: list[dict], own_kinds: dict) -> dict:

@@ -221,7 +221,9 @@ def get_training_readiness(store: Store) -> str:
         f"\nNOTE: latest data is from {r['day']}, not today - treat the verdict as stale."
     decision = _decide(store, today)
     plan = store.get_scheduled_workouts(today, today + timedelta(days=6))
-    planned_today = any(p["day"] == today.isoformat() for p in plan)
+    # A RUN on today's calendar is the plan; a gym hour is not a stand-in for it.
+    planned_today = any(p["day"] == today.isoformat()
+                        and "run" in str(p.get("sport") or "running").lower() for p in plan)
     if plan:
         # Titles are the athlete's own calendar entries, but still free text.
         # The schedule id is what `propose_workout(replaces_schedule_id=…)`
@@ -313,6 +315,7 @@ _STIMULUS_LABEL = {
     "threshold": "threshold reps",
     "steady": "a steady block at threshold (the measurement)",
     "unknown": "not known",
+    "easy": "none - easy running",
 }
 
 
@@ -325,9 +328,8 @@ def _decision_block(d: dict, *, planned_today: bool = False) -> str:
     one screen with nothing making them agree.
 
     On a hard day the block also says WHICH hard session (`logic.next_stimulus`)
-    - and when the calendar already has a session today, that entry is the
-    plan and the stimulus is named as what the week still lacks, so two
-    sessions never stand on one screen."""
+    - unless the calendar already has a run today: that entry is the plan, and
+    naming a second session beside it would put two on one day."""
     w = d["week"]
     # Both numbers, because the decision reads both. "40 of 32 min above easy" on
     # its own looks like a finished week even when every one of those minutes was
@@ -342,8 +344,7 @@ def _decision_block(d: dict, *, planned_today: bool = False) -> str:
     if s:
         label = _STIMULUS_LABEL.get(s.get("kind"), str(s.get("kind")))
         if planned_today:
-            text += (f" The calendar has a session for today (below): that is the plan. What the "
-                     f"week still lacks: {label} - {s.get('reason')}.")
+            text += " The calendar has a run for today (below): that is the plan."
         else:
             text += f" Which hard session: {label} - {s.get('reason')}."
     return text

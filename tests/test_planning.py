@@ -8,7 +8,7 @@ from datetime import date, timedelta
 import pytest
 
 from conftest import FakeGarmin
-from runcoach import garmin, planning
+from runcoach import garmin, plan, planning
 from runcoach.planning import (
     DEFAULT_LT_PACE_S,
     HARD_KINDS,
@@ -774,8 +774,13 @@ A_DAY = date(2026, 6, 10)
 def test_the_week_rule_factors_are_pinned():
     assert (WEEK_STEP, WEEK_HOLD, WEEK_UNLOAD, WEEK_DOWN) == (1.10, 1.0, 0.75, 0.70), (
         "the +10 % convention, a hold, an unload, and zones.md's -30 % for a down or return week")
-    assert planning.DOWN_WEEK_RISE == 1.15, "two planner steps land on 1.21; a rule on a rounding is a coin"
-    assert planning.DOWN_WEEK_AFTER == 3
+    assert planning.DOWN_WEEK_EVERY == 4, "zones.md: a down week every 3-4 weeks"
+    assert planning.CADENCE_EPOCH.weekday() == 0, "the cadence counts Mondays"
+    assert (planning.LONG_PAUSE_DAYS, planning.WEEK_RETURN_LONG) == (21, 0.50), (
+        "more than three weeks off: half of the weeks before")
+    assert (planning.LONG_PAUSE_FLOOR_DAYS, planning.RETURN_FLOOR_MIN) == (56, 60), (
+        "eight weeks off: the weeks before are no base, three short easy runs are")
+    assert planning.BUDGET_SLACK == 1.15 and plan.RECENT_CAP == 1.10
 
 
 def test_the_brake_reads_the_load_ratio_like_the_readiness_light():
@@ -790,27 +795,24 @@ def test_the_brake_reads_the_load_ratio_like_the_readiness_light():
     assert f == WEEK_HOLD and "computed" in line, "a computed ratio may hold a week, never cut it"
 
 
-def test_a_down_week_follows_three_weeks_up():
-    due, line = down_week_due([200, 215, 245])
-    assert due and line.startswith("down week: 3 weeks up (200, 215, 245 min)") and "70 %" in line
-    assert down_week_due([100, 200, 215, 245])[0], "only the last three count"
-    assert not down_week_due([200, 215, 229])[0], "the third must be 15 % over the first"
-    assert not down_week_due([200, 190, 240])[0], "a smaller week in between restarts the count"
-    assert not down_week_due([0, 215, 245])[0], "a week off is not a base"
-    assert not down_week_due([215, 245, 170])[0], "...and after the down week the count restarts"
-    assert not down_week_due([200, 215])[0] and not down_week_due([])[0]
+def test_every_fourth_week_is_a_down_week_and_the_structure_alternates():
+    mondays = [planning.CADENCE_EPOCH + timedelta(weeks=i) for i in range(12)]
+    downs = [down_week_due(m)[0] for m in mondays]
+    assert downs == [False, False, False, True] * 3
+    due, line = down_week_due(mondays[3])
+    assert line.startswith("down week: every 4th week is lighter") and "70 %" in line
+    assert [planning.week_variant(m) for m in mondays[:4]] == [0, 1, 0, 1]
 
 
-def test_a_return_week_after_ten_days_without_a_run():
-    assert return_week_due(None, A_DAY) == (False, None)
-    assert return_week_due(A_DAY - timedelta(days=9), A_DAY) == (False, None)
-    due, line = return_week_due(A_DAY - timedelta(days=10), A_DAY)
-    assert due and line.startswith("return week: 10 days without a run") and "70 %" in line
-    # The first run back this week does not end the pause: two empty completed
-    # weeks before it still make this a return week.
-    assert return_week_due(A_DAY - timedelta(days=2), A_DAY, empty_weeks=1) == (False, None)
-    due, line = return_week_due(A_DAY - timedelta(days=2), A_DAY, empty_weeks=2)
-    assert due and line.startswith("return week: the last 2 completed weeks had no run")
+def test_a_return_week_after_ten_days_without_running():
+    assert return_week_due(None) == (None, None)
+    assert return_week_due(9) == (None, None)
+    factor, line = return_week_due(10)
+    assert factor == WEEK_DOWN and line.startswith("return week: 10 days without running")
+    assert "easy running only" in line and "70 %" in line
+    assert return_week_due(21)[0] == WEEK_DOWN
+    factor, line = return_week_due(22)
+    assert factor == planning.WEEK_RETURN_LONG and "50 %" in line
 
 
 def test_paces_fall_back_to_garmins_race_predictions_before_the_default():
@@ -823,7 +825,7 @@ def test_paces_fall_back_to_garmins_race_predictions_before_the_default():
     assert len(notes) == 1 and "10 km prediction of 2026-06-01 (48:30): 4:51/km" in notes[0]
     assert "5 km prediction (23:12): 4:38/km" in notes[0] and "easy at 6:18/km" in notes[0]
     lt_s, _, _, notes = planning._paces(None)
-    assert lt_s == DEFAULT_LT_PACE_S and "no Garmin race prediction" in notes[0]
+    assert lt_s == DEFAULT_LT_PACE_S and "no usable Garmin race prediction" in notes[0]
     # A prediction nobody runs at is a broken one, and the default is the honest fallback.
     assert planning._paces({"pred_10k_s": 600, "pred_5k_s": 300})[0] == DEFAULT_LT_PACE_S
     assert planning._paces({"pred_10k_s": 2910})[0] == DEFAULT_LT_PACE_S, "both or neither"
@@ -864,28 +866,30 @@ def test_steady_counts_as_hard_for_spacing_and_for_the_readiness_swap():
 
 
 def _weeks_of_running(store, today, minutes_per_week, *, aid_base=8_000_000_000):
-    """Completed weeks of running before today's, oldest first; 0 = a week off."""
+    """Rolling 7-day weeks of running ending on `today`, oldest first, the way
+    `plan._week_budget` reads them; 0 = a week off. Two runs per week."""
     from conftest import make_activity
 
-    monday = today - timedelta(days=today.weekday())
     aid = aid_base
-    for back, mins in enumerate(reversed(minutes_per_week), start=1):
-        start = monday - timedelta(weeks=back)
+    for back, mins in enumerate(reversed(minutes_per_week)):
         if mins <= 0:
             continue
         for d in (1, 4):
             aid += 1
-            store.upsert_activity(make_activity(aid, start + timedelta(days=d),
-                                                duration_s=mins * 30))
+            store.upsert_activity(make_activity(aid, today - timedelta(days=7 * back + d),
+                                                duration_s=mins * 30, load=None))
 
 
 def test_the_budget_steps_up_ten_percent_by_default_and_names_its_weeks(store, today):
     from runcoach import plan
 
     _weeks_of_running(store, today, [100, 100, 100, 100])
-    budget, lines = plan._week_budget(store, today)
+    monday = planning.CADENCE_EPOCH + timedelta(weeks=200)          # not a down week
+    budget, lines = plan._week_budget(store, today, monday)
     assert budget == 110 and len(lines) == 1
-    assert "from your last 4 running weeks (100, 100, 100, 100 min, median 100) plus 10 %" in lines[0]
+    assert ("from your last 4 weeks of running (100, 100, 100, 100 min, oldest first, the last "
+            f"ending {today.isoformat()}; median of the running weeks 100 - a down week or "
+            f"taper among them pulls it down with them) plus 10 %") in lines[0]
 
 
 def test_the_budget_holds_or_unloads_on_the_load_ratio(store, today):
@@ -893,47 +897,58 @@ def test_the_budget_holds_or_unloads_on_the_load_ratio(store, today):
     from runcoach import plan
 
     _weeks_of_running(store, today, [100, 100, 100, 100])
+    monday = planning.CADENCE_EPOCH + timedelta(weeks=200)
     store.upsert_daily(make_day(today, hrv_status="BALANCED", sleep_score=80,
                                 body_battery_high=80, acwr_ratio=1.4))
-    budget, lines = plan._week_budget(store, today)
+    budget, lines = plan._week_budget(store, today, monday)
     assert budget == 100 and ": hold: ACWR 1.4" in lines[0]
     store.upsert_daily(make_day(today, hrv_status="BALANCED", sleep_score=80,
                                 body_battery_high=80, acwr_ratio=1.6))
-    budget, lines = plan._week_budget(store, today)
+    budget, lines = plan._week_budget(store, today, monday)
     assert budget == 75 and ": unloading week: ACWR 1.6" in lines[0]
+    # A down week on top: the most restrictive rule sizes it, the other is named.
+    budget, lines = plan._week_budget(store, today, planning.CADENCE_EPOCH + timedelta(weeks=203))
+    assert budget == 70 and ": down week:" in lines[0]
+    assert lines[1].startswith("also: unloading week: ACWR 1.6")
 
 
-def test_a_down_week_is_sized_from_the_athletes_own_rising_weeks(store, today):
+def test_the_step_is_capped_by_the_last_two_weeks(store, today):
     from runcoach import plan
 
-    _weeks_of_running(store, today, [150, 200, 215, 245])
-    budget, lines = plan._week_budget(store, today)
-    assert budget == 145, lines                       # 0.7 x median 207
-    assert ": down week: 3 weeks up (200, 215, 245 min)" in lines[0]
+    _weeks_of_running(store, today, [200, 200, 80, 90])
+    budget, lines = plan._week_budget(store, today, planning.CADENCE_EPOCH + timedelta(weeks=200))
+    assert budget == 99, lines                     # 1.1 x 90, not 1.1 x median 145
+    assert lines[-1].startswith("capped at 10 % over the bigger of your last two weeks (80, 90 min)")
 
 
 def test_a_pause_makes_a_return_week_from_the_weeks_before_it(store, today):
-    from conftest import make_day
     from runcoach import plan
 
     _weeks_of_running(store, today, [100, 100, 100, 100, 0, 0])
     budget, lines = plan._week_budget(store, today)
-    assert budget == 70 and ": return week:" in lines[0] and "days without a run" in lines[0]
-    # Two rules at once: the most restrictive sizes the week, the other is named.
-    store.upsert_daily(make_day(today, hrv_status="BALANCED", sleep_score=80,
-                                body_battery_high=80, acwr_ratio=1.6))
-    budget, lines = plan._week_budget(store, today)
-    assert budget == 70 and lines[0].count("return week") == 1
-    assert lines[1].startswith("also: unloading week: ACWR 1.6")
+    assert budget == 70 and ": return week:" in lines[0], lines
+    assert "from your running weeks before the pause (100, 100, 100, 100 min" in lines[0]
 
 
 def test_a_first_run_back_does_not_end_the_return_week(store, today):
     """Four weeks of running, two weeks off, and a run two days ago: the last
-    run is recent, but the weeks before this one are empty - still a return week."""
+    run is recent, but the gap before it is a pause - still a return week."""
     from conftest import make_activity
     from runcoach import plan
 
     _weeks_of_running(store, today, [100, 100, 100, 100, 0, 0])
-    store.upsert_activity(make_activity(8_100_000_000, today - timedelta(days=2), duration_s=1800))
+    store.upsert_activity(make_activity(8_100_000_000, today - timedelta(days=2), duration_s=1800,
+                                        load=None))
     budget, lines = plan._week_budget(store, today)
-    assert budget == 70 and "the last 2 completed weeks had no run" in lines[0]
+    assert budget == 70 and ": return week:" in lines[0], lines
+
+
+def test_a_pause_of_more_than_eight_weeks_is_three_short_easy_runs(store, today):
+    from conftest import make_activity
+    from runcoach import plan
+
+    store.upsert_activity(make_activity(8_200_000_000, today - timedelta(days=80), duration_s=3600,
+                                        load=None))
+    budget, lines = plan._week_budget(store, today)
+    # Half of the one 60-minute week before the pause - never more than that.
+    assert budget == 30 and "80 days without running" in lines[0], lines
