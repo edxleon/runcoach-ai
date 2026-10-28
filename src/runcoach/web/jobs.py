@@ -16,6 +16,7 @@ import logging
 import os
 import re
 import secrets
+import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -68,16 +69,18 @@ _REPLACE_ATTEMPTS = 6
 def _write_json(path: Path, data: dict) -> None:
     """Write atomically, via a temp file in the same directory.
 
-    The temp name carries the PROCESS ID. Deriving it from the target
-    (`path.with_suffix(".tmp")`) meant two writers of the same job - the worker
-    finishing a run and an HTTP thread recording feedback - used one temp file,
-    so one could unlink the other's half-written content out from under it.
+    The temp name carries the PROCESS and the THREAD. Deriving it from the
+    target (`path.with_suffix(".tmp")`) meant two writers of the same job - the
+    worker finishing a run and an HTTP thread recording feedback - used one temp
+    file, so one could unlink the other's half-written content out from under
+    it. The process id alone did not fix that: those two writers are threads of
+    one process, and the second swap left the first one a FileNotFoundError.
 
     The final attempt is INSIDE the loop. It used to sit after it, unguarded, so
     a busy moment surfaced as a raw `PermissionError` out of a background
     thread; one test caught it once in three runs, which on a Windows CI runner
     is a flake in every sense except the one that matters."""
-    tmp = path.with_name(f"{path.stem}.{os.getpid()}.tmp")
+    tmp = path.with_name(f"{path.stem}.{os.getpid()}-{threading.get_ident()}.tmp")
     tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
     for attempt in range(_REPLACE_ATTEMPTS):
         try:

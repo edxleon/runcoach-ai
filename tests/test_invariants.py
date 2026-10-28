@@ -1386,6 +1386,47 @@ def test_two_writers_of_one_job_do_not_share_a_temp_file(tmp_path, monkeypatch):
     assert all(not p.name.endswith(".tmp") for p in paths.jobs_dir().glob("j-*.json"))
 
 
+def test_two_threads_of_one_process_do_not_share_a_temp_file(tmp_path, monkeypatch):
+    """The two writers above are THREADS of one server process, so a temp name
+    that is unique per process was still one file for both: the second writer's
+    `os.replace` moved it, and the first one's then raised FileNotFoundError.
+    That surfaced as a flake of two concurrent applies on one CI runner; in the
+    app it is a double tap on "Put on watch". Writer A is held right before its
+    swap while writer B runs start to finish."""
+    import threading
+
+    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    target = paths.jobs_dir() / "j-x.json"
+    a_ready, b_done = threading.Event(), threading.Event()
+    real = os.replace
+
+    def hold_a(src, dst):
+        if threading.current_thread().name == "A" and not a_ready.is_set():
+            a_ready.set()
+            assert b_done.wait(10)
+        return real(src, dst)
+
+    monkeypatch.setattr(os, "replace", hold_a)
+    errors: list[BaseException] = []
+
+    def write(value):
+        try:
+            jobs._write_json(target, {"a": value})
+        except Exception as exc:    # noqa: BLE001 — a thread's failure must reach the assert
+            errors.append(exc)
+
+    a = threading.Thread(target=write, args=(1,), name="A")
+    a.start()
+    assert a_ready.wait(10)
+    write(2)
+    b_done.set()
+    a.join(10)
+
+    assert not errors, errors
+    assert json.loads(target.read_text(encoding="utf-8")) == {"a": 1}, "the later swap wins"
+    assert not list(paths.jobs_dir().glob("*.tmp"))
+
+
 def test_the_readme_screenshots_cannot_drift_from_the_app(tmp_path, monkeypatch):
     """`demo.py` seeds relative to `paths.today()` and plans by weekday, so the
     synthetic athlete's numbers move with the day of the week while the saved
