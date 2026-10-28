@@ -1,6 +1,6 @@
 # The demo video
 
-`runcoach-demo.mp4` (86 s, 1080p, English voice-over; `--captions` burns in subtitles) is built from this folder by
+`runcoach-demo.mp4` (89 s, 1080p, English voice-over; `--captions` burns in subtitles) is built from this folder by
 `uv run python scripts/video.py`. That script copies in the app's screenshots, writes `index.html`
 with `build.py`, and renders it with [HyperFrames](https://hyperframes.heygen.com). The HyperFrames
 version is pinned and needs Node, ffmpeg and ffprobe.

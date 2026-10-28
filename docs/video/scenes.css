@@ -192,3 +192,11 @@ p { font-size: 30px; color: var(--muted); margin-top: 10px; }
 .gap { position: absolute; left: 236px; top: 124px; width: 472px; text-align: center; font-family: "JB Mono", monospace;
        font-size: 26px; color: var(--accent); border-top: 3px solid var(--accent); padding-top: 6px; }
 .doubt { margin-top: 84px; font-size: 48px; font-weight: 800; color: var(--warn); }
+
+/* title card: the first frame is the player's still */
+.intro-box { position: absolute; left: 0; right: 0; top: 300px; text-align: center; }
+.intro-line { margin-top: 26px; font-size: 54px; font-weight: 800; letter-spacing: -0.02em; }
+.intro-sub { margin-top: 18px; font-size: 32px; color: var(--muted); }
+.intro-cue { display: inline-block; margin-top: 54px; padding: 14px 30px; border-radius: 999px;
+             font-size: 30px; font-weight: 700; color: var(--accent);
+             border: 2px solid rgba(100, 210, 163, 0.5); background: rgba(100, 210, 163, 0.12); }

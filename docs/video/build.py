@@ -18,6 +18,10 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 LEAD, TAIL, CLOSE_TAIL = 0.45, 0.55, 2.0
+#: The title card before the first spoken scene. Its first frame is also the
+#: still a player shows before anyone presses play - GitHub's does - so it has
+#: to say what this is, complete, at t = 0.
+INTRO_S = 2.6
 
 
 def duration(path: Path) -> float:
@@ -39,7 +43,7 @@ def sentences(text: str) -> list[str]:
 
 def timeline() -> tuple[list[dict], float]:
     scenes = json.loads((HERE / "narration.json").read_text(encoding="utf-8"))
-    t = 0.0
+    t = INTRO_S
     for i, s in enumerate(scenes):
         s["audio"] = duration(HERE / "assets" / "audio" / f"{s['id']}.mp3")
         tail = CLOSE_TAIL if i == len(scenes) - 1 else TAIL
@@ -83,6 +87,15 @@ def render(*, captions_on: bool = False) -> str:
         s = by_id[sid]
         return (f'<section id="s-{sid}" class="clip scene" data-start="{s["start"]}" '
                 f'data-duration="{s["dur"]}"><div class="inner">{body}</div></section>')
+
+    # Not a narration scene: no voice, a fixed length, fully drawn on frame 0.
+    intro = (f'<section id="s-intro" class="clip scene" data-start="0" data-duration="{INTRO_S + 0.4}">'
+             '<div class="inner"><div class="intro-box">'
+             '<div class="logo">runcoach</div>'
+             '<div class="intro-line">An AI running coach for your Garmin data</div>'
+             '<div class="intro-sub">Local-first · runs on your Claude subscription · open source</div>'
+             f'<div class="intro-cue">▶&nbsp; {round(total)}-second demo · sound on</div>'
+             '</div></div></section>')
 
     hook = section("hook", """
       <div class="center-col">
@@ -242,12 +255,13 @@ def render(*, captions_on: bool = False) -> str:
   <div id="chrome" class="clip" data-start="0" data-duration="{total}">
     <div class="wordmark">runcoach <span>v0.2</span></div>
   </div>
-  {hook}{answer}{today}{strategy}{runs}{chat}{watch}{try_}{close}
+  {intro}{hook}{answer}{today}{strategy}{runs}{chat}{watch}{try_}{close}
   {captions}
   {audio}
 </div>
 <script>
 const T = {json.dumps(times)};
+const INTRO_END = {INTRO_S};
 for (const [id, v] of Object.entries(T)) v.c = new Proxy(v.c, {{ get(a, k) {{
   if (typeof k === "string" && /^\\d+$/.test(k) && !(k in a)) throw new Error(`scene ${{id}} has no caption ${{k}}`);
   return a[k]; }} }});
@@ -259,6 +273,9 @@ const type = (sel, at, cps = 38) => document.querySelectorAll(sel).forEach((el) 
   const n = +el.dataset.len;
   tl.fromTo(el, {{ width: "0ch" }}, {{ width: n + "ch", duration: n / cps, ease: `steps(${{n}})` }}, at);
 }});
+
+// intro: drawn at t = 0 (no "from" tween), gone before the first question
+tl.to("#s-intro .inner", {{ opacity: 0, duration: 0.4 }}, INTRO_END);
 
 // hook
 type("#s-hook .q", T.hook.a, 16);
