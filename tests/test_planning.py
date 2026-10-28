@@ -456,14 +456,16 @@ def test_a_workout_name_arrives_as_one_line_of_printable_text():
 #: their Garmin library - the safe direction when the answer was lost rather
 #: than refused. A new class in a library update makes this table red, which
 #: is the point: the default for something unclassified is "keep the claim",
-#: and that should be a decision, not an accident.
+#: and that should be a decision, not an accident. A class that disappears is
+#: not: `uv tool install` resolves fresh inside the pyproject range, so the
+#: table has to hold for every version a user can get, old ones included.
 VENDOR_ERRORS = {
     "GarminConnectAuthenticationError": True,     # refused before anything ran
     "GarminConnectConnectionError": True,         # the request never landed
     "GarminConnectTooManyRequestsError": True,    # refused, nothing created
     "GarminConnectInvalidFileFormatError": True,  # the workout itself was rejected
     "GarminConnectNotFoundError": False,          # a 404 mid-write says nothing
-    "HTTPError": False,                           # a 5xx can follow a write
+    "HTTPError": False,                           # a 5xx can follow a write; re-exported up to 0.3.15
 }
 
 
@@ -476,8 +478,8 @@ def test_every_vendor_error_has_a_deliberate_verdict():
 
     found = {name: cls for name, cls in vars(garminconnect).items()
              if inspect.isclass(cls) and issubclass(cls, BaseException)}
-    assert set(found) == set(VENDOR_ERRORS), (
-        f"the library's exceptions changed: {sorted(set(found) ^ set(VENDOR_ERRORS))} - "
+    assert set(found) <= set(VENDOR_ERRORS), (
+        f"the library has new exceptions: {sorted(set(found) - set(VENDOR_ERRORS))} - "
         f"decide what each new one proves before the write path meets it")
     for name, cls in found.items():
         assert _created_nothing(cls("x")) is VENDOR_ERRORS[name], name
