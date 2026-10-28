@@ -146,4 +146,5 @@ def test_the_data_folder_is_shown_without_the_account_name(tmp_path, monkeypatch
 
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
     assert paths.display_path(tmp_path / ".runcoach") == "~/.runcoach"
-    assert paths.display_path(Path("/opt/elsewhere")) == "/opt/elsewhere"
+    # Outside the home the path is shown as the system writes it (backslashes on Windows).
+    assert paths.display_path(Path("/opt/elsewhere")) == str(Path("/opt/elsewhere"))
