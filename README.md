@@ -34,7 +34,7 @@ action pinned to a commit SHA — and a second job that [builds the wheel, insta
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
 
-https://github.com/user-attachments/assets/29408989-6a68-449b-be7e-b431058e65bb
+https://github.com/user-attachments/assets/424b03c9-5446-4fbe-8dd7-9b2a4f53dc93
 
 <sub>The 89-second demo, with voice-over: the synthetic demo athlete, rebuilt from this repo by <code>scripts/video.py</code>
 (<a href="docs/video/runcoach-demo.mp4">file</a>).</sub>
