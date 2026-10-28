@@ -36,7 +36,7 @@ because the suite proves the code and only an install proves the package.</sub>
 
 https://github.com/user-attachments/assets/87fb88e4-bd8d-4844-96cd-b1950568cfc0
 
-<sub>The 86-second demo, with voice-over and captions: the synthetic demo athlete, rebuilt from this repo by <code>scripts/video.py</code>
+<sub>The 86-second demo, with voice-over: the synthetic demo athlete, rebuilt from this repo by <code>scripts/video.py</code>
 (<a href="docs/video/runcoach-demo.mp4">file</a>).</sub>
 
 <p>

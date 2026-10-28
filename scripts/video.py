@@ -10,6 +10,7 @@ and a voice spoken from `docs/video/narration.json`.
     uv run python scripts/video.py --capture     # re-capture the tool texts first
     uv run python scripts/video.py --voice       # re-speak the narration first (needs Kokoro)
     uv run python scripts/video.py --voice hook  # ...or just the scenes named
+    uv run python scripts/video.py --captions    # with burned-in captions (off by default)
 
 Needs ffmpeg/ffprobe and Node (HyperFrames renders through `npx`, version
 pinned below). `--voice` also needs `RUNCOACH_TTS_PYTHON`, see docs/video/tts.py.
@@ -110,7 +111,7 @@ def main() -> int:
         capture()
     if "--voice" in args:
         voice([a for a in args[args.index("--voice") + 1:] if not a.startswith("--")])
-    run([sys.executable, str(VIDEO / "build.py")])
+    run([sys.executable, str(VIDEO / "build.py"), *(["--captions"] if "--captions" in args else [])])
     env = {**os.environ, "HYPERFRAMES_SKIP_SKILLS": "1"}
     run([npx, "-y", HYPERFRAMES, "telemetry", "disable"], cwd=VIDEO, env=env, stdout=subprocess.DEVNULL)
     run([npx, "-y", HYPERFRAMES, "check"], cwd=VIDEO, env=env)

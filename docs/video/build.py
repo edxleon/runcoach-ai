@@ -72,7 +72,7 @@ def out(text: str, cls: str = "out") -> str:
     return f'<div class="line {cls}">{esc(text)}</div>'
 
 
-def render() -> str:
+def render(*, captions_on: bool = False) -> str:
     scenes, total = timeline()
     by_id = {s["id"]: s for s in scenes}
     cap = json.loads((HERE / "assets" / "captured.json").read_text(encoding="utf-8"))
@@ -214,10 +214,12 @@ def render() -> str:
         <div class="fine">Not affiliated with Garmin. A training tool, not medical advice.</div>
       </div>""")
 
+    # Off by default: the narration and the text in the frame carry it. The
+    # caption timings are still computed - every reveal is anchored on them.
     captions = "".join(
         f'<div id="cap-{s["id"]}-{i}" class="cap clip" data-start="{c["t0"]}" data-duration="{round(c["t1"] - c["t0"], 3)}">'
         f'<span>{esc(c["text"])}</span></div>'
-        for s in scenes for i, c in enumerate(s["caps"]))
+        for s in scenes for i, c in enumerate(s["caps"])) if captions_on else ""
     audio = "".join(
         f'<audio id="a-{s["id"]}" src="assets/audio/{s["id"]}.mp3" data-start="{round(s["start"] + LEAD, 3)}" '
         f'data-duration="{round(s["audio"], 3)}" data-volume="1"></audio>'
@@ -347,6 +349,8 @@ tl.seek(0);
 
 
 if __name__ == "__main__":
-    (HERE / "index.html").write_text(render(), encoding="utf-8")
+    import sys
+
+    (HERE / "index.html").write_text(render(captions_on="--captions" in sys.argv), encoding="utf-8")
     scenes, total = timeline()
     print(f"index.html written - {total:.1f} s, " + ", ".join(f"{s['id']} {s['dur']:.1f}" for s in scenes))

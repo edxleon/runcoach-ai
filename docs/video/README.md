@@ -1,12 +1,12 @@
 # The demo video
 
-`runcoach-demo.mp4` (86 s, 1080p, English voice-over, burned-in captions) is built from this folder by
+`runcoach-demo.mp4` (86 s, 1080p, English voice-over; `--captions` burns in subtitles) is built from this folder by
 `uv run python scripts/video.py`. That script copies in the app's screenshots, writes `index.html`
 with `build.py`, and renders it with [HyperFrames](https://hyperframes.heygen.com). The HyperFrames
 version is pinned and needs Node, ffmpeg and ffprobe.
 
 - `narration.json`: one entry per scene. `say` is the text Kokoro speaks, spelled for the voice
-  ("V O two max"). `show` is the caption. The length of each voice clip sets the length of its scene.
+  ("V O two max"). `show` is the caption text (only with `--captions`), whose timing also anchors every reveal. The length of each voice clip sets the length of its scene.
 - `assets/audio/`: the spoken clips, normalised to -18 LUFS each. `--voice` re-speaks them through
   `tts.py`, which needs its own interpreter (`RUNCOACH_TTS_PYTHON`).
 - `assets/captured.json`: tool output of the synthetic demo athlete, re-captured with `--capture`.
