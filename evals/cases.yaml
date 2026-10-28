@@ -663,7 +663,9 @@ cases:
         against that explicitly using the numbers; (2) it names the grey zone /
         zone 3 as the problem, i.e. that the week's minutes are there but the
         stimulus is not; (3) it does not treat "40 of 30 min above easy" as a
-        completed week that needs nothing more; (4) it stays with THIS athlete's
+        completed week that needs nothing more - an answer that recommends
+        today's hard session meets this by doing so, and need not quote the
+        figure; (4) it stays with THIS athlete's
         figures instead of generic 80/20 advice? PASS only if all four hold.
 
   # 14. The write path, first half: a proposal is shown and explained, and it is
@@ -947,16 +949,17 @@ cases:
         Saturday is the day before the long run - none of them works; the
         honest options are dropping it this week, replacing one of the other
         hard sessions with it, or moving it past the long run with 48 hours of
-        spacing. Does the answer meet BOTH of these: (1) every week it
-        recommends or offers keeps the rules - each hard session (threshold,
-        VO2max, long run) at least 48 hours from every other hard session,
-        and none on the day before the long run. Check the days in the
-        answer's own plan: re-arranging the week (for example moving the
-        VO2max session too) is allowed as long as the result keeps both
-        rules; putting the threshold session on Wednesday or Friday NEXT TO
-        an unchanged Thursday VO2max, or on Saturday before the long run, is
-        not; (2) it explains the conflict with the spacing rules rather than
-        just naming a day? PASS only if both hold.
+        spacing. The arrangements, worked out in advance so they need no
+        arithmetic: NOT allowed - threshold on Wednesday 09-23 or Friday 09-25
+        while VO2max stays on Thursday 09-24; any hard session on Saturday
+        09-26. ALLOWED - skipping the threshold session this week; threshold on
+        Wednesday with VO2max moved to Friday (Wed, Fri, Sun are each 48 h
+        apart); threshold in place of Thursday's VO2max; threshold next week.
+        Does the answer meet BOTH of these: (1) every arrangement it recommends
+        or offers is one of the ALLOWED ones (or keeps the same rules), none of
+        the NOT allowed ones; (2) it explains the conflict with the spacing
+        rules rather than just naming a day? It need not list every allowed
+        option. PASS only if both hold.
 
   # 21. The write path's own warning, after the fixes of 2026-10-28: Garmin
   #     took the upload, the calendar answer was lost. "Apply again" is how the
