@@ -5,7 +5,15 @@ so the app and the agent can never disagree about the facts."""
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 # ── Readiness ────────────────────────────────────────────────────────────────
+
+#: ACWR bands (zones.md): above ELEVATED the load axis dampens a day to EASY and
+#: holds a week flat; above SPIKE it rests the day and unloads the week. One
+#: pair of numbers for the day rule here and the week rule in `planning.brake`.
+ACWR_ELEVATED = 1.3
+ACWR_SPIKE = 1.5
 
 
 def readiness_verdict(
@@ -49,12 +57,12 @@ def readiness_verdict(
             flags.append(("easy", "body_battery", f"Body Battery {body_battery_high}"))
 
     if acwr is not None:
-        if acwr > 1.5:
+        if acwr > ACWR_SPIKE:
             if acwr_source == "computed":
                 flags.append(("easy", "acwr", f"ACWR {acwr} (high, computed - uncertain)"))
             else:
                 flags.append(("rest", "acwr", f"ACWR {acwr} (>1.5 = injury risk)"))
-        elif acwr > 1.3:
+        elif acwr > ACWR_ELEVATED:
             flags.append(("easy", "acwr", f"ACWR {acwr} (elevated)"))
         elif acwr < 0.8:
             # Do not call it detraining right after a hard session: strength and
@@ -94,6 +102,26 @@ def readiness_verdict(
 
 
 def decide_today(
+    verdict: str | None, *, days_since_hard: int | None, hard_min: int, target_min: int,
+    quality_min: int | None = None, quality_s: int | None = None,
+    week_start: str | None = None, stimulus: dict | None = None,
+) -> dict:
+    """`_decide_today`, plus WHICH hard session when the day is hard.
+
+    `stimulus` is `next_stimulus`'s answer; it rides along on the `hard`
+    branch only, as a recommendation under the decision, so every surface
+    that reads the decision dict - the Today tab, the readiness tool, the
+    coach - names the same session. The decision itself is untouched: the
+    light and the week's share decide hard/easy/rest, the stimulus never does."""
+    out = _decide_today(verdict, days_since_hard=days_since_hard, hard_min=hard_min,
+                        target_min=target_min, quality_min=quality_min, quality_s=quality_s,
+                        week_start=week_start)
+    if stimulus and out["decision"] == "hard":
+        out["stimulus"] = {"kind": stimulus.get("kind"), "reason": stimulus.get("reason")}
+    return out
+
+
+def _decide_today(
     verdict: str | None, *, days_since_hard: int | None, hard_min: int, target_min: int,
     quality_min: int | None = None, quality_s: int | None = None,
     week_start: str | None = None,
@@ -245,6 +273,113 @@ def decide_today(
             "sentence": "Easy today - the week's hard share is reached, no further "
                         "hard stimulus needed.",
             "reason": "GO, share reached", "week": week}
+
+
+# ── What comes next ──────────────────────────────────────────────────────────
+
+#: Z5 seconds in ONE run from which a VO2max stimulus counts as set. Three
+#: minutes: one rep of the shortest structure the planner builds (3x3), and
+#: well above what a hill puts into zone 5 for a few seconds.
+STIMULUS_Z5_MIN_S = 180
+#: How long a stimulus holds. Seven days: one quality session of each kind per
+#: week is the polarised default, so a Z5 session a week ago was LAST week's.
+STIMULUS_WINDOW_DAYS = 7
+#: Without a new VO2max value for this long, the next quality session is a
+#: steady block - the one shape Garmin re-measures from (zones.md).
+MEASUREMENT_DUE_DAYS = 28
+#: ...and once a steady block was scheduled, the next reading gets this long
+#: before another one is asked for: a plateau is not a missing measurement,
+#: and without this a flat line would ask for a measurement every week.
+MEASUREMENT_RETRY_DAYS = 21
+#: Days without a run after which the next week is a return week, not a step.
+RETURN_AFTER_DAYS = 10
+
+
+def measurement_due(last_change_day: date | None, days_with_value: int,
+                    last_steady_day: date | None, today: date) -> dict:
+    """Is it time for a steady block so Garmin can re-measure VO2max?
+
+    `last_change_day`: the last day the stored VO2max CHANGED (`None` if it
+    never did in the window), `days_with_value`: how many days carry a value
+    at all, `last_steady_day`: when this app last scheduled a steady session.
+
+    A flat line cannot tell "measured again, same value" from "not measured",
+    so the wording is "no new value for N days", never "not measured". And a
+    steady block scheduled recently is given its chance first, or a true
+    plateau would ask for a measurement every single week."""
+    if days_with_value <= 0:
+        return {"due": False, "days": None, "reason": "no VO2max on record"}
+    if last_change_day is None:
+        days = int(days_with_value)
+        if days < MEASUREMENT_DUE_DAYS:
+            return {"due": False, "days": days, "reason": f"only {days} days of VO2max on record"}
+    else:
+        days = (today - last_change_day).days
+        if days < MEASUREMENT_DUE_DAYS:
+            return {"due": False, "days": days, "reason": f"VO2max changed {days} day(s) ago"}
+    if last_steady_day is not None and (today - last_steady_day).days < MEASUREMENT_RETRY_DAYS:
+        since = (today - last_steady_day).days
+        return {"due": False, "days": days,
+                "reason": f"no new VO2max value for {days} days, but a steady block was "
+                          f"scheduled {since} day(s) ago; that reading gets its chance first"}
+    return {"due": True, "days": days,
+            "reason": f"no new VO2max value for {days} days; >= 12 min of even effort at "
+                      f"threshold is what Garmin measures from"}
+
+
+def _is_run_row(r: dict) -> bool:
+    return "running" in str(r.get("type") or r.get("activity_type") or "").lower()
+
+
+def next_stimulus(runs: list[dict], *, today: date, measurement: dict | None = None) -> dict:
+    """WHICH quality session a hard day calls for - a recommendation, never
+    the decision (`decide_today` says hard/easy/rest; this says which hard).
+
+    `runs`: recent sessions in the snapshot's shape (`day`, `type`, `zones_s`,
+    `has_detail`, `anaerobic_te`). Returns `{"kind", "reason"}` with kind
+    `steady` | `vo2max` | `threshold` | `unknown`.
+
+    The order: a due measurement first - the number this app is about cannot
+    move on the chart without one. Then VO2max if no run of the last 7 days
+    set a Z5 stimulus (>= 3 min in zone 5, or anaerobic TE >= 2: the same
+    stimulus `coach.md` tells the model to look for before claiming "too
+    little VO2max work"). Else threshold, the other quality session of a
+    polarised week. A run without zone detail says so instead of counting as
+    "no stimulus": absence of data is not absence of training."""
+    if measurement and measurement.get("due"):
+        return {"kind": "steady", "reason": measurement["reason"]}
+    lo = today - timedelta(days=STIMULUS_WINDOW_DAYS - 1)
+    best: tuple[int, int, float] | None = None       # (days ago, z5 seconds, anaerobic TE)
+    undetailed = 0
+    for r in runs or []:
+        if not r.get("day") or not _is_run_row(r):
+            continue
+        day = date.fromisoformat(r["day"])
+        if not lo <= day <= today:
+            continue
+        z5 = int((r.get("zones_s") or {}).get("z5") or r.get("hr_z5_s") or 0)
+        an = float(r.get("anaerobic_te") or 0.0)
+        if z5 >= STIMULUS_Z5_MIN_S or an >= QUALITY_ANAEROBIC_TE:
+            ago = (today - day).days
+            if best is None or ago < best[0]:
+                best = (ago, z5, an)
+        elif not r.get("has_detail"):
+            undetailed += 1
+    if best is not None:
+        ago, z5, an = best
+        when = "today" if ago == 0 else "yesterday" if ago == 1 else f"{ago} days ago"
+        what = (f"{round(z5 / 60)} min in zone 5" if z5 >= STIMULUS_Z5_MIN_S
+                else f"anaerobic TE {an:.1f}")
+        return {"kind": "threshold",
+                "reason": f"the Z5 stimulus is set ({what}, {when}); threshold is the other "
+                          f"quality session of a polarised week"}
+    if undetailed:
+        return {"kind": "unknown",
+                "reason": f"{undetailed} run(s) of the last {STIMULUS_WINDOW_DAYS} days have no "
+                          f"zone detail yet; sync, then ask again"}
+    return {"kind": "vo2max",
+            "reason": f"no Z5 stimulus in the last {STIMULUS_WINDOW_DAYS} days; reps of 3-5 min "
+                      f"in zone 5 are what moves VO2max"}
 
 
 # ── Interval structure ───────────────────────────────────────────────────────

@@ -7,7 +7,8 @@
 | `garmin.py` | Garmin endpoints → dataclasses. Clamps every value, separates soft failures (→ NULL) from hard ones (auth / 429 / connection → propagate) | garminconnect |
 | `models.py` | Dataclasses; column lists are the single source for the upserts | – |
 | `store.py` | SQLite. Upserts, aggregate reads (MCP), series reads (UI), migrations via `PRAGMA user_version` | logic, models |
-| `logic.py` | Pure functions: `readiness_verdict`, `decide_today`, `interval_facts`, `run_kind` | – |
+| `logic.py` | Pure functions: `readiness_verdict`, `decide_today`, `next_stimulus`, `measurement_due`, `interval_facts`, `run_kind` | – |
+| `planning.py` / `plan.py` | The session and week builder (pure), the week rules (`brake`, `down_week_due`, `return_week_due`), and the proposal files plus the one write path to Garmin | logic, snapshot, store |
 | `sync.py` | One sync run: days → activities → detail backfill → side channels (threshold, predictions, calendar) | garmin, store |
 | `snapshot.py` | Everything the UI shows, assembled once per request | store, logic |
 | `tools.py` / `mcp_server.py` | Text handlers and their MCP registration | store, snapshot |

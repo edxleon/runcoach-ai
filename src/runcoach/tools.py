@@ -221,6 +221,7 @@ def get_training_readiness(store: Store) -> str:
         f"\nNOTE: latest data is from {r['day']}, not today - treat the verdict as stale."
     decision = _decide(store, today)
     plan = store.get_scheduled_workouts(today, today + timedelta(days=6))
+    planned_today = any(p["day"] == today.isoformat() for p in plan)
     if plan:
         # Titles are the athlete's own calendar entries, but still free text.
         # The schedule id is what `propose_workout(replaces_schedule_id=…)`
@@ -245,9 +246,21 @@ def get_training_readiness(store: Store) -> str:
         # important line on the page.
         + (f"last hard workout {dsh} day(s) ago" if dsh is not None
            else "no hard workout in the last 28 days"),
+        *_goal_lines(),
         "",
-        _decision_block(decision),
+        _decision_block(decision, planned_today=planned_today),
     ]) + stale
+
+
+def _goal_lines() -> list[str]:
+    """The athlete's own goal from the profile, so the coach reads what the
+    training is FOR. Free text the athlete typed - sanitised and marked like a
+    workout name, and absent when unset, so a tool output without a goal is
+    byte-identical to before."""
+    from . import garmin, snapshot
+
+    goal = garmin._clean_text(snapshot.load_profile().get("goal"), 120)
+    return [f"Goal (athlete's profile, free text): \"{goal}\""] if goal else []
 
 
 def _swap_line(store: Store, plan: list[dict], decision: dict, today: date) -> str:
@@ -283,32 +296,57 @@ def _swap_line(store: Store, plan: list[dict], decision: dict, today: date) -> s
 
 
 def _decide(store: Store, today: date) -> dict:
-    """The app's decision for today — the same one the Today tab shows."""
+    """The app's decision for today — the same OBJECT the Today tab shows.
+
+    Through the snapshot, not rebuilt from its parts: the decision now carries
+    the next stimulus, which needs the runs, the VO2max steps and the last
+    steady block, and a second assembly of those here would be the second
+    definition this layer exists to prevent."""
     from . import snapshot
 
-    weeks = store.get_weekly_volume(today - timedelta(weeks=snapshot.WEEKS), today)
-    r = store.get_readiness()
-    return snapshot.build_decision({k: r.get(k) for k in ("day", "verdict", "signals")},
-                                   weeks, today)
+    return snapshot.assemble(store, today=today)["decision_today"]
 
 
-def _decision_block(d: dict) -> str:
+#: The words the readiness tool uses for `next_stimulus`'s kinds.
+_STIMULUS_LABEL = {
+    "vo2max": "VO2max intervals",
+    "threshold": "threshold reps",
+    "steady": "a steady block at threshold (the measurement)",
+    "unknown": "not known",
+}
+
+
+def _decision_block(d: dict, *, planned_today: bool = False) -> str:
     """The app's own decision for today, verbatim, so the agent explains or
     contests THIS one instead of deriving a second verdict of its own.
 
     Without it the Today tab showed the rule's decision and, directly beneath it,
     a coach card that had reached its conclusion independently — two verdicts on
-    one screen with nothing making them agree."""
+    one screen with nothing making them agree.
+
+    On a hard day the block also says WHICH hard session (`logic.next_stimulus`)
+    - and when the calendar already has a session today, that entry is the
+    plan and the stimulus is named as what the week still lacks, so two
+    sessions never stand on one screen."""
     w = d["week"]
     # Both numbers, because the decision reads both. "40 of 32 min above easy" on
     # its own looks like a finished week even when every one of those minutes was
     # grey-zone - and that is precisely the case the rule now calls out.
     quality = (f", of which {w['quality_min']} above threshold"
                if w.get("quality_min") is not None else "")
-    return (f"The app's decision for today: {d['decision'].upper()} - \"{d['sentence']}\" "
+    text = (f"The app's decision for today: {d['decision'].upper()} - \"{d['sentence']}\" "
             f"(rule: {d['reason']}; this week {w['hard_min']} of {w['target_min']} min above the "
             f"easy zones{quality}). This is the decision the athlete sees. Explain it, or disagree "
             f"with it using numbers - do not silently replace it with your own.")
+    s = d.get("stimulus")
+    if s:
+        label = _STIMULUS_LABEL.get(s.get("kind"), str(s.get("kind")))
+        if planned_today:
+            text += (f" The calendar has a session for today (below): that is the plan. What the "
+                     f"week still lacks: {label} - {s.get('reason')}.")
+        else:
+            text += f" Which hard session: {label} - {s.get('reason')}."
+    return text
 
 
 def get_intensity_distribution(store: Store, period_days: int = 28) -> str:

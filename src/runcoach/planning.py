@@ -32,10 +32,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
+from . import logic
+
 #: What a session is for. `steady` exists because Garmin/Firstbeat only
 #: re-measures VO2max from >= ~10 min of even effort near threshold; a spiky
 #: interval session leaves the old estimate in place.
 KINDS = ("easy", "long", "threshold", "vo2max", "steady")
+#: The two quality sessions of a polarised week, in the order the slots fill.
+DEFAULT_QUALITY = ("vo2max", "threshold")
 
 #: Fallback when the store has no measured pace. Stated, never silent. Every
 #: other pace in here is derived from it, so there is one number to be wrong.
@@ -133,30 +137,67 @@ def easy_cap(zones: dict | None) -> tuple[dict | None, str | None]:
 
 # ── the builder ──────────────────────────────────────────────────────────────
 
+#: A predicted race pace outside this band is not a pace anyone runs at; it
+#: is a stale or broken prediction, and the default is the honest fallback.
+_PACE_SANE_S = (150, 900)
+
+
+def _mmss(s: int) -> str:
+    return f"{s // 60}:{s % 60:02d}"
+
+
 def _paces(zones: dict | None) -> tuple[int, int, int, list[str]]:
-    """(lt, vo2max, easy) in s/km, plus the assumptions made."""
+    """(lt, vo2max, easy) in s/km, plus the assumptions made.
+
+    Three sources, best first: the lactate-threshold pace Garmin measured
+    (needs a hard run, usually a chest strap); Garmin's race predictions,
+    which exist for anyone with a VO2max - the 10 km prediction is a threshold
+    pace, the 5 km prediction a VO2max rep pace; and only then the built-in
+    5:00/km, which sized every unmeasured athlete's session the same."""
     z = zones or {}
     notes: list[str] = []
     lt = z.get("lt_pace_s_per_km")
-    if not lt:
-        lt = DEFAULT_LT_PACE_S
+    if lt:
+        return int(lt), int(round(lt * VO2MAX_PACE_FACTOR)), int(round(lt * RECOVERY_PACE_FACTOR)), notes
+    p10, p5 = z.get("pred_10k_s"), z.get("pred_5k_s")
+    if p10 and p5 and _PACE_SANE_S[0] <= p10 / 10 <= _PACE_SANE_S[1] \
+            and _PACE_SANE_S[0] <= p5 / 5 <= _PACE_SANE_S[1]:
+        lt, fast = int(round(p10 / 10)), int(round(p5 / 5))
         easy = int(round(lt * RECOVERY_PACE_FACTOR))
-        notes.append(f"no measured threshold pace - threshold estimated at "
-                     f"{lt // 60}:{lt % 60:02d}/km, easy at {easy // 60}:{easy % 60:02d}/km")
-    return int(lt), int(round(lt * VO2MAX_PACE_FACTOR)), int(round(lt * RECOVERY_PACE_FACTOR)), notes
+        when = f" of {z['pred_day']}" if z.get("pred_day") else ""
+        notes.append(f"no measured threshold pace - threshold taken from Garmin's 10 km "
+                     f"prediction{when} ({_mmss(int(p10))}): {_mmss(lt)}/km, VO2max reps from "
+                     f"the 5 km prediction ({_mmss(int(p5))}): {_mmss(fast)}/km, easy at "
+                     f"{_mmss(easy)}/km")
+        return lt, fast, easy, notes
+    lt = DEFAULT_LT_PACE_S
+    easy = int(round(lt * RECOVERY_PACE_FACTOR))
+    notes.append(f"no measured threshold pace and no Garmin race prediction - threshold "
+                 f"estimated at {_mmss(lt)}/km, easy at {_mmss(easy)}/km")
+    return int(lt), int(round(lt * VO2MAX_PACE_FACTOR)), easy, notes
 
 
-def _fit_reps(kind: str, distance_m: int, lt: int, fast: int, jog: int) -> tuple[int, int, int]:
+def _pick(fits: list[tuple[int, int]], variant: int) -> tuple[int, int]:
+    """The structure for this `variant`: 0 is the largest that fits, 1 the
+    next one down, and so on - the week planner alternates them, because the
+    same 5x4 on the same route every week is how a planner gets switched off.
+    Past the end of what fits, the last fitting structure."""
+    return fits[min(max(int(variant), 0), len(fits) - 1)]
+
+
+def _fit_reps(kind: str, distance_m: int, lt: int, fast: int, jog: int,
+              variant: int = 0) -> tuple[int, int, int]:
     """(reps, work_seconds, recovery_seconds) whose distance leaves room for a
     warm-up and cool-down on this route. Reps shrink before rep length does:
     the stimulus per rep is the point, four short reps are not a VO2max session."""
     menu, rec = REP_MENU[kind]
     work_pace = fast if kind == "vo2max" else lt
     budget = distance_m - MIN_WARMUP_M - MIN_COOLDOWN_M
-    for reps, secs in menu:
-        need = reps * (secs * 1000 / work_pace) + reps * (rec * 1000 / jog)
-        if need <= budget:
-            return reps, secs, rec
+    fits = [(reps, secs) for reps, secs in menu
+            if reps * (secs * 1000 / work_pace) + reps * (rec * 1000 / jog) <= budget]
+    if fits:
+        reps, secs = _pick(fits, variant)
+        return reps, secs, rec
     # The smallest structure INCLUDING its recovery jogs. Quoting the reps
     # alone named a distance that fails too - an error message that sends the
     # athlete back with a number the code will refuse again.
@@ -167,16 +208,18 @@ def _fit_reps(kind: str, distance_m: int, lt: int, fast: int, jog: int) -> tuple
         f"{(MIN_WARMUP_M + MIN_COOLDOWN_M + smallest) / 1000:.1f} km")
 
 
-def _fit_reps_by_time(kind: str, total_s: int) -> tuple[int, int, int]:
+def _fit_reps_by_time(kind: str, total_s: int, variant: int = 0) -> tuple[int, int, int]:
     """(reps, work_seconds, recovery_seconds) that fit INSIDE a time budget,
     leaving room for the shortest acceptable warm-up and cool-down. More reps
     before fewer, so a longer budget buys more stimulus and not a longer jog -
     but the menu ends, and a budget beyond it simply gets a longer warm-up."""
     menu, rec = REP_MENU[kind]
     budget = total_s - MIN_WARMUP_S - MIN_COOLDOWN_S
-    for reps, secs in sorted(menu, key=lambda m: -(m[0] * m[1])):
-        if reps * secs + reps * rec <= budget:
-            return reps, secs, rec
+    fits = [(reps, secs) for reps, secs in sorted(menu, key=lambda m: -(m[0] * m[1]))
+            if reps * secs + reps * rec <= budget]
+    if fits:
+        reps, secs = _pick(fits, variant)
+        return reps, secs, rec
     smallest = min(menu, key=lambda m: m[0] * m[1])
     need = smallest[0] * (smallest[1] + rec) + MIN_WARMUP_S + MIN_COOLDOWN_S
     raise ValueError(
@@ -202,11 +245,13 @@ def clean_name(name: str | None) -> str | None:
 
 def build_session(kind: str, *, distance_km: float | None = None,
                   duration_min: int | None = None, zones: dict | None = None,
-                  name: str | None = None) -> SessionSpec:
+                  name: str | None = None, variant: int = 0) -> SessionSpec:
     """A complete session for one of `KINDS`, sized to a route or a duration.
 
     `zones` is `snapshot.build_zones`' block (`z4_low`, `z5_low`, `lthr_bpm`,
-    `lt_pace_s_per_km`); missing values become assumptions, not silence."""
+    `lt_pace_s_per_km`, and the race predictions as a pace fallback); missing
+    values become assumptions, not silence. `variant` picks the structure
+    among those that fit (see `_pick`): 0 the largest, 1 the next."""
     if kind not in KINDS:
         raise ValueError(f"unknown session kind {kind!r}; one of {', '.join(KINDS)}")
     if (distance_km is None) == (duration_min is None):
@@ -290,7 +335,7 @@ def build_session(kind: str, *, distance_km: float | None = None,
     work_pace = fast if kind == "vo2max" else lt
     if distance_km is not None:
         meters = int(round(distance_km * 1000))
-        reps, secs_each, rec = _fit_reps(kind, meters, lt, fast, jog)
+        reps, secs_each, rec = _fit_reps(kind, meters, lt, fast, jog, variant)
         reps_m = int(reps * secs_each * 1000 / work_pace + reps * rec * 1000 / jog)
         rest_m = meters - reps_m
         wu_m = max(MIN_WARMUP_M, int(rest_m * 0.55))
@@ -306,7 +351,7 @@ def build_session(kind: str, *, distance_km: float | None = None,
         # with a fixed 10 min warm-up and a cap of six reps answered "90 min"
         # with 54 and "10 min" with 28, in both cases silently.
         secs = int(duration_min) * 60
-        reps, secs_each, rec = _fit_reps_by_time(kind, secs)
+        reps, secs_each, rec = _fit_reps_by_time(kind, secs, variant)
         rest = secs - reps * (secs_each + rec)
         wu = max(MIN_WARMUP_S, int(rest * 0.55))
         cd = rest - wu
@@ -385,18 +430,21 @@ DEFAULT_DAYS_PER_WEEK = 4
 DEFAULT_LONG_RUN_DAY = "sun"
 #: The kinds that cost 48 h before the next one. `long` is easy intensity in
 #: a polarised week and is spaced by a different rule (a fresh day before it).
-HARD_KINDS = ("threshold", "vo2max")
+#: Steady is in here: a 15-minute block at threshold heart rate counts as hard
+#: for spacing and for the readiness swap, whatever its name says (zones.md:
+#: threshold sessions "count as hard for spacing").
+HARD_KINDS = ("threshold", "vo2max", "steady")
 #: A week never has more sessions than this: one rest day is not negotiable.
 MAX_SESSIONS_PER_WEEK = 6
 #: Default sizes when the athlete gives none (minutes).
-WEEK_MINUTES = {"vo2max": 50, "threshold": 55, "easy": 45, "long": 90}
+WEEK_MINUTES = {"vo2max": 50, "threshold": 55, "easy": 45, "long": 90, "steady": 45}
 
 #: Offsets from the long run, in days, in the order the sessions are placed.
 #: Q1 two days after the long run, Q2 two days after Q1 - 48 h between hard
 #: stimuli - and nothing hard on the day before the long run (L+6) or after it
 #: (L+1). Easy days fill in between, nearest the quality sessions first, so the
 #: rest days end up next to the long run where the body wants them.
-_QUALITY_OFFSETS = {1: ((3, "vo2max"),), 2: ((2, "vo2max"), (4, "threshold"))}
+_QUALITY_SLOTS = {1: (3,), 2: (2, 4)}
 _EASY_OFFSETS = (3, 5, 1, 6)
 #: How a calendar entry the app did NOT create is guessed to be hard. Titles
 #: are the athlete's free text (or a plan's): a guess, flagged as one.
@@ -462,20 +510,28 @@ def _week_sizes(kinds: list[str], total_minutes: int | None,
 def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
                long_run_day: str = DEFAULT_LONG_RUN_DAY, zones: dict | None = None,
                minutes: dict | None = None,
-               total_minutes: int | None = None) -> tuple[list[tuple], list[str]]:
+               total_minutes: int | None = None,
+               quality: tuple[str, ...] | None = None,
+               variant: int = 0) -> tuple[list[tuple], list[str]]:
     """Seven days from `start`: a polarised week as `[(date, SessionSpec), …]`
     sorted by day, plus the assumptions that shaped it.
 
-    Two quality sessions (one VO2max, one threshold) 48 h apart, the long run on
-    the weekday the athlete named, easy runs between, the rest is rest. The
+    Two quality sessions (`quality`, by default one VO2max and one threshold;
+    a measurement week puts a steady block in the threshold slot) 48 h apart,
+    the long run on the weekday the athlete named, easy runs between, the rest
+    is rest. A three-day week has one quality slot and takes `quality[0]`. The
     rhythm is CYCLIC: with the long run on Sunday and the week starting Monday,
-    "two days after the long run" is Tuesday - counted from last Sunday's run."""
+    "two days after the long run" is Tuesday - counted from last Sunday's run.
+    `variant` alternates the rep structure (see `_pick`)."""
     from datetime import timedelta
 
     if not 3 <= int(days_per_week) <= 7:
         raise ValueError("days_per_week must be between 3 and 7")
     if long_run_day not in WEEKDAYS:
         raise ValueError(f"long_run_day must be one of {', '.join(WEEKDAYS)}")
+    quality = tuple(quality or DEFAULT_QUALITY)
+    if not quality or any(q not in HARD_KINDS for q in quality):
+        raise ValueError(f"quality sessions must be among {', '.join(HARD_KINDS)}")
     assumptions: list[str] = []
     n = int(days_per_week)
     if n > MAX_SESSIONS_PER_WEEK:
@@ -490,7 +546,8 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
         return d if d <= window[-1] else d - timedelta(days=7)
 
     plan: dict = {long_date: "long"}
-    for offset, kind in _QUALITY_OFFSETS[1 if n == 3 else 2]:
+    slots = _QUALITY_SLOTS[1 if n == 3 else 2]
+    for offset, kind in zip(slots, (quality * 2)[:len(slots)], strict=False):
         plan[at(offset)] = kind
     for offset in _EASY_OFFSETS:
         if len(plan) >= n:
@@ -505,7 +562,7 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
     sessions = []
     for day in sorted(plan):
         kind = plan[day]
-        spec = build_session(kind, duration_min=sizes[kind], zones=zones)
+        spec = build_session(kind, duration_min=sizes[kind], zones=zones, variant=variant)
         sessions.append((day, spec))
     # The zone assumptions are the same for every session; say them once.
     seen: set[str] = set()
@@ -599,6 +656,89 @@ def fit_week_to_calendar(sessions: list[tuple], calendar: list[dict], *, own_kin
             quality_left -= 1
         out.append((day, spec))
     return out, notes
+
+
+# ── What the next week may hold ───────────────────────────────────────────────
+
+#: The step a progressive week takes over the athlete's own weeks (zones.md:
+#: "a convention, not a finding")...
+WEEK_STEP = 1.10
+#: ...held flat when the load ratio is elevated, cut when it spikes - the
+#: same two ACWR bands that turn a DAY amber or red in `logic.readiness_verdict`.
+WEEK_HOLD = 1.0
+WEEK_UNLOAD = 0.75
+#: A down week and a return week: zones.md's "-30-40 %", at the gentler end.
+WEEK_DOWN = 0.70
+#: Three weeks up - each at least the one before, the third this much over the
+#: first - and the fourth is a down week. 1.15, not 1.21: two planner steps of
+#: +10 % land on 1.21 exactly, and a rule that fires on a rounding is a coin.
+DOWN_WEEK_AFTER = 3
+DOWN_WEEK_RISE = 1.15
+
+
+def brake(acwr: float | None, acwr_source: str | None) -> tuple[float, str | None]:
+    """The factor a week may grow by, given the load ratio: the step, a hold,
+    or an unload - with the sentence that says why, or `None` for the plain
+    step. A computed ratio (plain sums, no history weighting) may hold a week
+    but never cut it, exactly as it may turn a day amber but never red."""
+    if acwr is None:
+        return WEEK_STEP, None
+    if acwr > logic.ACWR_SPIKE:
+        if acwr_source == "computed":
+            return WEEK_HOLD, (f"hold: ACWR {acwr} (computed, uncertain) means no step up this "
+                               f"week, and a computed ratio never cuts one")
+        return WEEK_UNLOAD, (f"unloading week: ACWR {acwr} is a load spike "
+                             f"(> {logic.ACWR_SPIKE}), so the week is sized at "
+                             f"{int(WEEK_UNLOAD * 100)} % of your running weeks")
+    if acwr > logic.ACWR_ELEVATED:
+        return WEEK_HOLD, (f"hold: ACWR {acwr} is elevated (> {logic.ACWR_ELEVATED}), "
+                           f"so no step up this week")
+    return WEEK_STEP, None
+
+
+def down_week_due(weekly_minutes: list[int]) -> tuple[bool, str | None]:
+    """`weekly_minutes`: completed weeks of running, oldest first, 0 for a
+    week without a run. Three weeks up in a row and the next one is a down
+    week; a week off or a smaller week in between restarts the count, so the
+    rule reads the athlete's actual weeks and never a calendar."""
+    last = [int(m or 0) for m in weekly_minutes][-DOWN_WEEK_AFTER:]
+    if len(last) < DOWN_WEEK_AFTER or last[0] <= 0:
+        return False, None
+    rising = all(b >= a for a, b in zip(last, last[1:], strict=False))
+    if rising and last[-1] >= DOWN_WEEK_RISE * last[0]:
+        return True, (f"down week: {DOWN_WEEK_AFTER} weeks up "
+                      f"({', '.join(str(m) for m in last)} min), so this one is sized at "
+                      f"{int(WEEK_DOWN * 100)} % and the adaptation can land (zones.md: "
+                      f"every 3-4 weeks)")
+    return False, None
+
+
+#: Completed weeks without a run that make the week being planned a return
+#: week even when the athlete has run again since: the first run back does
+#: not turn the weeks before the pause into a base for a step up.
+RETURN_AFTER_EMPTY_WEEKS = 2
+
+
+def return_week_due(last_run_day, today, *, empty_weeks: int = 0) -> tuple[bool, str | None]:
+    """After a pause the first week back is sized DOWN from the weeks before
+    it, not up: the size of the jump is the best-evidenced injury factor there
+    is, and the weeks before a pause are the wrong base for a step.
+
+    Two ways to be a pause: `RETURN_AFTER_DAYS` days since the last run, or
+    `empty_weeks` (the completed weeks just before this one without a run)
+    reaching `RETURN_AFTER_EMPTY_WEEKS` - the athlete who already ran once
+    this week after two empty ones is still coming back."""
+    if last_run_day is not None:
+        days = (today - last_run_day).days
+        if days >= logic.RETURN_AFTER_DAYS:
+            return True, (f"return week: {days} days without a run, so the week is sized at "
+                          f"{int(WEEK_DOWN * 100)} % of your running weeks before the pause, "
+                          f"no step up")
+    if int(empty_weeks) >= RETURN_AFTER_EMPTY_WEEKS:
+        return True, (f"return week: the last {int(empty_weeks)} completed weeks had no run, so "
+                      f"the week is sized at {int(WEEK_DOWN * 100)} % of your running weeks "
+                      f"before the pause, no step up")
+    return False, None
 
 
 def swap_for_readiness(decision: str, scheduled: list[dict], own_kinds: dict) -> dict:

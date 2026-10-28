@@ -865,6 +865,15 @@ class Store:
                 "SELECT proposal_id, item_index, claimed_at FROM proposal_items "
                 "WHERE state = 'unknown' ORDER BY claimed_at").fetchall()
 
+    def last_run_day(self) -> date | None:
+        """The local day of the most recent RUN - the input of the return-week
+        rule. Runs only: a week of walking after an injury is still a pause
+        from running."""
+        with self._conn() as conn:
+            row = conn.execute(
+                f"SELECT MAX(local_day) AS d FROM activities WHERE {_RUNNING}").fetchone()
+        return _d(row["d"]) if row and row["d"] else None
+
     def latest_race_predictions(self) -> dict | None:
         with self._conn() as conn:
             return conn.execute(

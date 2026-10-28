@@ -16,7 +16,7 @@ from runcoach.store import Store
 
 TOP_LEVEL_KEYS = {
     "schema", "generated_at", "data_through", "stale_days", "stale_after_days",
-    "today", "decision_today",
+    "today", "decision_today", "next_stimulus",
     "sleep", "load", "series", "weeks", "runs", "intensity", "vo2max", "zones", "plan",
     "aerobic", "predictions", "targets", "profile", "degraded", "counts"}
 
@@ -663,3 +663,52 @@ def test_runs_shown_are_capped_but_factors_read_wider(store, today):
     f = snap["vo2max"]["factors"]
     assert f["last_28d"]["runs"] == 27 and f["prev_28d"]["runs"] == 13   # blocks are (lo, hi]
     assert f["covers_full_window"] is True
+
+
+# ── What comes next ──────────────────────────────────────────────────────────
+
+def test_last_steady_day_reads_this_apps_own_workouts():
+    own = [{"kind": "steady", "scheduled_day": "2026-06-01"},
+           {"kind": "steady", "scheduled_day": None},
+           {"kind": "vo2max", "scheduled_day": "2026-06-08"},
+           {"kind": "steady", "scheduled_day": "2026-05-20"}]
+    assert snapshot.last_steady_day(own) == date(2026, 6, 1)
+    assert snapshot.last_steady_day([]) is None
+
+
+def test_the_vo2max_block_carries_the_measurement_rule():
+    today = date(2026, 6, 10)
+    series = [{"day": (today - timedelta(days=i)).isoformat(), "vo2max": 50.0}
+              for i in range(40)][::-1]
+    v = snapshot.build_vo2max(series, [], today=today)
+    assert v["last_change_day"] is None and v["last_change_days"] is None
+    assert v["measurement"]["due"] is True and v["measurement"]["days"] == 40
+    series[-5]["vo2max"] = 50.4                      # a real change, four and three days ago
+    v = snapshot.build_vo2max(series, [], today=today)
+    assert v["last_change_day"] == (today - timedelta(days=3)).isoformat()
+    assert v["last_change_days"] == 3 and v["measurement"]["due"] is False
+    empty = snapshot.build_vo2max([], [], today=today)
+    assert empty["measurement"] == {"due": False, "days": None, "reason": "no VO2max on record"}
+    # ...and a steady block scheduled by this app holds the rule back.
+    series[-5]["vo2max"] = 50.0
+    v = snapshot.build_vo2max(series, [], today=today, last_steady_day=today - timedelta(days=4))
+    assert v["measurement"]["due"] is False and "4 day(s) ago" in v["measurement"]["reason"]
+
+
+def test_zones_carry_the_race_predictions_as_the_planners_pace_fallback():
+    z = snapshot.build_zones([], None, None, None,
+                             predictions={"day": "2026-06-01", "race_5k_s": 1392, "race_10k_s": 2910})
+    assert (z["pred_5k_s"], z["pred_10k_s"], z["pred_day"]) == (1392, 2910, "2026-06-01")
+    bare = snapshot.build_zones([], None, None, None)
+    assert bare["pred_5k_s"] is None and bare["pred_10k_s"] is None and bare["pred_day"] is None
+
+
+def test_assemble_hands_every_surface_the_same_stimulus(store, today):
+    from conftest import make_day
+
+    store.upsert_daily(make_day(today, hrv_status="BALANCED", sleep_score=85, body_battery_high=90))
+    snap = snapshot.assemble(store, today=today)
+    assert snap["next_stimulus"]["kind"] == "vo2max"
+    assert snap["decision_today"]["decision"] == "hard"
+    assert snap["decision_today"]["stimulus"] == snap["next_stimulus"], "one object, every surface"
+    assert snap["vo2max"]["measurement"]["due"] is False

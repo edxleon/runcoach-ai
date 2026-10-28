@@ -128,6 +128,7 @@ function renderVerdict() {
               : `<div class="empty-note">No reasons in the data.</div>`}
     ${decisionHtml()}
     ${todayCardHtml()}
+    ${vo2LineHtml()}
     ${goal ? `<div class="goal-line">Goal: ${esc(String(goal))}</div>` : ""}`;
 }
 
@@ -162,7 +163,45 @@ function decisionHtml() {
   // (see the `.reasons li` note in the style block).
   return `<ul class="reasons" style="margin-top:8px">
     <li><span><b>${esc(e.sentence || "")}</b>${esc(standing)}</span></li>
+    ${stimulusHtml(e.stimulus)}
   </ul>`;
+}
+
+/* WHICH hard session, on a hard day - the server's `next_stimulus`, read and
+   not recomputed. With an entry on today's calendar the entry is the plan and
+   the stimulus is what the week still lacks: the same rule the readiness tool
+   applies, so the page and the coach never put two sessions on one day. */
+const STIMULUS_LABEL = {
+  vo2max: "VO2max intervals", threshold: "Threshold reps",
+  steady: "Steady block at threshold (the measurement)", unknown: "Not known yet",
+};
+
+function plannedToday() {
+  const today = appToday();
+  return ((D().plan || {}).days || []).some(t => t.day === today && (t.planned || []).length);
+}
+
+function stimulusHtml(s) {
+  if (!s || !s.kind) return "";
+  const label = STIMULUS_LABEL[s.kind] || s.kind;
+  const lead = plannedToday() ? "The calendar has today's session; what the week still lacks:"
+                              : "Which hard session:";
+  return `<li><span>${esc(lead)} <b>${esc(label)}</b> — ${esc(s.reason || "")}</span></li>`;
+}
+
+/* The number this app is about, where the daily user looks: the value, how
+   long since it last really changed, and whether a measurement is due. The
+   Trend tab has the curve; this line is the one sentence of it. */
+function vo2LineHtml() {
+  const v = D().vo2max || {};
+  if (v.current == null) return "";
+  const n = v.last_change_days;
+  const age = n == null
+    ? `no new value in the ${plural(v.days_with_value || 0, "day", "days")} on record`
+    : n === 0 ? "new value today" : `last real change ${plural(n, "day", "days")} ago`;
+  const due = (v.measurement || {}).due;
+  return `<div class="goal-line">VO2max ${esc(fmtNum(v.current, 1))} · ${esc(age)}${
+    due ? " · <b>measurement due</b> — a steady block gives Garmin a reading" : ""}</div>`;
 }
 
 /* The coach's answer to "Train today?" belongs BELOW the verdict, not only in
@@ -443,6 +482,10 @@ function renderActions() {
     : coachUnavailable()
       ? `<div class="coach-hint">${claudeHint()}</div>` : "";
   const plan = tpls.find(t => t.id === "plan-session");
+  // The form opens on the session the history says is due (`next_stimulus`);
+  // "unknown" falls back to the first option. The athlete can still pick.
+  const next = (D().next_stimulus || {}).kind;
+  const sel = k => (k === next ? " selected" : "");
   document.getElementById("coach-actions").innerHTML = `
     <div class="subhead">Start an analysis</div>
     <div class="btn-row">${tpls.filter(t => !(t.params || []).length)
@@ -452,11 +495,11 @@ function renderActions() {
     <div class="subhead" style="margin-top:14px">Plan a session for a route</div>
     <div class="btn-row plan-form" data-plan-form>
       <select class="plan-kind" aria-label="Session kind">
-        <option value="vo2max">VO2max intervals</option>
-        <option value="threshold">Threshold reps</option>
-        <option value="easy">Easy run</option>
-        <option value="long">Long run</option>
-        <option value="steady">Steady at threshold</option>
+        <option value="vo2max"${sel("vo2max")}>VO2max intervals</option>
+        <option value="threshold"${sel("threshold")}>Threshold reps</option>
+        <option value="easy"${sel("easy")}>Easy run</option>
+        <option value="long"${sel("long")}>Long run</option>
+        <option value="steady"${sel("steady")}>Steady at threshold</option>
       </select>
       <input class="plan-km" type="number" inputmode="decimal" min="1" max="60" step="0.5" value="10"
              aria-label="Route length in km"> <span class="note">km</span>
@@ -787,6 +830,12 @@ function renderVo2() {
           ? `${total} of the days are new measurements; the last ${shown} are marked.`
           : `Only the ${plural(shown, "marked jump is a new measurement",
                                "marked jumps are new measurements")}.`;
+      })()} ${(() => {
+        const n = v.last_change_days, m = v.measurement || {};
+        const age = n == null ? "No new value in the window" : `Last real change ${plural(n, "day", "days")} ago`;
+        return m.due
+          ? `${age} — <b>a measurement is due</b>: the next quality session is a steady block of at least 12 minutes at threshold, the one shape Garmin re-measures from.`
+          : `${age}.`;
       })()}</div>`;
 }
 

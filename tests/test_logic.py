@@ -3,11 +3,21 @@
 from __future__ import annotations
 
 import json
+from datetime import date, timedelta
 
 import pytest
 
 from conftest import split_dict
-from runcoach.logic import QUALITY_FLOOR_SECONDS, decide_today, interval_facts, readiness_verdict, run_kind
+from runcoach import logic as logic_mod
+from runcoach.logic import (
+    QUALITY_FLOOR_SECONDS,
+    decide_today,
+    interval_facts,
+    measurement_due,
+    next_stimulus,
+    readiness_verdict,
+    run_kind,
+)
 
 GREEN = dict(hrv_status="BALANCED", sleep_score=85, body_battery_high=95, acwr=1.1,
              resting_hr=44, resting_hr_baseline=45.0)
@@ -493,3 +503,86 @@ def test_the_recovery_light_outranks_the_week_everywhere():
         if r["reason"].startswith("verdict EASY"):
             assert r["decision"] == "easy"
         assert r["decision"] in ("hard", "easy", "rest", "unknown")
+
+
+# ── What comes next ──────────────────────────────────────────────────────────
+
+TODAY = date(2026, 6, 10)
+
+
+def _run(days_ago, *, z5=0, an=0.5, detail=True, kind="running"):
+    return {"day": (TODAY - timedelta(days=days_ago)).isoformat(), "type": kind,
+            "zones_s": {"z5": z5} if detail else {}, "has_detail": detail, "anaerobic_te": an}
+
+
+def test_the_thresholds_behind_what_comes_next_are_pinned():
+    """Each of these changes what the athlete is told; a relative test would
+    not see an absolute drift (the lesson of `test_invariants`)."""
+    assert logic_mod.STIMULUS_Z5_MIN_S == 180, "one rep of the shortest structure (3x3)"
+    assert logic_mod.STIMULUS_WINDOW_DAYS == 7, "one quality session of each kind per week"
+    assert logic_mod.MEASUREMENT_DUE_DAYS == 28, "four weeks without a new VO2max value"
+    assert logic_mod.MEASUREMENT_RETRY_DAYS == 21, "a scheduled steady block gets three weeks"
+    assert logic_mod.RETURN_AFTER_DAYS == 10, "ten days without a run is a pause, not a gap"
+    assert (logic_mod.ACWR_ELEVATED, logic_mod.ACWR_SPIKE) == (1.3, 1.5), "zones.md's bands"
+
+
+def test_a_due_measurement_beats_every_other_stimulus():
+    m = {"due": True, "days": 33, "reason": "no new VO2max value for 33 days"}
+    out = next_stimulus([_run(1, z5=600, an=2.5)], today=TODAY, measurement=m)
+    assert out["kind"] == "steady" and "33 days" in out["reason"]
+
+
+def test_vo2max_when_no_run_of_the_last_seven_days_set_a_z5_stimulus():
+    runs = [_run(2, z5=60), _run(7, z5=900, an=2.4)]        # the 900 s is seven days back: last week's
+    out = next_stimulus(runs, today=TODAY)
+    assert out["kind"] == "vo2max" and "last 7 days" in out["reason"]
+    assert next_stimulus([], today=TODAY)["kind"] == "vo2max"
+
+
+def test_threshold_when_the_z5_stimulus_is_set():
+    out = next_stimulus([_run(3, z5=720)], today=TODAY)
+    assert out["kind"] == "threshold"
+    assert "12 min in zone 5" in out["reason"] and "3 days ago" in out["reason"]
+    # Anaerobic TE counts too, with no zone detail at all - the summary carries it.
+    out = next_stimulus([_run(1, detail=False, an=2.1)], today=TODAY)
+    assert out["kind"] == "threshold" and "anaerobic TE 2.1" in out["reason"] and "yesterday" in out["reason"]
+    assert "today" in next_stimulus([_run(0, z5=200)], today=TODAY)["reason"]
+
+
+def test_a_run_without_zone_detail_is_unknown_not_a_missing_stimulus():
+    out = next_stimulus([_run(2, detail=False, an=0.3), _run(4, z5=0)], today=TODAY)
+    assert out["kind"] == "unknown" and "1 run(s)" in out["reason"] and "sync" in out["reason"]
+
+
+def test_rides_and_runs_outside_the_window_do_not_count():
+    runs = [_run(1, z5=900, an=2.5, kind="cycling"), _run(8, z5=900, an=2.5), {"day": None}]
+    assert next_stimulus(runs, today=TODAY)["kind"] == "vo2max"
+
+
+def test_measurement_due_at_the_boundaries():
+    assert measurement_due(TODAY - timedelta(days=27), 56, None, TODAY)["due"] is False
+    d = measurement_due(TODAY - timedelta(days=28), 56, None, TODAY)
+    assert d["due"] is True and d["days"] == 28 and "no new VO2max value for 28 days" in d["reason"]
+    # No change in the window at all: the days ON RECORD are what is known.
+    assert measurement_due(None, 27, None, TODAY)["due"] is False
+    assert measurement_due(None, 28, None, TODAY) == {
+        "due": True, "days": 28,
+        "reason": "no new VO2max value for 28 days; >= 12 min of even effort at threshold "
+                  "is what Garmin measures from"}
+    assert measurement_due(None, 0, None, TODAY) == {"due": False, "days": None,
+                                                     "reason": "no VO2max on record"}
+
+
+def test_a_scheduled_steady_block_gets_its_chance_before_the_next_one_is_asked_for():
+    d = measurement_due(TODAY - timedelta(days=40), 56, TODAY - timedelta(days=10), TODAY)
+    assert d["due"] is False and "10 day(s) ago" in d["reason"] and "40 days" in d["reason"]
+    assert measurement_due(TODAY - timedelta(days=40), 56, TODAY - timedelta(days=21), TODAY)["due"]
+
+
+def test_decide_today_carries_the_stimulus_only_on_a_hard_day():
+    s = {"kind": "vo2max", "reason": "r"}
+    hard = decide_today("GO", days_since_hard=5, hard_min=0, target_min=0, stimulus=s)
+    assert hard["decision"] == "hard" and hard["stimulus"] == s
+    easy = decide_today("EASY", days_since_hard=5, hard_min=0, target_min=0, stimulus=s)
+    assert "stimulus" not in easy
+    assert "stimulus" not in decide_today("GO", days_since_hard=5, hard_min=0, target_min=0)

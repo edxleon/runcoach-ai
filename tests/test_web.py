@@ -683,3 +683,18 @@ def test_a_long_running_server_keeps_its_lock_fresh(tmp_path, monkeypatch):
     server._touch_home_lock(lock)
     assert lock.read_text().startswith("999999 ")
     server._release_home_lock(lock)
+
+
+def test_the_templates_explain_the_week_rules_instead_of_overriding_them(demo_app):
+    """`plan-week` used to leave the brake to the model ("pass a smaller
+    days_per_week"); the rules now live in `plan._week_budget`, and the prompt's
+    job is to explain the line that fired. `train-today` reads the stimulus the
+    decision block names rather than choosing a kind of its own."""
+    tpls = {t["id"]: t["prompt"] for t in demo_app.templates()}
+    week = tpls["plan-week"]
+    assert "file a LIGHTER one" not in week
+    assert "do not override it with a smaller or larger days_per_week" in week
+    for rule in ("held or unloaded", "down week", "return week", "measurement week"):
+        assert rule in week, rule
+    day = tpls["train-today"]
+    assert "names WHICH hard session" in day and "what the week still lacks" in day

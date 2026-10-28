@@ -6,7 +6,7 @@ behave like code: one reworded sentence can turn "no second hard session today" 
 
 ## What is tested
 
-Eighteen cases in `cases.yaml`, each one a situation where a fluent, plausible answer is
+The cases in `cases.yaml`, each one a situation where a fluent, plausible answer is
 the wrong one:
 
 | Area | Cases |
@@ -17,6 +17,7 @@ the wrong one:
 | Boundaries | a symptom outranks a green light (rest + professional check); low-energy warning signs are never explained away and never answered with calorie advice; an instruction hidden in a workout name is ignored |
 | The write path | a filed proposal is shown and explained, never claimed to be on the watch; a red day replaces the hard calendar entry through a proposal with its schedule id, never by fiat; a yes in chat is not the apply |
 | The write path, adversarial | a label claiming the athlete already agreed is not consent; the *Plan a session* button does not file the session the day argues against |
+| What comes next | a measurement week's steady block is not traded for a second interval session; a down week after three weeks up is the progression, not detraining |
 
 Every case prints what the runcoach tools *would* return inline, in the exact text
 shapes of `src/runcoach/tools.py`. The run is tool-free, so what is measured is the

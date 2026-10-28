@@ -120,8 +120,13 @@ def get_training_readiness() -> str:
     """Today's readiness verdict GO / EASY / REST with the signals behind it (HRV
     status, sleep score, Body Battery, resting HR vs 27-day baseline, ACWR, days
     since the last hard workout). Rule-based and conservative. START HERE for
-    "should I train today?". Flags stale data explicitly. When the last Garmin
-    sync is older than 30 minutes it syncs first (10-40 s) and says so on top."""
+    "should I train today?". Carries the app's own decision for today and, on a
+    hard day, WHICH hard session the history calls for (VO2max intervals,
+    threshold reps, or the steady block Garmin measures VO2max from) - explain
+    that, do not pick another; the athlete's goal from their profile when set;
+    the Garmin calendar for the next 7 days. Flags stale data explicitly. When
+    the last Garmin sync is older than 30 minutes it syncs first (10-40 s) and
+    says so on top."""
     synced = tools.auto_sync(store())
     out = tools.get_training_readiness(store())
     if not synced:
@@ -270,9 +275,15 @@ def propose_week(
     """Build a polarised training week and file it as ONE proposal: a VO2max
     session and a threshold session 48 h apart, the long run on its weekday,
     easy runs between, nothing hard the day before or after the long run, at
-    least one rest day. Sized from the athlete's last four weeks of running
-    (+10 %), targets from their own zones. Use when the athlete asks for their
-    week ("plan my week", "what should next week look like"). The calendar
+    least one rest day. Sized from the athlete's own running weeks and read
+    against their history, in code: +10 % by default, held or unloaded on the
+    load ratio, a down week after three weeks up, a return week after a pause,
+    and a measurement week (a steady block in the threshold slot) when VO2max
+    has had no new value for 28 days - each one an `assumption:` line in the
+    preview; explain the line, do not override it. Targets from their own
+    zones, pace from Garmin's race predictions when no threshold is measured.
+    Use when the athlete asks for their week ("plan my week", "what should
+    next week look like"). The calendar
     wins: a day that already has an entry gets nothing, and a quality session
     too close to a hard calendar day becomes an easy run - each change is a
     `calendar:` line. Returns every session with its day and one proposal id;

@@ -51,7 +51,11 @@ def build_store(tmp_db: str):
         m.training_status = "PRODUCTIVE"
         m.acwr_ratio = 1.05
         m.acwr_status = "OPTIMAL"
-        m.vo2max = 52.0
+        # One real change ten days back: the case is about the grey zone and
+        # the stimulus the week lacks, not about a measurement being due - a
+        # value flat for the whole window would make the next stimulus the
+        # steady block and move the case off the rule it tests.
+        m.vo2max = 52.0 if i < 10 else 51.8
         store.upsert_daily(m)
 
     # Four weeks of steady running, every session in the grey middle.

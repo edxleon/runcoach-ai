@@ -2143,3 +2143,76 @@ def test_a_swap_undone_and_applied_again_swaps_again(store, today, monkeypatch):
     # ...and the cycle holds a second time round.
     tools.undo_workout(store, pid)
     assert [s["workoutId"] for s in fake.data["schedule"].values()] == [4242]
+
+
+# ── What comes next: the readiness tool and the week proposal ────────────────
+
+def test_training_readiness_names_the_goal_only_when_the_profile_has_one(store, today):
+    import json
+
+    from runcoach import paths
+
+    store.upsert_daily(make_day(today, hrv_status="BALANCED", sleep_score=85))
+    assert "Goal" not in tools.get_training_readiness(store)
+    paths.profile_path().write_text(json.dumps({"goal": "sub-50 10k​ and\nmore"}),
+                                    encoding="utf-8")
+    out = tools.get_training_readiness(store)
+    # Sanitised like a workout name: the zero-width space is gone, the line
+    # break is a space, and the line says what it is.
+    assert "Goal (athlete's profile, free text): \"sub-50 10k and more\"" in out
+    assert out.index("Goal (") < out.index("The app's decision for today")
+
+
+def test_training_readiness_names_the_hard_session_on_a_hard_day(store, today):
+    store.upsert_daily(make_day(today, hrv_status="BALANCED", sleep_score=85, body_battery_high=90))
+    out = tools.get_training_readiness(store)
+    assert "The app's decision for today: HARD" in out
+    assert ("Which hard session: VO2max intervals - no Z5 stimulus in the last 7 days; reps of "
+            "3-5 min in zone 5 are what moves VO2max." in out)
+    # With an entry on today's calendar the entry is the plan, and the stimulus
+    # is what the week still lacks - never a second session for the same day.
+    store.replace_scheduled_workouts(
+        [ScheduledWorkout(1, today, title="Threshold 3x10", sport="running")],
+        today - timedelta(days=7), today + timedelta(days=14))
+    out = tools.get_training_readiness(store)
+    assert "What the week still lacks: VO2max intervals" in out and "Which hard session" not in out
+    # ...and on an easy day there is no stimulus line at all.
+    store.upsert_daily(make_day(today, hrv_status="UNBALANCED"))
+    out = tools.get_training_readiness(store)
+    assert "EASY" in out and "hard session:" not in out and "still lacks" not in out
+
+
+def test_training_readiness_asks_for_the_measurement_when_vo2max_went_flat(store, today):
+    for i in range(30):
+        store.upsert_daily(make_day(today - timedelta(days=i), vo2max=50.0, hrv_status="BALANCED",
+                                    sleep_score=85, body_battery_high=90))
+    out = tools.get_training_readiness(store)
+    assert ("Which hard session: a steady block at threshold (the measurement) - no new VO2max "
+            "value for 30 days; >= 12 min of even effort at threshold is what Garmin measures "
+            "from." in out)
+
+
+def test_propose_week_puts_the_measurement_in_the_threshold_slot(store, today):
+    _seed_zones(store, today)
+    for i in range(30):
+        store.upsert_daily(make_day(today - timedelta(days=i), vo2max=50.0))
+    out = tools.propose_week(store, days_per_week=4, long_run_day="sun")
+    sessions = out.split("assumption:")[0]
+    assert "Steady threshold 15 min" in sessions and "HR zone 5" in sessions
+    assert "HR zone 4" not in sessions, "the steady block took the threshold slot"
+    assert "assumption: measurement week: no new VO2max value for 30 days" in out
+    # A steady block this app scheduled recently holds the rule back.
+    store.record_workout(4242, name="Steady threshold 15 min", kind="steady", spec_json="{}",
+                         schedule_id=77, scheduled_day=today - timedelta(days=5))
+    out = tools.propose_week(store, days_per_week=4, long_run_day="sun")
+    assert "measurement week" not in out and "HR zone 4" in out.split("assumption:")[0]
+
+
+def test_propose_week_alternates_the_structure_by_week(store, today):
+    _seed_zones(store, today)
+    # Today and a week on: two ISO week numbers, one of each parity.
+    a = tools.propose_week(store, start_day=today.isoformat(), days_per_week=4, long_run_day="sun")
+    b = tools.propose_week(store, start_day=(today + timedelta(days=7)).isoformat(),
+                           days_per_week=4, long_run_day="sun")
+    name = lambda out: out.split("VO2max ")[1].split("  (")[0]   # noqa: E731
+    assert name(a) != name(b), (name(a), name(b))

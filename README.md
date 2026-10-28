@@ -1,7 +1,7 @@
 # runcoach-ai
 
 [![ci](https://github.com/edxleon/runcoach-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/edxleon/runcoach-ai/actions/workflows/ci.yml)
-[![evals 25/25](https://img.shields.io/badge/evals-25%2F25-brightgreen)](evals/RESULTS.md)
+[![evals 27/27](https://img.shields.io/badge/evals-27%2F27-brightgreen)](evals/RESULTS.md)
 [![license MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 **A local-first AI running coach for your Garmin data — powered by the Claude subscription you already have.**
@@ -29,7 +29,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-731 tests, 66 frontend tests and that gate on three operating systems and two Python versions, with every
+763 tests, 66 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -134,9 +134,9 @@ uv tool uninstall runcoach-ai   # removes the program only - delete ~/.runcoach 
 
 | Tab | What it answers |
 |---|---|
-| **Today** | GO / EASY / REST with the signals behind it, *one* decision sentence for today, this week planned vs. done, last night's sleep, your zone bounds with their origin |
+| **Today** | GO / EASY / REST with the signals behind it, *one* decision sentence for today and, on a hard day, *which* hard session (VO2max intervals, threshold reps, or the steady block Garmin measures VO2max from), your VO2max with the days since it last really changed, this week planned vs. done, last night's sleep, your zone bounds with their origin |
 | **Runs** | Every run with its intensity band, real interval structure (`5×4′`, not "5 minutes"), zones, weather, performance condition — and an *Analyze this run* button |
-| **Trend** | VO2max as honest steps, lactate threshold history, weekly hard-minute share vs. an 80/20 target, aerobic efficiency (pace at a fixed heart rate) with spread and trend, volume, polarisation, ACWR |
+| **Trend** | VO2max as honest steps (and whether a measurement is due), lactate threshold history, weekly hard-minute share vs. an 80/20 target, aerobic efficiency (pace at a fixed heart rate) with spread and trend, volume, polarisation, ACWR |
 | **Coach** | One-tap analyses by Claude as short cards that remember the previous card of their kind, accept your 👍/👎, take follow-up questions and can be deleted. Two start here (*Why is VO2max moving? · Review my week*); the other two start where their subject is — *Should I train today?* on the Today tab, *Analyze this run* on a run |
 
 ## How it works
@@ -203,10 +203,18 @@ the frontend, which draws curves, gets points.
   a lie from a degraded source).
 - Garmin's lactate-threshold pace field is off by a factor of ten; it is normalised, range-checked, and
   loudly dropped if the unit ever changes.
+- A planned week is sized from the athlete's own running weeks and then read against their history,
+  in code: the load ratio can hold or unload it, three weeks up make the fourth a down week, ten
+  days without a run make a return week, and twenty-eight days without a new VO2max value put a
+  steady block in the threshold slot - each one a named assumption on the proposal, none of them a
+  prompt's discretion. On a hard day the decision also says *which* hard session, from what the
+  last seven days did and did not contain.
+- Without a measured threshold pace, sessions are sized from Garmin's own 5 km and 10 km predictions
+  rather than from a 5:00/km default that fitted one athlete.
 
 **Prompts are tested like code.** The coach's behaviour lives in two Markdown files
 ([`skills/`](src/runcoach/skills)) with an LLM-as-judge regression suite ([`evals/`](evals)):
-25 cases such as *"a run already happened today → no second hard session"*, *"warning signs of low energy
+27 cases such as *"a run already happened today → no second hard session"*, *"warning signs of low energy
 availability are not explained away"*, *"an instruction inside a workout name is not followed"*. They run
 without Garmin data against the real CLI — though only over those two files, not over the other two
 pieces of the shipped prompt (`templates.json` and the JSON-card frame in `web/agent.py`, which
@@ -285,6 +293,15 @@ scheduled, pushed, seen on the watch, read back and verified, then undone — wi
 cross-checked by a second, independent Garmin client. The app's button calls the same `plan.apply` and
 `plan.undo`. Not yet run for real: `propose_week` as a package, and the red-day swap that unschedules a
 calendar entry. One athlete, one account, one watch.
+
+### Roadmap
+
+[docs/roadmap.md](docs/roadmap.md) is the backlog, ordered by what it would do for the runner: an
+athlete's own check-in (ill, sore, how it felt), sessions with your own structure, the proposed
+session matched against the run that followed, a `runcoach today` for the morning, deeper history,
+body weight and Garmin's own readiness alongside the app's, and race preparation for those with a
+date. v0.3 made the planner read the history for what comes next; the rest is there with the
+reasoning and the order.
 
 ## License
 

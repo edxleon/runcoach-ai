@@ -13,7 +13,7 @@ import json
 import sys
 from datetime import date, datetime, timedelta, timezone
 
-from . import paths
+from . import logic, paths
 from .logic import decide_today
 from .store import Store
 
@@ -144,8 +144,10 @@ def _monday(day: date) -> str:
     return (day - timedelta(days=day.weekday())).isoformat()
 
 
-def build_decision(today_block: dict, weeks: list[dict], today: date) -> dict:
-    """The ONE sentence for the Today tab (rule: `logic.decide_today`).
+def build_decision(today_block: dict, weeks: list[dict], today: date,
+                   stimulus: dict | None = None) -> dict:
+    """The ONE sentence for the Today tab (rule: `logic.decide_today`), and
+    under it - on a hard day - WHICH hard session (`logic.next_stimulus`).
 
     TWO numerators, both handed to `decide_today`: `hard_min` counts everything
     ABOVE THE EASY ZONES (Z3+Z4+Z5) as the LOAD side, `quality_min` counts Z4+Z5
@@ -183,7 +185,7 @@ def build_decision(today_block: dict, weeks: list[dict], today: date) -> dict:
         days_since_hard=signals.get("days_since_hard_workout") if fresh else None,
         hard_min=hard_min, target_min=target_min, quality_min=quality_min,
         quality_s=quality_s,
-        week_start=monday if week else None)
+        week_start=monday if week else None, stimulus=stimulus)
 
 
 def build_sleep(series: list[dict]) -> dict:
@@ -248,15 +250,23 @@ def build_runs(store: Store, limit: int = RUNS) -> list[dict]:
     return out
 
 
-def build_vo2max(series: list[dict], runs: list[dict], *, today: date) -> dict:
+def build_vo2max(series: list[dict], runs: list[dict], *, today: date,
+                 last_steady_day: date | None = None) -> dict:
     """VO2max is carry-forward: Garmin repeats the value until a measurement
     changes it. Hence steps instead of interpolation — and `changed_days`, so the
-    UI can mark the real jumps instead of drawing noise."""
+    UI can mark the real jumps instead of drawing noise.
+
+    `measurement` (`logic.measurement_due`) says whether the value has gone
+    without a new reading for so long that the next quality session should be
+    the steady block Garmin measures from; `last_steady_day` is when this app
+    last scheduled one."""
     pts = [(date.fromisoformat(r["day"]), r["vo2max"]) for r in series
            if r.get("vo2max") is not None]
     if not pts:
         return {"current": None, "change_28d": None, "change_56d": None,
-                "carry_forward": True, "changed_days": [], "days_with_value": 0, "factors": {}}
+                "carry_forward": True, "changed_days": [], "days_with_value": 0, "factors": {},
+                "last_change_day": None, "last_change_days": None,
+                "measurement": logic.measurement_due(None, 0, last_steady_day, today)}
 
     def delta(days: int):
         ref = pts[-1][0] - timedelta(days=days)
@@ -265,7 +275,11 @@ def build_vo2max(series: list[dict], runs: list[dict], *, today: date) -> dict:
 
     changed = [{"day": d.isoformat(), "value": round(v, 1)}
                for (_, pv), (d, v) in zip(pts, pts[1:], strict=False) if v != pv]
+    last_change = date.fromisoformat(changed[-1]["day"]) if changed else None
     return {
+        "last_change_day": last_change.isoformat() if last_change else None,
+        "last_change_days": (today - last_change).days if last_change else None,
+        "measurement": logic.measurement_due(last_change, len(pts), last_steady_day, today),
         "current": round(pts[-1][1], 1),
         "current_day": pts[-1][0].isoformat(),
         "change_28d": delta(28),
@@ -411,16 +425,23 @@ def build_predictions(rp: dict | None) -> dict:
 
 
 def build_zones(runs: list[dict], lt: dict | None, lt_history: list[dict] | None,
-                max_hr: dict | None) -> dict:
+                max_hr: dict | None, predictions: dict | None = None) -> dict:
     """ONE number per boundary, with date and origin. The source is the zone
     bounds Garmin attaches to the run (`hr_z4_low`/`hr_z5_low`) — NOT a formula
     recomputed here (that would just add another competing number).
 
     The lactate threshold carries its own MEASUREMENT date, deliberately separate
     from `as_of_day`: bounds come from the last run, the threshold from the last
-    Firstbeat measurement; these can be weeks apart and the card must not blur it."""
-    lt, max_hr = lt or {}, max_hr or {}
+    Firstbeat measurement; these can be weeks apart and the card must not blur it.
+
+    `predictions` (Garmin's race-time predictions) ride along as the planner's
+    pace source when no threshold was measured: `planning._paces` reads the
+    10 km time as a threshold pace and the 5 km time as a VO2max rep pace."""
+    lt, max_hr, predictions = lt or {}, max_hr or {}, predictions or {}
     block = {
+        "pred_5k_s": predictions.get("race_5k_s"),
+        "pred_10k_s": predictions.get("race_10k_s"),
+        "pred_day": predictions.get("day"),
         "lthr_bpm": lt.get("lthr_bpm"),
         "lt_speed_mps": lt.get("lt_speed_mps"),
         "lt_pace_s_per_km": lt_pace_s_per_km(lt.get("lt_speed_mps")),
@@ -450,6 +471,14 @@ def build_zones(runs: list[dict], lt: dict | None, lt_history: list[dict] | None
                              "Garmin measures the threshold on hard runs; no measurement yet.")}
     return {"z4_low": None, "z5_low": None, "as_of_day": None, "source": None, **block,
             "note": "No zone bounds in the recent runs."}
+
+
+def last_steady_day(own_workouts: list[dict]) -> date | None:
+    """When this app last put a steady block on the calendar - the guard that
+    keeps the measurement rule from asking for one every week of a plateau."""
+    days = [w.get("scheduled_day") for w in own_workouts
+            if w.get("kind") == "steady" and w.get("scheduled_day")]
+    return max(date.fromisoformat(str(d)) for d in days) if days else None
 
 
 def aerobic_ref_hr(profile: dict, lt: dict | None) -> int:
@@ -530,6 +559,14 @@ def assemble(store: Store, *, today: date | None = None) -> dict:
     today_block = {k: r.get(k) for k in ("day", "verdict", "reasons", "reason_flags", "signals")}
     lt = soft(store.latest_lactate_threshold)
     profile = load_profile()
+    predictions = soft(store.latest_race_predictions)
+    # What comes next, computed ONCE here: the measurement rule needs the
+    # VO2max steps and the last steady block this app scheduled, the stimulus
+    # rule needs the runs - and the decision, the readiness tool, the plan
+    # form and the Trend tab all read the result instead of deriving their own.
+    last_steady = last_steady_day(soft(store.own_workouts, default=[]) or [])
+    vo2 = build_vo2max(series_rows, runs_wide, today=today, last_steady_day=last_steady)
+    stimulus = logic.next_stimulus(runs_wide, today=today, measurement=vo2["measurement"])
 
     return {
         "schema": SCHEMA,
@@ -537,7 +574,8 @@ def assemble(store: Store, *, today: date | None = None) -> dict:
         "data_through": latest.isoformat() if latest else None,
         "stale_days": (today - latest).days if latest else None,
         "today": today_block,
-        "decision_today": build_decision(today_block, weeks, today),
+        "decision_today": build_decision(today_block, weeks, today, stimulus=stimulus),
+        "next_stimulus": stimulus,
         "sleep": build_sleep(series_rows),
         "load": {
             "acwr": tl["acwr"], "acwr_status": tl["acwr_status"], "acwr_source": tl["acwr_source"],
@@ -556,14 +594,15 @@ def assemble(store: Store, *, today: date | None = None) -> dict:
             "d84": soft(store.get_intensity_distribution, anchor - timedelta(days=83), anchor,
                         default=_EMPTY_INTENSITY),
         },
-        "vo2max": build_vo2max(series_rows, runs_wide, today=today),
+        "vo2max": vo2,
         "zones": build_zones(runs, lt, soft(store.lactate_threshold_history, default=[]),
-                             soft(store.max_hr_since, today - timedelta(days=90))),
+                             soft(store.max_hr_since, today - timedelta(days=90)),
+                             predictions=predictions),
         "plan": build_plan(
             soft(store.get_scheduled_workouts, today - timedelta(days=today.weekday()),
                  today + timedelta(days=14), default=[]), runs, today),
         "aerobic": build_aerobic(runs_wide, today=today, ref_hr=aerobic_ref_hr(profile, lt)),
-        "predictions": build_predictions(soft(store.latest_race_predictions)),
+        "predictions": build_predictions(predictions),
         "targets": {"hard_share": HARD_SHARE_TARGET},
         "stale_after_days": STALE_AFTER_DAYS,
         "profile": {k: profile.get(k) for k in ("max_hr", "goal") if profile.get(k)},

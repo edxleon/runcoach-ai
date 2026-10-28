@@ -468,12 +468,29 @@ def propose_week(store: Store, *, start: date | None = None, days_per_week: int 
             long_run_day = planning.DEFAULT_LONG_RUN_DAY
             assumptions.append(f"long run on {long_run_day} - no long_run_day in the profile "
                                f"(runcoach profile --long-run-day sun)")
-    zones = snapshot.assemble(store, today=anchor).get("zones") or {}
+    snap = snapshot.assemble(store, today=anchor)
+    zones = snap.get("zones") or {}
     budget, basis = _week_budget(store, anchor)
-    assumptions.append(basis)
+    assumptions += basis
+    # A measurement week puts the steady block in the threshold slot; a
+    # three-day week has only one slot, and that week it is the measurement -
+    # the next one is VO2max again. The rule is `logic.measurement_due`, read
+    # from the snapshot so the Today tab, the readiness tool and this proposal
+    # cannot disagree about whether it is due.
+    measurement = (snap.get("vo2max") or {}).get("measurement") or {}
+    quality: tuple[str, ...] = planning.DEFAULT_QUALITY
+    if measurement.get("due"):
+        quality = ("steady", "vo2max") if int(days_per_week) == 3 else ("vo2max", "steady")
+        assumptions.append(f"measurement week: {measurement['reason']}; the steady block "
+                           f"takes the threshold slot, the VO2max session stays")
+    # Alternate the rep structure week by week (5x4, then 4x4): no state, the
+    # ISO week number decides, and the same session every week is how a
+    # planner gets switched off.
+    variant = start.isocalendar()[1] % 2
     sessions, notes = planning.build_week(start, days_per_week=int(days_per_week),
                                           long_run_day=str(long_run_day), zones=zones,
-                                          total_minutes=budget)
+                                          total_minutes=budget, quality=quality,
+                                          variant=variant)
     # Fitted to the calendar, never stacked on it: the athlete's plan wins.
     busy = store.get_scheduled_workouts(start, start + timedelta(days=6))
     own = {w["workout_id"]: w["kind"] for w in store.own_workouts() if w["workout_id"]}
@@ -486,36 +503,73 @@ def propose_week(store: Store, *, start: date | None = None, days_per_week: int 
                  assumptions=assumptions + notes, zones=zones, calendar=fitted)
 
 
-def _week_budget(store: Store, today: date) -> tuple[int | None, str]:
+#: How far back the budget looks for weeks the athlete actually ran. Eight,
+#: not four: after a pause the last four are empty, and the return week needs
+#: the weeks BEFORE the pause as its base.
+BUDGET_LOOKBACK_WEEKS = 8
+#: ...and how many of those running weeks the median is taken over.
+BUDGET_MEDIAN_WEEKS = 4
+
+
+def _week_budget(store: Store, today: date) -> tuple[int | None, list[str]]:
     """How many running minutes this week may hold, from the weeks the athlete
-    actually ran - and the sentence that says so.
+    actually ran - and the lines that say so.
 
     The planner used to hand every athlete the same week (50/55/45/90 min).
     For someone running 90 minutes a week that is a 160 % jump in one step,
     and the size of the jump is the best-evidenced injury factor there is. So
-    the week is sized from the last four completed weeks; the 10 % step on top
-    is a CONVENTION, not a finding (`zones.md` says so), and it is named as
-    one. Without history there is nothing to scale to, and the defaults are
-    used with that said out loud."""
+    the week is sized from the athlete's own completed weeks, and then FOUR
+    rules read the history for what the next week may be (`planning.brake`,
+    `down_week_due`, `return_week_due`, and the +10 % step itself). Each one
+    that fires is a line in the preview; the most restrictive one sizes the
+    week, the others are named as "also". Without history there is nothing to
+    scale to, and the defaults are used with that said out loud."""
     monday = today - timedelta(days=today.weekday())
-    weeks = store.get_weekly_volume(monday - timedelta(weeks=4), monday - timedelta(days=1))
+    weeks = store.get_weekly_volume(monday - timedelta(weeks=BUDGET_LOOKBACK_WEEKS),
+                                    monday - timedelta(days=1)) or []
     # RUNNING minutes: a daily walk or a long ride in `duration_s` sized a
     # 90-minute runner's next week at the 200 % cap.
-    minutes = sorted(int((w.get("run_duration_s") or 0) // 60) for w in (weeks or [])
-                     if (w.get("run_duration_s") or 0) > 0)
-    if len(minutes) < 2:
-        return None, ("week sized from the built-in defaults - fewer than two completed weeks "
-                      "of running on record to scale to")
-    median = minutes[len(minutes) // 2] if len(minutes) % 2 else \
-        (minutes[len(minutes) // 2 - 1] + minutes[len(minutes) // 2]) // 2
-    budget = int(round(median * 1.10))
+    by_week = [int((w.get("run_duration_s") or 0) // 60) for w in weeks]
+    ran = [m for m in by_week if m > 0]
+    if len(ran) < 2:
+        return None, ["week sized from the built-in defaults - fewer than two completed weeks "
+                      "of running on record to scale to"]
+    recent = sorted(ran[-BUDGET_MEDIAN_WEEKS:])
+    median = recent[len(recent) // 2] if len(recent) % 2 else \
+        (recent[len(recent) // 2 - 1] + recent[len(recent) // 2]) // 2
+
+    # Every rule that fires, as (factor, line); the smallest factor wins.
+    rules: list[tuple[float, str]] = []
+    trailing_empty = len(by_week) - len(by_week[:max(
+        (i + 1 for i, m in enumerate(by_week) if m > 0), default=0)])
+    due, line = planning.return_week_due(store.last_run_day(), today, empty_weeks=trailing_empty)
+    if due:
+        rules.append((planning.WEEK_DOWN, line))
+    # The SAME readiness the snapshot and the Today tab read (anchored on
+    # `today`), so the week and the day never cite two different ratios.
+    signals = store.get_readiness(today).get("signals") or {}
+    factor, line = planning.brake(signals.get("acwr"), signals.get("acwr_source"))
+    if line:
+        rules.append((factor, line))
+    due, line = planning.down_week_due(by_week)
+    if due:
+        rules.append((planning.WEEK_DOWN, line))
+    rules.sort(key=lambda r: r[0])
+    step = rules[0][0] if rules else planning.WEEK_STEP
+    budget = int(round(median * step))
     # The weeks themselves, not only their median: a planned down week or a
     # taper is in there and nothing here can tell it from a normal week, so
     # the athlete gets the basis to judge rather than a number to trust.
-    return budget, (f"week sized at ~{budget} min from your last {len(minutes)} weeks "
-                    f"({', '.join(str(m) for m in minutes)} min, median {median}) plus 10 % - "
-                    f"the 10 % step is a convention, not a finding, and a down week or taper "
-                    f"among those weeks pulls it down with them")
+    basis = (f"from your last {len(recent)} running weeks ({', '.join(str(m) for m in recent)} "
+             f"min, median {median})")
+    if not rules:
+        lines = [f"week sized at ~{budget} min {basis} plus 10 % - the 10 % step is a "
+                 f"convention, not a finding, and a down week or taper among those weeks "
+                 f"pulls it down with them"]
+    else:
+        lines = [f"week sized at ~{budget} min {basis}: {rules[0][1]}"]
+        lines += [f"also: {line}" for _, line in rules[1:]]
+    return budget, lines
 
 
 def apply(store: Store, client, proposal_id: str, *, today: date | None = None) -> dict:

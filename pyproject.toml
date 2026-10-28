@@ -1,6 +1,6 @@
 [project]
 name = "runcoach-ai"
-version = "0.2.2"
+version = "0.3.0"
 description = "Local-first AI running coach for Garmin data, powered by your existing Claude subscription."
 readme = "README.md"
 authors = [{ name = "Eddie Leon", email = "23697411+edxleon@users.noreply.github.com" }]
