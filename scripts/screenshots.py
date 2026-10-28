@@ -153,7 +153,13 @@ def shoot(binary: str, url: str, out: Path, size: tuple[int, int], profile: Path
         # The page itself has no theme switch we can drive from the command
         # line, so the SYSTEM preference is what we emulate — which is exactly
         # the path a first-time visitor takes (no stored choice yet).
-        *(["--force-dark-mode", "--enable-features=WebContentsForceDark"] if dark else []),
+        # BOTH directions explicitly. Light used to be "no dark flags", which
+        # left it to the machine: headless Chrome follows the OS appearance, so
+        # on a Mac in dark mode every "-light" file came out dark - byte-for-byte
+        # the dark one. `preferredColorScheme` is Blink's enum: 0 dark, 1 light.
+        *(["--force-dark-mode", "--enable-features=WebContentsForceDark",
+           "--blink-settings=preferredColorScheme=0"] if dark
+          else ["--blink-settings=preferredColorScheme=1"]),
         "--virtual-time-budget=9000",
         f"--screenshot={out}", url,
     ]

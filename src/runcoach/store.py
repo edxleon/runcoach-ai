@@ -681,19 +681,27 @@ class Store:
                 "SELECT local_day, activity_type, distance_m, duration_s, training_load, "
                 "hr_z1_s, hr_z2_s, hr_z3_s, hr_z4_s, hr_z5_s FROM activities "
                 "WHERE local_day BETWEEN ? AND ?", (_v(start), _v(end))).fetchall()
-        empty = {"distance_m": 0.0, "duration_s": 0, "load": 0.0, "runs": 0, "workouts": 0,
+        empty = {"distance_m": 0.0, "duration_s": 0, "run_duration_s": 0, "load": 0.0, "runs": 0,
+                 "workouts": 0,
                  "easy_s": 0, "moderate_s": 0, "hard_s": 0, "z5_s": 0}
         weeks: dict[date, dict] = {}
         for a in acts:
             w = weeks.setdefault(week_start(_d(a["local_day"])), dict(empty))
-            w["distance_m"] += a["distance_m"] or 0
             w["duration_s"] += a["duration_s"] or 0
             w["load"] += a["training_load"] or 0
             # `.lower()` like `_RUNNING` (SQL LIKE) and `logic.is_running`. This
             # was the only case-sensitive spelling of the predicate in the repo;
             # Garmin sends lowercase today, so it was one non-Garmin import away
             # from counting "Trail_Running" as not a run.
-            w["runs"] += "running" in str(a["activity_type"] or "").lower()
+            is_run = "running" in str(a["activity_type"] or "").lower()
+            w["runs"] += is_run
+            # Running time on its own: what a RUNNING plan is sized from. Walks,
+            # rides and strength stay in `duration_s`, which is all training.
+            w["run_duration_s"] += (a["duration_s"] or 0) if is_run else 0
+            # Distance is RUNNING distance: it is drawn as weekly running volume,
+            # compared in "where you stand" and quoted next to race times, and a
+            # long ride made an 80 km "running week" of a 10 km one.
+            w["distance_m"] += (a["distance_m"] or 0) if is_run else 0
             w["workouts"] += 1
             w["easy_s"] += (a["hr_z1_s"] or 0) + (a["hr_z2_s"] or 0)
             w["moderate_s"] += a["hr_z3_s"] or 0
@@ -787,6 +795,22 @@ class Store:
                          "AND item_index = ? AND workout_id IS NULL",
                          (str(proposal_id), int(index)))
 
+    def mark_proposal_item_sending(self, proposal_id: str, index: int) -> None:
+        """The request is about to go out. From here on a crash proves nothing
+        about Garmin, so the reaper must not hand this claim back."""
+        with self._conn() as conn:
+            conn.execute("UPDATE proposal_items SET state = 'sending' WHERE proposal_id = ? "
+                         "AND item_index = ? AND state = 'in_flight'",
+                         (str(proposal_id), int(index)))
+
+    def claim_state(self, proposal_id: str, index: int) -> str | None:
+        """`in_flight` (claimed), `sending` (the request went out), `unknown`, `done` -
+        or `None` when nothing holds the claim."""
+        with self._conn() as conn:
+            row = conn.execute("SELECT state FROM proposal_items WHERE proposal_id = ? "
+                               "AND item_index = ?", (str(proposal_id), int(index))).fetchone()
+        return row["state"] if row else None
+
     def record_proposal_item(self, proposal_id: str, index: int, workout_id: int) -> None:
         with self._conn() as conn:
             conn.execute(
@@ -827,6 +851,10 @@ class Store:
         with self._conn() as conn:
             cur = conn.execute("DELETE FROM proposal_items WHERE state = 'in_flight' "
                                "AND workout_id IS NULL AND claimed_at < ?", (cutoff,))
+            # A claim whose request was already on the wire when its process
+            # died is a question, not litter: it may have created the session.
+            conn.execute("UPDATE proposal_items SET state = 'unknown' WHERE state = 'sending' "
+                         "AND workout_id IS NULL AND claimed_at < ?", (cutoff,))
             return cur.rowcount
 
     def unresolved_claims(self) -> list[dict]:

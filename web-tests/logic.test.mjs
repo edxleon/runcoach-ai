@@ -413,3 +413,21 @@ test("showSyncFailure: silent only on a true first run", () => {
   assert.equal(showSyncFailure(S({ last_sync: { ok: true } })), false);
   assert.equal(showSyncFailure(S({ last_sync: null })), false);
 });
+
+/* ── "Last hard session" is counted from the readiness day ─────────────── */
+
+import { lastHardLabel } from "../src/runcoach/web/static/logic.js";
+
+test("last hard session: relative to the day the count was made on", () => {
+  // `days_since_hard_workout` is counted from the readiness day. An early
+  // sync writes a row for today with no recovery signal yet, so "stale_days"
+  // said 0 while the count was still yesterday's - and a session from
+  // yesterday was printed as "today".
+  const fmt = (iso) => `[${iso}]`;
+  assert.equal(lastHardLabel(0, "2026-06-09", "2026-06-10", fmt), "0 d before [2026-06-09]");
+  assert.equal(lastHardLabel(0, "2026-06-10", "2026-06-10", fmt), "today");
+  assert.equal(lastHardLabel(1, "2026-06-10", "2026-06-10", fmt), "yesterday");
+  assert.equal(lastHardLabel(3, "2026-06-10", "2026-06-10", fmt), "3 d ago");
+  assert.equal(lastHardLabel(null, "2026-06-10", "2026-06-10", fmt), "–");
+  assert.equal(lastHardLabel(2, null, "2026-06-10", fmt), "–", "no readiness day, no claim");
+});

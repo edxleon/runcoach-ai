@@ -177,3 +177,40 @@ def test_the_citation_exemption_covers_only_the_citation(tree):
     (tree / "docs" / "a.md").write_text("Stöggl without a citation\n", encoding="utf-8")
     rc, out = run_gate(tree)
     assert rc == 1 and "German leftover" in out, out
+
+
+def test_an_encoded_home_path_is_a_home_path(tree):
+    """Tools write a home directory as a folder NAME too (`-Users-someone-...`,
+    the way an editor or an agent names a per-project directory). The slash
+    form was the only one the gate knew, and a dashed one walked through."""
+    (tree / "docs" / "state.json").write_text('{"dir": "/tmp/x/-Users-someone-projects-y"}',
+                                              encoding="utf-8")
+    rc, out = run_gate(tree)
+    assert rc == 1 and "home path" in out, out
+    (tree / "docs" / "state.json").write_text('{"url": "file:%2FUsers%2Fsomeone%2Fx"}',
+                                              encoding="utf-8")
+    rc, out = run_gate(tree)
+    assert rc == 1 and "home path" in out, "the URL-encoded form walked through"
+
+
+def _git(tree: Path, *args: str, email: str) -> None:
+    env = {"GIT_AUTHOR_NAME": "A", "GIT_AUTHOR_EMAIL": email, "GIT_COMMITTER_NAME": "A",
+           "GIT_COMMITTER_EMAIL": email, "PATH": __import__("os").environ["PATH"],
+           "HOME": str(tree), "GIT_CONFIG_NOSYSTEM": "1"}
+    subprocess.run(["git", "-C", str(tree), *args], check=True, capture_output=True, env=env)
+
+
+@pytest.mark.parametrize("email,leaks", [
+    ("a.person@mailhost.tld", True),
+    ("123+someone@users.noreply.github.com", False),
+    ("noreply@github.com", False),
+])
+def test_commit_identities_are_checked_not_only_files(tree, email, leaks):
+    """A merge on github.com records the account's primary address as the
+    COMMITTER unless the account hides it. The gate read files only, so a
+    private address in five public commits passed it with `clean`."""
+    _git(tree, "init", "-q", email=email)
+    _git(tree, "add", "-A", email=email)
+    _git(tree, "commit", "-qm", "x", email=email)
+    rc, out = run_gate(tree)
+    assert (rc == 1 and "commit identity" in out) is leaks, out

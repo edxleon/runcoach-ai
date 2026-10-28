@@ -21,3 +21,13 @@ evals/last-run.json
 .coverage
 .coverage.*
 htmlcov/
+
+# the demo video's build products and copies; `scripts/video.py` recreates them
+docs/video/index.html
+docs/video/.hyperframes/
+docs/video/node_modules/
+docs/video/assets/today.png
+docs/video/assets/runs.png
+docs/video/assets/trend.png
+docs/video/assets/coach.png
+docs/video/assets/demo-card.json

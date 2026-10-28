@@ -485,24 +485,76 @@ def sync_garmin(store: Store, days: int = 1) -> str:
         if waited is not None and waited < SYNC_COOLDOWN_S:
             return (f"Synced {round(waited)} s ago - Garmin rate-limits repeated pulls, so this "
                     f"one was skipped. The data you just read is current.")
-        _last_sync[0] = time.monotonic()
-        return _sync_now(store, garmin, sync, days)
+        ok, text = _sync_now(store, garmin, sync, days)
+        # The cooldown starts at a sync that WORKED. Started before the attempt,
+        # a failed login was followed by "the data you just read is current"
+        # for a minute - a failed sync means "unknown", never "current".
+        if ok:
+            _last_sync[0] = time.monotonic()
+        return text
     finally:
         _sync_lock.release()
 
 
-def _sync_now(store: Store, garmin, sync, days: int) -> str:
+#: Minutes after which a chat's first read pulls Garmin itself. `0` turns it off.
+AUTO_SYNC_AFTER_MIN = 30
+
+
+def auto_sync_after_min() -> int:
+    import os
+
+    try:
+        return int(os.environ.get("RUNCOACH_AUTOSYNC_MIN", AUTO_SYNC_AFTER_MIN))
+    except ValueError:
+        return AUTO_SYNC_AFTER_MIN
+
+
+def auto_sync(store: Store) -> str | None:
+    """Sync before a chat reads, when the last sync is old - the summary, or
+    `None` when nothing was done.
+
+    Syncing used to be the model's call alone: `get_training_readiness` said
+    "stale" only when the newest day was not today, so this morning's sync
+    counted as fresh all day and the afternoon's run stayed invisible to the
+    next "should I train today?".
+
+    Never in a card run: those are spawned by the app, which keeps its own sync
+    thread in another process, and two syncs at once are two logins on one
+    rate-limited account. Never on the demo athlete."""
+    import os
+    from datetime import datetime, timezone
+
+    if os.environ.get("RUNCOACH_UNATTENDED") or os.environ.get("RUNCOACH_DEMO"):
+        return None
+    after = auto_sync_after_min()
+    if after <= 0:
+        return None
+    last = store.last_synced_at()
+    if last:
+        try:
+            age_min = (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds() / 60
+        except ValueError:
+            age_min = None
+        if age_min is not None and age_min < after:
+            return None
+    # Nothing synced yet: a chat-only user has never run `serve`, and one day
+    # leaves the resting-HR and HRV baselines without a history to stand on.
+    return sync_garmin(store, days=1 if last else 7)
+
+
+def _sync_now(store: Store, garmin, sync, days: int) -> tuple[bool, str]:
     try:
         client = garmin.login()
     except Exception as exc:  # noqa: BLE001 — a tool returns text, never an exception
-        return (f"Garmin login failed ({type(exc).__name__}) - the stored session has probably "
-                f"expired. Ask the user to run `runcoach login`.")
+        return False, (f"Garmin login failed ({type(exc).__name__}) - the stored session has "
+                       f"probably expired. Ask the user to run `runcoach login`.")
     lines: list[str] = []
     try:
         rep = sync.run(store, client, max(1, min(days, 7)), say=lines.append)
     except Exception as exc:  # noqa: BLE001 — a tool returns text, never an exception
-        return f"Garmin fetch not possible right now ({type(exc).__name__}, rate limit?) - retry later."
-    return rep.summary()
+        return False, (f"Garmin fetch not possible right now ({type(exc).__name__}, rate limit?) "
+                       f"- retry later.")
+    return not rep.fatal, rep.summary()
 
 
 # ── planning: propose, then (after a human's yes) apply ─────────────────────

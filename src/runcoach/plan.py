@@ -68,7 +68,16 @@ MAX_WARNINGS = 40
 #: server made about the request, not a lost answer - nothing was created.
 _CREATED_NOTHING_HINTS = ("ConnectionRefused", "ConnectionError", "NameResolution",
                           "ConnectTimeout", "TooManyRequests", "Authentication",
-                          "Unauthorized", "Forbidden", "SSLError", "InvalidFileFormat")
+                          "Unauthorized", "Forbidden", "SSLError", "InvalidFileFormat",
+                          "gaierror", "NewConnectionError")
+#: Names that settle it at whatever level of the chain they appear: the request
+#: never went out, or the server refused it.
+_NOTHING_SENT = ("ConnectionRefused", "NameResolution", "gaierror", "ConnectTimeout",
+                 "NewConnectionError", "SSLError", "TooManyRequests", "Authentication",
+                 "Unauthorized", "Forbidden", "InvalidFileFormat")
+#: urllib3 / http.client names for a line that broke after the request went out.
+_LOST_AFTER_SENDING = {"ProtocolError", "RemoteDisconnected", "IncompleteRead",
+                       "ChunkedEncodingError"}
 
 
 #: The shape of a proposal id, in ONE place. It guards three entrances - the
@@ -83,12 +92,61 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _created_nothing(exc: BaseException) -> bool:
+#: An HTTP status in the vendor's message ("API Error 502 - ...").
+_STATUS_RE = re.compile(r"(?:API Error|HTTP)\s*\(?(\d{3})")
+#: 4xx answers that do NOT prove a refusal: a 404 mid-write, a request timeout
+#: and a conflict (which can mean "it exists already") say nothing either way.
+_AMBIGUOUS_4XX = {404, 408, 409}
+
+
+def _http_status(exc: BaseException) -> int | None:
+    code = getattr(getattr(exc, "response", None), "status_code", None)
+    if isinstance(code, int):
+        return code
+    m = _STATUS_RE.search(str(exc))
+    return int(m.group(1)) if m else None
+
+
+def _created_nothing(exc: BaseException, _depth: int = 0) -> bool:
+    """`True` only when the failure PROVES Garmin created nothing.
+
+    Read TOP-DOWN through the cause chain, and the first decisive level wins.
+    garminconnect wraps `requests`, which wraps urllib3, which wraps the socket
+    error, and only some levels say anything: a status, or a class whose name
+    settles where the request got to. A level that says nothing (the vendor's
+    "Connection error: ...", `MaxRetryError`) hands the question down.
+
+    A status decides first: garminconnect raises `GarminConnectConnectionError`
+    for every HTTP status of 400 and above except 404, so a 502 that followed a
+    successful create carried the same class name as a refused connection - and
+    read by name it released the claim and invited the second write. A 4xx is
+    the server refusing the request; a 5xx says nothing about what came before.
+
+    A connection that was never made (refused, unresolved, connect timeout, TLS)
+    proves nothing was sent. A line that broke afterwards - reset, aborted,
+    `RemoteDisconnected`, a read timeout - may follow a request Garmin read and
+    filed, so it proves nothing."""
+    status = _http_status(exc)
+    if status is not None:
+        return 400 <= status < 500 and status not in _AMBIGUOUS_4XX
     name = type(exc).__name__
-    if "ReadTimeout" in name or name == "Timeout" or isinstance(exc, TimeoutError):
-        return False
-    if isinstance(exc, ConnectionError):
+    if isinstance(exc, ConnectionRefusedError) or any(h in name for h in _NOTHING_SENT):
         return True
+    if ("ReadTimeout" in name or name in _LOST_AFTER_SENDING
+            or isinstance(exc, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError))):
+        return False
+    cause = exc.__cause__ or exc.__context__
+    if cause is not None and cause is not exc and _depth < 8:
+        return _created_nothing(cause, _depth + 1)
+    # The bottom of the chain, and nothing decisive on the way down.
+    if name == "Timeout" or isinstance(exc, TimeoutError):
+        return False
+    # The bare base class ("could not connect") keeps its verdict; its
+    # subclasses were told apart above.
+    if type(exc) is ConnectionError:
+        return True
+    if isinstance(exc, ConnectionError):
+        return False
     return any(h in name for h in _CREATED_NOTHING_HINTS)
 
 
@@ -145,6 +203,10 @@ def cleanup() -> int:
     return n
 
 
+#: Fixed, not `strftime("%a")`: the preview must not change with the locale.
+WEEKDAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
 def _item(day: date, spec: planning.SessionSpec) -> dict:
     return {"day": day.isoformat(), "spec": planning.to_json(spec),
             "preview": planning.describe(spec),
@@ -153,14 +215,25 @@ def _item(day: date, spec: planning.SessionSpec) -> dict:
             "workout_id": None, "schedule_id": None, "pushed": None, "verified": None}
 
 
-def _file(items: list[dict], *, replaces: list[dict], assumptions: list[str], zones: dict) -> dict:
+def _file(items: list[dict], *, replaces: list[dict], assumptions: list[str], zones: dict,
+          calendar: list[str] | None = None) -> dict:
     """Write a proposal - one session or a week's package - and return it.
     `items` is the truth; `day`/`days`/`preview` at the top summarise it for
     the card."""
-    preview = "\n\n".join(it["preview"] for it in items)
+    # A package names each session's day: the athlete is asked for ONE yes to
+    # the whole week, and "4 sessions, 2026-09-22 onwards" is not a week anyone
+    # can agree to. A single session carries its day in "planned for ...".
+    if len(items) > 1:
+        preview = "\n\n".join(
+            f"{WEEKDAYS[date.fromisoformat(it['day']).weekday()]} {it['day']}: {it['preview']}"
+            for it in items)
+    else:
+        preview = items[0]["preview"]
     if replaces:
         preview += "\n\nreplaces on the calendar: " + "; ".join(
             f"{r['day']} \"{r['title'] or '?'}\" (schedule {r['schedule_id']})" for r in replaces)
+    if calendar:
+        preview += "\n" + "\n".join(f"  calendar: {c}" for c in calendar)
     if assumptions:
         preview += "\n" + "\n".join(f"  assumption: {a}" for a in assumptions)
     proposal = {
@@ -183,10 +256,13 @@ REPLACES_CLAIM_INDEX = -1
 #: ...and the index space for "the SCHEDULING of session i", used when a resume
 #: finishes a session that was uploaded but never got a day.
 SCHEDULE_CLAIM_BASE = -1000
+#: ...and for putting back, on undo, what the proposal's swap took off.
+RESTORE_CLAIM_INDEX = -2
 
 #: Per-item facts `apply` learns and `describe_result` reports. Merged onto the
 #: file at the end, so a concurrent apply cannot erase them.
-_ITEM_FACTS = ("workout_id", "schedule_id", "pushed", "verified")
+_ITEM_FACTS = ("workout_id", "schedule_id", "pushed", "verified", "upload_unknown",
+               "schedule_unknown")
 
 
 def _reconcile(store: Store, p: dict) -> dict:
@@ -236,8 +312,16 @@ def _finish(store: Store, proposal_id: str, local: dict, warnings: list[str]) ->
                 if it.get(key) is None and local["items"][idx].get(key) is not None:
                     it[key] = local["items"][idx][key]
     for i, r in enumerate(fresh.get("replaces", [])):
-        if r.get("removed") is None and i < len(local.get("replaces", [])):
-            r["removed"] = local["replaces"][i].get("removed")
+        if i >= len(local.get("replaces", [])):
+            continue
+        mine = local["replaces"][i]
+        # A step that CHANGED the entry (removed, or put back) carries a higher
+        # `rev` and wins whole: filling only empty keys could never turn a
+        # "removed" back into "not removed" once an undo had put it back.
+        if int(mine.get("rev") or 0) > int(r.get("rev") or 0):
+            fresh["replaces"][i] = dict(mine)
+        elif r.get("removed") is None:
+            r["removed"] = mine.get("removed")
     seen, merged = set(), []
     for w in list(fresh.get("warnings") or []) + list(warnings):
         if w not in seen:
@@ -390,13 +474,16 @@ def propose_week(store: Store, *, start: date | None = None, days_per_week: int 
     sessions, notes = planning.build_week(start, days_per_week=int(days_per_week),
                                           long_run_day=str(long_run_day), zones=zones,
                                           total_minutes=budget)
+    # Fitted to the calendar, never stacked on it: the athlete's plan wins.
     busy = store.get_scheduled_workouts(start, start + timedelta(days=6))
-    if busy:
-        notes.append("the calendar already has " + "; ".join(
-            f"{e['day']} \"{e['title'] or '?'}\"" for e in busy[:7])
-            + " - this package ADDS to it")
+    own = {w["workout_id"]: w["kind"] for w in store.own_workouts() if w["workout_id"]}
+    sessions, fitted = planning.fit_week_to_calendar(sessions, busy, own_kinds=own, zones=zones)
+    if not sessions:
+        raise ValueError("the calendar already holds this week ("
+                         + "; ".join(f"{e['day']} \"{e['title'] or '?'}\"" for e in busy[:7])
+                         + ") - nothing to add without doubling a day or breaking the spacing")
     return _file([_item(d, s) for d, s in sessions], replaces=[],
-                 assumptions=assumptions + notes, zones=zones)
+                 assumptions=assumptions + notes, zones=zones, calendar=fitted)
 
 
 def _week_budget(store: Store, today: date) -> tuple[int | None, str]:
@@ -412,8 +499,10 @@ def _week_budget(store: Store, today: date) -> tuple[int | None, str]:
     used with that said out loud."""
     monday = today - timedelta(days=today.weekday())
     weeks = store.get_weekly_volume(monday - timedelta(weeks=4), monday - timedelta(days=1))
-    minutes = sorted(int((w.get("duration_s") or 0) // 60) for w in (weeks or [])
-                     if (w.get("duration_s") or 0) > 0)
+    # RUNNING minutes: a daily walk or a long ride in `duration_s` sized a
+    # 90-minute runner's next week at the 200 % cap.
+    minutes = sorted(int((w.get("run_duration_s") or 0) // 60) for w in (weeks or [])
+                     if (w.get("run_duration_s") or 0) > 0)
     if len(minutes) < 2:
         return None, ("week sized from the built-in defaults - fewer than two completed weeks "
                       "of running on record to scale to")
@@ -459,7 +548,18 @@ def apply(store: Store, client, proposal_id: str, *, today: date | None = None) 
                                f"{', '.join(done) or '-'} from {p.get('day')}. "
                                f"Propose again for a new session.")}
 
-    warnings: list[str] = []
+    # A proposal file outlives its day, and so does the card's button. Applied
+    # late it was uploaded and scheduled on a day that is gone and reported as
+    # applied: a session no watch will ever offer. Past sessions are skipped;
+    # when nothing else is left, nothing is written at all.
+    past = [i for i in pending if date.fromisoformat(p["items"][i]["day"]) < anchor]
+    if past and len(past) == len(pending):
+        days = ", ".join(sorted({p["items"][i]["day"] for i in past}))
+        return {**p, "error": (f"the day of this proposal is in the past ({days}) - nothing was "
+                               f"put on the watch. Propose again for a day from today on.")}
+    pending = [i for i in pending if i not in past]
+
+    warnings: list[str] = [f"{p['items'][i]['day']} skipped: that day is in the past" for i in past]
     # Each entry is handled ONCE, ever - `removed` records the outcome and is
     # saved with the proposal. A resume that unscheduled again would aim a
     # delete at a calendar id Garmin may have given to something else.
@@ -479,6 +579,7 @@ def apply(store: Store, client, proposal_id: str, *, today: date | None = None) 
         now_is = _scheduled_workout_id(store, sid, today=anchor)
         # POSITIVE check: touch it only while the mirror still shows the entry
         # the athlete agreed to replace. Unknown is not permission.
+        r["rev"] = int(r.get("rev") or 0) + 1
         if now_is is None or wid_was is None or now_is != wid_was:
             r["removed"] = False
             warnings.append(
@@ -488,7 +589,10 @@ def apply(store: Store, client, proposal_id: str, *, today: date | None = None) 
             continue
         try:
             garmin.unschedule(client, sid)
-            r["removed"] = True
+            r["removed"], r["restored"] = True, None
+            # Taken off again after an undo had put it back: the next undo may
+            # put it back again.
+            store.release_proposal_item(proposal_id, RESTORE_CLAIM_INDEX)
             log.info("unscheduled %s (workout %s) for proposal %s", sid, wid_was, proposal_id)
         except Exception as exc:  # noqa: BLE001 — the old entry stays, say so
             r["removed"] = False
@@ -511,9 +615,15 @@ def apply(store: Store, client, proposal_id: str, *, today: date | None = None) 
             _place(store, client, proposal_id, idx, it, spec, day, warnings)
             continue
         if not store.claim_proposal_item(proposal_id, idx):
-            warnings.append(f"{day} \"{spec.name}\" skipped: another apply of this proposal "
-                            f"is already handling it")
+            if store.claim_state(proposal_id, idx) == "unknown":
+                it["upload_unknown"] = True
+                warnings.append(f"{day} \"{spec.name}\": an earlier apply may have uploaded it "
+                                f"already - look for it in your Garmin library")
+            else:
+                warnings.append(f"{day} \"{spec.name}\" skipped: another apply of this proposal "
+                                f"is already handling it")
             continue
+        store.mark_proposal_item_sending(proposal_id, idx)
         try:
             wid = garmin.upload_workout(client, spec)
         except Exception as exc:  # noqa: BLE001 — reported, the athlete decides
@@ -522,6 +632,7 @@ def apply(store: Store, client, proposal_id: str, *, today: date | None = None) 
                 note = "apply the proposal again to retry just this one"
             else:
                 store.mark_proposal_item_unknown(proposal_id, idx)
+                it["upload_unknown"] = True
                 note = (f"it is unclear whether Garmin created it - look for \"{spec.name}\" in "
                         f"your Garmin library before proposing it again")
             log.warning("upload failed for proposal %s item %s: %r", proposal_id, idx, exc)
@@ -567,20 +678,36 @@ def _place(store: Store, client, proposal_id: str, idx: int, it: dict,
     # The scheduling has its own claim, so two resumes cannot both put the same
     # workout on the calendar twice.
     if not store.claim_proposal_item(proposal_id, SCHEDULE_CLAIM_BASE - idx):
-        warnings.append(f"{day} \"{spec.name}\": another apply is scheduling it")
+        if store.claim_state(proposal_id, SCHEDULE_CLAIM_BASE - idx) == "unknown":
+            it["schedule_unknown"] = True
+            warnings.append(f"{day} \"{spec.name}\": an earlier apply may have put it on the "
+                            f"calendar already - look at {day} in your Garmin calendar")
+        else:
+            warnings.append(f"{day} \"{spec.name}\": another apply is scheduling it")
         return
+    # The same rule as the upload: the claim goes back only for a failure that
+    # PROVES nothing was placed. Garmin can file the calendar entry and lose the
+    # answer; "apply again" after that was a second entry on the same day.
+    store.mark_proposal_item_sending(proposal_id, SCHEDULE_CLAIM_BASE - idx)
     try:
         sid = garmin.schedule(client, wid, day)
+        placed_nothing = False
         if sid is None:
             warnings.append(f"\"{spec.name}\" uploaded, but Garmin returned no calendar id - "
                             f"check whether it really sits on {day}")
     except Exception as exc:  # noqa: BLE001
         sid = None
-        warnings.append(f"\"{spec.name}\" uploaded but NOT scheduled: {type(exc).__name__}: "
-                        f"{exc} - apply the proposal again to give it a day")
-    if sid is None:
-        # Nothing was placed, so the next apply must be allowed to try again.
+        placed_nothing = _created_nothing(exc)
+        warnings.append(
+            f"\"{spec.name}\" uploaded but NOT scheduled: {type(exc).__name__}: {exc} - "
+            + ("apply the proposal again to give it a day" if placed_nothing else
+               f"it is unclear whether it is on {day} - look at your Garmin calendar before "
+               f"applying again"))
+    if sid is None and placed_nothing:
         store.release_proposal_item(proposal_id, SCHEDULE_CLAIM_BASE - idx)
+    elif sid is None:
+        store.mark_proposal_item_unknown(proposal_id, SCHEDULE_CLAIM_BASE - idx)
+        it["schedule_unknown"] = True
     else:
         store.record_proposal_item(proposal_id, SCHEDULE_CLAIM_BASE - idx, wid)
     store.record_workout(wid, name=spec.name, kind=spec.kind, spec_json=json.dumps(it["spec"]),
@@ -620,7 +747,9 @@ def undo(store: Store, client, proposal_id: str, *, today: date | None = None) -
         return {"id": proposal_id, "status": "unknown",
                 "error": f"no proposal {proposal_id} - nothing to take back"}
     placed = [it for it in p["items"] if it.get("schedule_id")]
-    if not placed:
+    to_restore = [r for r in p.get("replaces", []) if r.get("removed") and not r.get("restored")
+                  and r.get("workout_id")]
+    if not placed and not to_restore:
         return {**p, "error": ("nothing of this proposal is on the calendar"
                                + (" any more" if p.get("status") == "applied" else ""))}
 
@@ -653,6 +782,8 @@ def undo(store: Store, client, proposal_id: str, *, today: date | None = None) -
         store.release_schedule_claim(proposal_id, p["items"].index(it))
         removed += 1
 
+    restored = _restore_replaced(store, client, proposal_id, to_restore, anchor, warnings)
+
     start, end = anchor - timedelta(days=CALENDAR_WINDOW[0]), anchor + timedelta(days=CALENDAR_WINDOW[1])
     try:
         entries, complete = garmin.fetch_scheduled_workouts(client, start, end)
@@ -663,16 +794,66 @@ def undo(store: Store, client, proposal_id: str, *, today: date | None = None) -
 
     out = _finish(store, proposal_id, p, warnings)
     out["undone"] = removed
+    out["restored"] = restored
     return out
 
 
+def _restore_replaced(store: Store, client, proposal_id: str, todo: list[dict], anchor: date,
+                      warnings: list[str]) -> list[dict]:
+    """Put back what a swap took off the calendar - the other half of undoing it.
+
+    Undoing a red-day swap removed the easy run and left the day empty: the
+    session the athlete had planned was gone until they went looking for it in
+    their library. Its workout is still there (a swap only unschedules), so it
+    goes back on its day. A day that has passed is left alone, and so is a
+    failure that does not prove nothing was scheduled - "try again" there is a
+    second copy of their session."""
+    if not todo or not store.claim_proposal_item(proposal_id, RESTORE_CLAIM_INDEX):
+        return []
+    done, retry = [], False
+    for r in todo:
+        day = date.fromisoformat(r["day"])
+        if day < anchor:
+            r["restored"] = "past"
+            warnings.append(f"\"{r.get('title')}\" on {r['day']} is not put back - that day is past")
+            continue
+        try:
+            sid = garmin.schedule(client, int(r["workout_id"]), day)
+        except Exception as exc:  # noqa: BLE001 — reported, the athlete decides
+            if _created_nothing(exc):
+                retry = True
+                warnings.append(f"could not put \"{r.get('title')}\" back on {r['day']} "
+                                f"({type(exc).__name__}) - take it off again to retry")
+            else:
+                r["restored"] = "unknown"
+                warnings.append(f"unclear whether \"{r.get('title')}\" is back on {r['day']} "
+                                f"({type(exc).__name__}) - look at your Garmin calendar")
+            continue
+        # Back where it was, so the entry is the swap's target again: a new
+        # apply checks it against the calendar and takes it off once more.
+        # Left "removed", the re-apply skipped it, both sessions sat on the day,
+        # and the summary reported a removal that had not happened.
+        r.update(removed=None, restored=True, schedule_id=sid,
+                 rev=int(r.get("rev") or 0) + 1)
+        log.info("put workout %s back on %s as %s for proposal %s", r["workout_id"], day, sid,
+                 proposal_id)
+        done.append(r)
+    if done:
+        store.release_proposal_item(proposal_id, REPLACES_CLAIM_INDEX)
+    if retry:
+        store.release_proposal_item(proposal_id, RESTORE_CLAIM_INDEX)
+    return done
+
+
 def describe_undo(p: dict) -> str:
-    if p.get("error") and not p.get("undone"):
+    if p.get("error") and not p.get("undone") and not p.get("restored"):
         return p["error"]
     n = p.get("undone", 0)
     lines = [f"Taken off the calendar: {n} session(s). The workout(s) stay in your Garmin "
              f"library, so applying this proposal again puts them back on a day."
              if n else "Nothing was taken off the calendar."]
+    lines.extend(f"Put back on the calendar: \"{r.get('title')}\" on {r['day']} - the session "
+                 f"the swap had replaced." for r in p.get("restored") or [])
     lines.extend(f"  ! {w}" for w in p.get("warnings", []))
     return "\n".join(lines)
 
@@ -692,9 +873,15 @@ def _is_placed(it: dict) -> bool:
     return bool(it.get("workout_id")) and bool(it.get("schedule_id"))
 
 
-def pending_of(p: dict) -> int:
-    """Sessions of this proposal that are not yet uploaded AND scheduled."""
-    return sum(1 for it in p.get("items", []) if not _is_placed(it))
+def pending_of(p: dict, today: date | None = None) -> int:
+    """Sessions an apply can still add: not yet uploaded AND scheduled, and
+    neither unclear (a step that may have happened already - applying again is
+    what would write it twice) nor on a day that has passed. This number is
+    the card's "put the remaining N on the watch" and `doctor`'s advice."""
+    anchor = (today or paths.today()).isoformat()
+    return sum(1 for it in p.get("items", []) if not _is_placed(it)
+               and not it.get("upload_unknown") and not it.get("schedule_unknown")
+               and str(it.get("day") or anchor) >= anchor)
 
 
 def describe_result(p: dict) -> str:
@@ -710,6 +897,10 @@ def describe_result(p: dict) -> str:
             where = f"scheduled for {it['day']}"
             tail = (", pushed to the watch." if it.get("pushed")
                     else ". Not pushed to the watch - it syncs from the calendar.")
+        elif it.get("schedule_unknown"):
+            where = (f"in your Garmin library; whether it is on {it['day']} is unclear - look at "
+                     f"your Garmin calendar")
+            tail = "."
         else:
             where = f"in your Garmin library, NOT scheduled for {it['day']}"
             tail = "."

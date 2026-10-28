@@ -1499,8 +1499,13 @@ def test_the_readme_counts_the_cases_that_actually_exist():
     assert f"evals-{passed}%2F{n}-" in readme, (
         f"the badge does not say {passed}/{n}: the last run passed {passed} of {n}")
     assert f"[![evals {passed}/{n}]" in readme, "the badge's alt text says something else"
-    assert (passed == n) == ("brightgreen" in readme.split("evals-")[1].split(")")[0]), (
-        "a run that did not pass every case must not be advertised as green")
+    colour = readme.split("evals-")[1].split(")")[0].rsplit("-", 1)[-1]
+    if passed == n:
+        assert colour == "brightgreen", f"a full pass is shown as {colour}"
+    else:
+        # Any shade of green - "green", "brightgreen", "yellowgreen" - reads as a
+        # pass at badge size. Checking for "brightgreen" alone let "green" through.
+        assert "green" not in colour, f"{passed}/{n} must not be advertised as {colour}"
 
 
 def test_the_readme_only_promises_commands_that_exist():

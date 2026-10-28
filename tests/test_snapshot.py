@@ -196,8 +196,8 @@ def test_vo2max_factors_block_edges():
 # ── zones card: ONE number with its origin ───────────────────────────────────
 
 def test_zones_take_latest_run_with_bounds_and_never_compute():
-    runs = [{"day": "2026-08-10", "hr_z4_low": None, "hr_z5_low": None},
-            {"day": "2026-08-05", "hr_z4_low": 158, "hr_z5_low": 172}]
+    runs = [{"type": "running", "day": "2026-08-10", "hr_z4_low": None, "hr_z5_low": None},
+            {"type": "running", "day": "2026-08-05", "hr_z4_low": 158, "hr_z5_low": 172}]
     z = snapshot.build_zones(runs, None, None, None)
     assert z["z4_low"] == 158 and z["z5_low"] == 172
     assert z["as_of_day"] == "2026-08-05" and "Garmin" in z["source"]
@@ -207,7 +207,7 @@ def test_zones_take_latest_run_with_bounds_and_never_compute():
 def test_zones_carry_the_lactate_threshold_with_its_own_date():
     """Two values, two dates: the zone bounds come from the last RUN, the
     threshold from Garmin's last MEASUREMENT — these can be weeks apart."""
-    runs = [{"day": "2026-09-07", "hr_z4_low": 169, "hr_z5_low": 184}]
+    runs = [{"type": "running", "day": "2026-09-07", "hr_z4_low": 169, "hr_z5_low": 184}]
     lt = {"lthr_bpm": 176, "lt_speed_mps": 3.44, "lt_measured_on": "2026-07-13",
           "seen_on": "2026-09-07"}
     z = snapshot.build_zones(runs, lt, None, None)
@@ -219,7 +219,7 @@ def test_zones_carry_the_lactate_threshold_with_its_own_date():
 
 
 def test_zones_without_a_threshold_claim_nothing():
-    runs = [{"day": "2026-09-07", "hr_z4_low": 169, "hr_z5_low": 184}]
+    runs = [{"type": "running", "day": "2026-09-07", "hr_z4_low": 169, "hr_z5_low": 184}]
     z = snapshot.build_zones(runs, None, None, None)
     assert z["lthr_bpm"] is None and z["lt_pace_s_per_km"] is None
     assert z["lt_measured_on"] is None and "no measurement" in z["note"]
@@ -236,7 +236,7 @@ def test_lt_pace_computes_and_degrades_cleanly():
 
 
 def test_zones_carry_the_threshold_history():
-    runs = [{"day": "2026-09-07", "hr_z4_low": 169, "hr_z5_low": 184}]
+    runs = [{"type": "running", "day": "2026-09-07", "hr_z4_low": 169, "hr_z5_low": 184}]
     hist = [{"day": "2026-07-13", "lthr_bpm": 178, "lt_speed_mps": 3.53},
             {"day": "2026-07-30", "lthr_bpm": 176, "lt_speed_mps": None},
             {"day": None, "lthr_bpm": 1, "lt_speed_mps": 1.0},              # dropped
@@ -255,7 +255,7 @@ def test_predictions_and_max_hr_in_zones():
     assert pr == {"day": "2026-09-07", "k5_s": 1450, "k10_s": 3065, "hm_s": 6915, "m_s": 15424}
     assert snapshot.build_predictions(None) == {"day": None, "k5_s": None, "k10_s": None,
                                                 "hm_s": None, "m_s": None}
-    runs = [{"day": "2026-09-07", "hr_z4_low": 169, "hr_z5_low": 184}]
+    runs = [{"type": "running", "day": "2026-09-07", "hr_z4_low": 169, "hr_z5_low": 184}]
     lt = {"lthr_bpm": 176, "lt_speed_mps": 3.44, "lt_measured_on": "2026-09-07"}
     z = snapshot.build_zones(runs, lt, [], {"max_hr": 188, "day": "2026-09-07"})
     assert z["max_hr_observed"] == 188 and z["max_hr_day"] == "2026-09-07"

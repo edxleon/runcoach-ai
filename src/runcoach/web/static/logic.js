@@ -66,6 +66,18 @@ export function dataAge(today, nowIso) {
   return { day: d, days };
 }
 
+/* ── "Last hard session" ──────────────────────────────────────────────────
+   `days_since_hard_workout` is counted from the READINESS day (`today.day`),
+   so that is the day the label is relative to. Judging freshness by
+   `stale_days` - the newest row of any kind - broke on an early sync: today's
+   row had no recovery signal yet, `stale_days` was 0, and yesterday's hard
+   session was printed as "today". */
+export function lastHardLabel(days, readinessDay, appToday, fmtDay) {
+  if (days == null || !readinessDay) return "–";
+  if (readinessDay !== appToday) return `${days} d before ${fmtDay(readinessDay)}`;
+  return days === 0 ? "today" : days === 1 ? "yesterday" : `${days} d ago`;
+}
+
 /* ── Is there anything in the store at all? ───────────────────────────────
    Three surfaces ask this: the freshness dot in the header, the coach buttons
    (an analysis of nothing spends a real agent run), and the first-run card.

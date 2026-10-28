@@ -649,3 +649,37 @@ def test_run_drops_a_proposal_reference_that_is_not_one(stub_cli, tmp_path):
     done = agent.run(job, db=str(tmp_path / "t.db"), snapshot_meta={})
     assert done["status"] == "done"
     assert "proposal" not in jobs.read_card(job["id"])
+
+
+def test_the_request_log_never_prints_the_token():
+    from runcoach.web.server import redact_token
+
+    line = '"GET /?token=s3cr3t-Tok_en HTTP/1.1" 200 -'
+    assert "s3cr3t" not in redact_token(line) and "token=<redacted>" in redact_token(line)
+    assert redact_token('"GET /api/state?x=1&token=abc HTTP/1.1"').count("abc") == 0
+    assert redact_token('"GET /api/state HTTP/1.1" 200') == '"GET /api/state HTTP/1.1" 200'
+
+
+def test_a_long_running_server_keeps_its_lock_fresh(tmp_path, monkeypatch):
+    """The lock's timestamp was written once. A `serve` left running for the
+    phone in the hallway passed 36 hours, its lock read as "pid recycled", and
+    a second instance took the data directory over from a live owner."""
+    import os
+    from datetime import datetime, timedelta
+
+    from runcoach.web import server
+
+    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    lock = server._take_home_lock()
+    old = (datetime.now().astimezone() - timedelta(hours=40)).isoformat()
+    lock.write_text(f"{os.getpid()} {old}\n", encoding="utf-8")
+    assert server._lock_looks_recycled(lock.read_text().split())
+
+    server._touch_home_lock(lock)
+    assert not server._lock_looks_recycled(lock.read_text().split())
+
+    # ...and never someone else's: a lock that changed hands is left alone.
+    lock.write_text(f"999999 {old}\n", encoding="utf-8")
+    server._touch_home_lock(lock)
+    assert lock.read_text().startswith("999999 ")
+    server._release_home_lock(lock)

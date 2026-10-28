@@ -52,7 +52,10 @@ BINARY_PATTERNS = ("e-mail address", "home path", "IBAN",
 PATTERNS = {
     "e-mail address": re.compile(r"[\w.+-]+@(?!example\.|users\.noreply\.|anthropic\.)[\w-]+\.[a-z]{2,}",
             re.I),
-    "home path": re.compile(r"[A-Z]:[\\/]+Users[\\/]+\w+|/home/\w+/|/Users/\w+/", re.I),
+    # The slash forms, the dashed one a tool uses to NAME a per-project
+    # directory after its path (`-Users-someone-projects-x`), and URL-encoded.
+    "home path": re.compile(r"[A-Z]:[\\/]+Users[\\/]+\w+|/home/\w+/|/Users/\w+/|-Users-\w+-"
+                            r"|%2FUsers%2F\w+", re.I),
     "IBAN": re.compile(r"\b[A-Z]{2}\d{2}(?: ?\d{4}){3,}"),
     "long numeric id (chat/user id?)": re.compile(r"(?<![\d.])-?\d{9,12}(?![\d.])"),
     "German leftover": re.compile(r"[äöüÄÖÜß]"),
@@ -73,6 +76,36 @@ _DOI = re.compile(r"doi:10\.\d{4,}/\S+")
 def extra() -> re.Pattern | None:
     terms = os.environ.get("RUNCOACH_PII_EXTRA", "").strip()
     return re.compile(terms, re.I) if terms else None
+
+
+#: Addresses a public commit may carry: GitHub's private relay, and GitHub's
+#: own bot identity on the merge commits it creates.
+_PUBLIC_EMAIL = re.compile(r"@users\.noreply\.github\.com$|^noreply@github\.com$", re.I)
+
+
+def commit_identities() -> int:
+    """Author and committer addresses of every commit reachable from HEAD.
+
+    Files are not the only thing a repository publishes. A merge on github.com
+    records the account's primary address as the committer unless the account
+    hides it, and five such commits went public through this gate's `clean`:
+    it never looked at git metadata. Without a `.git` (an sdist, the test
+    trees) there is nothing to check."""
+    if not (ROOT / ".git").exists():
+        return 0
+    import subprocess
+
+    out = subprocess.run(["git", "-C", str(ROOT), "log", "--format=%h %ae%n%h %ce", "HEAD"],
+                         capture_output=True, text=True)
+    if out.returncode != 0:          # no commits yet
+        return 0
+    hits = 0
+    for line in sorted(set(out.stdout.splitlines())):
+        sha, _, email = line.partition(" ")
+        if email and not _PUBLIC_EMAIL.search(email):
+            hits += 1
+            print(f"commit {sha}: commit identity: {email}")
+    return hits
 
 
 def main() -> int:
@@ -124,6 +157,7 @@ def main() -> int:
                     continue
                 hits += 1
                 print(f"{path.relative_to(ROOT)}:{no}: {label}: {m.group(0)[:60]}")
+    hits += commit_identities()
     print(f"{hits} hit(s)" if hits else "clean")
     return 1 if hits else 0
 

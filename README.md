@@ -1,7 +1,7 @@
 # runcoach-ai
 
 [![ci](https://github.com/edxleon/runcoach-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/edxleon/runcoach-ai/actions/workflows/ci.yml)
-[![evals 14/18](https://img.shields.io/badge/evals-14%2F18-yellow)](evals/RESULTS.md)
+[![evals 24/25](https://img.shields.io/badge/evals-24%2F25-yellow)](evals/RESULTS.md)
 [![license MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 **A local-first AI running coach for your Garmin data — powered by the Claude subscription you already have.**
@@ -29,10 +29,16 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-672 tests, 60 frontend tests and that gate on three operating systems and two Python versions, with every
+719 tests, 62 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
+
+<p align="center">
+  <a href="docs/video/runcoach-demo.mp4"><img src="docs/video/poster.png"
+     alt="86-second demo with voice-over: ask, get a coach card, see the rules behind it, put a session on the watch and take it back off" width="80%"></a><br>
+  <sub><a href="docs/video/runcoach-demo.mp4">▶ The 86-second demo</a> (voice-over, captions) · the synthetic demo athlete, rebuilt from this repo by <code>scripts/video.py</code></sub>
+</p>
 
 <p>
   <img src="docs/screenshots/readme-today.png" alt="Today: readiness verdict, decision, week plan, signals" width="24%">
@@ -93,7 +99,7 @@ uv tool uninstall runcoach-ai   # removes the program only - delete ~/.runcoach 
 ```
 
 `uv tool install` takes whatever is on `main`; pin a release instead with
-`uv tool install git+https://github.com/edxleon/runcoach-ai@v0.2.0`.
+`uv tool install git+https://github.com/edxleon/runcoach-ai@v0.2.1`.
 
 ## What you get
 
@@ -108,12 +114,12 @@ uv tool uninstall runcoach-ai   # removes the program only - delete ~/.runcoach 
 
 ```mermaid
 flowchart LR
-    G[Garmin Connect] -- "token resume, read-only" --> S[sync.py]
+    G[Garmin Connect] -- "token resume, read" --> S[sync.py]
     S --> DB[(SQLite<br/>~/.runcoach)]
     DB --> L[logic.py<br/>readiness · decision<br/>intervals · bands]
     L --> SNAP[snapshot.py]
     SNAP --> WEB[web app<br/>127.0.0.1:8765]
-    L --> MCP[MCP server<br/>14 tools<br/>12 read-only · sync · apply · undo]
+    L --> MCP[MCP server<br/>15 tools<br/>12 read-only · sync · apply · undo]
     WEB -- "spawn job" --> A["claude --print<br/>(your subscription)"]
     A -- "only mcp__runcoach__*" --> MCP
     A -- "JSON card" --> WEB
@@ -171,7 +177,7 @@ the frontend, which draws curves, gets points.
 
 **Prompts are tested like code.** The coach's behaviour lives in two Markdown files
 ([`skills/`](src/runcoach/skills)) with an LLM-as-judge regression suite ([`evals/`](evals)):
-18 cases such as *"a run already happened today → no second hard session"*, *"warning signs of low energy
+25 cases such as *"a run already happened today → no second hard session"*, *"warning signs of low energy
 availability are not explained away"*, *"an instruction inside a workout name is not followed"*. They run
 without Garmin data against the real CLI — though only over those two files, not over the other two
 pieces of the shipped prompt (`templates.json` and the JSON-card frame in `web/agent.py`, which
@@ -190,8 +196,11 @@ More detail: [docs/architecture.md](docs/architecture.md).
 
 Everything stays in `~/.runcoach/` (override with `RUNCOACH_HOME`): the SQLite database, Garmin session
 tokens, coach cards. Your password is never stored. On Linux and macOS the directory is created `0700`,
-so on a shared machine other local accounts cannot read your training data or replay your Garmin session
-tokens; Windows inherits the user profile's ACL instead. The only outbound connections are to Garmin
+so on a shared machine other local accounts cannot read those files; Windows inherits the user profile's
+ACL instead. **While `runcoach serve` runs, that no longer covers them:** without a token any local account
+or process can ask `127.0.0.1:8765` for your data, and since v0.2 apply or undo a proposal with your
+Garmin session. On a machine you share, start it with `RUNCOACH_TOKEN` set - the server then wants the
+token on loopback too, and prints the link to open once. The only outbound connections are to Garmin
 (sync) and — when *you* trigger a coach card — to Claude through your own CLI session, carrying
 aggregated training data. The server binds to `127.0.0.1`; listening on the network requires
 `RUNCOACH_TOKEN` and the server refuses to start without it. Note that `--host 0.0.0.0` serves plain
@@ -208,6 +217,7 @@ network you do not control.
 | `RUNCOACH_TOKEN` | – | required for `--host 0.0.0.0` (phone in your home network) |
 | `RUNCOACH_MODEL` | CLI default | model for coach cards |
 | `RUNCOACH_GARMIN_TOKENS` | `~/.runcoach/garmin` | reuse an existing python-garminconnect token dir |
+| `RUNCOACH_AUTOSYNC_MIN` | `30` | in a Claude Code / Desktop chat, `get_training_readiness` syncs first when the last sync is older than this; `0` turns it off |
 | `RUNCOACH_QUOTA_WAIT_S` | `3600` | how long a job waits for subscription quota |
 | `RUNCOACH_JOB_TIMEOUT_S` | `600` | hard timeout for a single coach job |
 | `RUNCOACH_ACTIVITY_BACKFILL_DAYS` | `35` | minimum window of workouts a sync fetches (the ACWR fallback needs ~28 days) |

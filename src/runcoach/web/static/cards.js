@@ -301,19 +301,23 @@ export function renderProposal(p, opts = {}) {
   const warn = (p.warnings || []).map(w => `<div class="note proposal-warn">! ${esc(w)}</div>`).join("");
   const ids = Array.isArray(p.workouts) ? p.workouts : [];
   const week = Number(p.days) > 1;
+  // The way back exists as soon as anything is on Garmin, not only once all
+  // of it is: a half-applied week used to offer "add the rest" and no undo.
+  const undo = `<button type="button" class="btn btn-quiet" data-undo="${esc(p.id)}"
+               data-arm-label="Sure? It comes off the calendar"${can ? "" : " disabled"}
+               title="Take it off the Garmin calendar - the workout stays in your library">
+         Take off watch</button>`;
   const button = applied
     ? `<span class="pill pill-ok">On Garmin${ids.length > 1 ? ` · ${ids.length} workouts`
         : ids.length ? ` · workout ${esc(ids[0])}` : ""}${p.day ? ` · ${esc(p.day)}` : ""}</span>
-       <button type="button" class="btn btn-quiet" data-undo="${esc(p.id)}"
-               data-arm-label="Sure? It comes off the calendar"${can ? "" : " disabled"}
-               title="Take it off the Garmin calendar - the workout stays in your library">
-         Take off watch</button>`
+       ${undo}`
     : `<button type="button" class="btn btn-primary" data-apply="${esc(p.id)}"
                data-arm-label="Sure? ${partial ? `${esc(pending)} more go` :
                  week ? "The whole week goes" : "It goes"} on the watch"${can ? "" : " disabled"}
                title="Upload to Garmin, schedule ${week ? `${esc(p.days)} sessions from` : "for"} ${
                  esc(p.day || "the day")}, push to the watch">
          ${partial ? `Put the remaining ${esc(pending)} on watch` : "Put on watch"}</button>${
+           partial && ids.length ? undo : ""}${
            can ? "" : `<span class="note">${
              opts.applyHint ? esc(opts.applyHint) : "needs a Garmin login"}</span>`}`;
   return `<div class="card-proposal" data-proposal="${esc(p.id)}">

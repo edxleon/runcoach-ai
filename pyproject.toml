@@ -1,6 +1,6 @@
 [project]
 name = "runcoach-ai"
-version = "0.2.0"
+version = "0.2.1"
 description = "Local-first AI running coach for Garmin data, powered by your existing Claude subscription."
 readme = "README.md"
 authors = [{ name = "Eddie Leon", email = "23697411+edxleon@users.noreply.github.com" }]
@@ -55,3 +55,8 @@ select = [
     "I",    # isort
     "W",    # pycodestyle warnings
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# HTML and GSAP templates that build the video composition: one element per
+# line reads better than a string broken at 110 columns.
+"docs/video/build.py" = ["E501"]

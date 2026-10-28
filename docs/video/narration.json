@@ -1,0 +1,47 @@
+[
+ {
+  "id": "hook",
+  "say": "Should I train today? Your Garmin knows your sleep, your H R V, your training load. It just never tells you what to do with them.",
+  "show": "Should I train today? Your Garmin knows your sleep, your HRV, your training load. It just never tells you what to do with them."
+ },
+ {
+  "id": "answer",
+  "say": "Run coach does. One tap, and Claude reads your numbers, and gives you a straight answer, with the reason behind it.",
+  "show": "runcoach does. One tap, and Claude reads your numbers, and gives you a straight answer, with the reason behind it."
+ },
+ {
+  "id": "today",
+  "say": "The verdict itself is simple, readable code. Go, easy, or rest. The A I explains it. It never invents it.",
+  "show": "The verdict itself is simple, readable code. Go, easy, or rest. The AI explains it. It never invents it."
+ },
+ {
+  "id": "strategy",
+  "say": "And it coaches for V O two max, not for kilometres. Easy days easy, hard days hard, forty-eight hours apart. When in doubt, the lighter session.",
+  "show": "And it coaches for VO2max, not for kilometres. Easy days easy, hard days hard, 48 hours apart. When in doubt, the lighter session."
+ },
+ {
+  "id": "runs",
+  "say": "Every run shows its real intervals. And V O two max moves only when Garmin actually measured it.",
+  "show": "Every run shows its real intervals. And VO2max moves only when Garmin actually measured it."
+ },
+ {
+  "id": "chat",
+  "say": "Or just ask, in Claude Code. Plan me an easy forty minutes for tomorrow. You see the session first. Nothing changes until you say yes.",
+  "show": "Or just ask, in Claude Code. \"Plan me an easy 40 minutes for tomorrow.\" You see the session first. Nothing changes until you say yes."
+ },
+ {
+  "id": "watch",
+  "say": "Then it's on your watch, read back and verified. One sentence takes it off again.",
+  "show": "Then it's on your watch, read back and verified. One sentence takes it off again."
+ },
+ {
+  "id": "try",
+  "say": "It runs on your own machine, on the Claude subscription you already have. There's no A.P.I. key, and no cloud. Try it first, without any account.",
+  "show": "It runs on your own machine, on the Claude subscription you already have. There's no API key, and no cloud. Try it first, without any account."
+ },
+ {
+  "id": "close",
+  "say": "Run coach. Built by a runner whose V O two max would not move.",
+  "show": "runcoach. Built by a runner whose VO2max would not move."
+ }
+]

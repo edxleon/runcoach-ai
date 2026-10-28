@@ -61,6 +61,31 @@ WORKER_BUSY_STALL_S = _QUOTA_ATTEMPTS * agent.TIMEOUT_S + agent.QUOTA_WAIT_S + 6
 PROMPT_MAX = 2000
 FEEDBACK_MAX = 500
 REFRESH_COOLDOWN_S = 60
+
+_TOKEN_IN_URL = re.compile(r"([?&]token=)[^&\s\"]+")
+
+
+def redact_token(line: str) -> str:
+    """The bootstrap link `/?token=...` is a request like any other, and the
+    request log wrote it to stderr in full - into a terminal scrollback or a
+    log file that outlives the session."""
+    return _TOKEN_IN_URL.sub(r"\1<redacted>", line)
+
+
+class _RedactTokens(logging.Filter):
+    """On the module's logger, so EVERY line is covered - not only the request
+    log: an exception while serving `/?token=...` logged the raw path at ERROR
+    level, whatever RUNCOACH_LOG said."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        clean = redact_token(msg)
+        if clean != msg:
+            record.msg, record.args = clean, ()
+        return True
+
+
+log.addFilter(_RedactTokens())
 REFRESH_TIMEOUT_S = 300
 
 MANIFEST = {
@@ -578,7 +603,7 @@ class Handler(BaseHTTPRequestHandler):
         # the README documents — must not switch per-request logging on, and
         # setting "ERROR" to get less noise must not produce more.
         if (os.environ.get("RUNCOACH_LOG") or "").upper() in ("DEBUG", "INFO"):
-            sys.stderr.write("%s - %s\n" % (self.address_string(), fmt % args))
+            sys.stderr.write("%s - %s\n" % (self.address_string(), redact_token(fmt % args)))
 
     # ── helpers ──
     def _send(self, code: int, body: bytes, ctype: str, *, cache: bool = False) -> None:
@@ -829,6 +854,11 @@ def serve(*, host: str = "127.0.0.1", port: int = 8765, demo: bool = False,
               f"and drops it from the address bar:\n\n    {url}?token={quote(token)}\n")
     if open_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+    # The lock's timestamp is what tells a live owner from a recycled pid, so a
+    # server that runs for days renews it; stopped with the worker below.
+    lock_stop = threading.Event()
+    threading.Thread(target=_keep_lock_fresh, args=(lock, lock_stop), daemon=True,
+                     name="runcoach-lock").start()
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
@@ -848,6 +878,7 @@ def serve(*, host: str = "127.0.0.1", port: int = 8765, demo: bool = False,
         # queue-cap assertion in a fourth, on CI, once in many runs.
         app.worker_stop.set()
         worker.join(5)
+        lock_stop.set()
         _release_home_lock(lock)
     return 0
 
@@ -915,6 +946,28 @@ def _lock_looks_recycled(parts: list[str]) -> bool:
         return False
     age = (datetime.now().astimezone() - taken).total_seconds()
     return age > LOCK_MAX_AGE_S
+
+
+#: How often a running server renews its lock - far inside `LOCK_MAX_AGE_S`.
+LOCK_REFRESH_S = 3600
+
+
+def _touch_home_lock(path) -> None:
+    """Renew the timestamp of OUR lock. Written once, it aged past
+    `LOCK_MAX_AGE_S` on a server left running for the phone, read as a recycled
+    pid, and a second instance took the data directory from a live owner. A
+    lock that names another process is left alone."""
+    try:
+        if path and path.read_text(encoding="utf-8").split()[0] == str(os.getpid()):
+            path.write_text(f"{os.getpid()} {datetime.now().astimezone().isoformat()}\n",
+                            encoding="utf-8")
+    except (OSError, IndexError):
+        pass
+
+
+def _keep_lock_fresh(path, stop: threading.Event) -> None:
+    while not stop.wait(LOCK_REFRESH_S):
+        _touch_home_lock(path)
 
 
 def _release_home_lock(path) -> None:

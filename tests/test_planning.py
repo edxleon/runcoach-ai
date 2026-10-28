@@ -465,7 +465,7 @@ VENDOR_ERRORS = {
     "GarminConnectTooManyRequestsError": True,    # refused, nothing created
     "GarminConnectInvalidFileFormatError": True,  # the workout itself was rejected
     "GarminConnectNotFoundError": False,          # a 404 mid-write says nothing
-    "HTTPError": False,                           # a 5xx can follow a write; re-exported up to 0.3.15
+    "HTTPError": False,                           # requests' class; re-exported up to 0.3.17
 }
 
 
@@ -499,3 +499,259 @@ def test_a_lost_answer_is_never_mistaken_for_a_refusal(name, expected):
     from runcoach.plan import _created_nothing
 
     assert _created_nothing(getattr(requests.exceptions, name)("x")) is expected
+
+
+def _vendor_http_error(status: int):
+    """What garminconnect raises for an HTTP status on a write: its transport
+    turns every status >= 400 except 404 into `GarminConnectConnectionError`
+    ("API Error NNN - ...") and attaches the response."""
+    import garminconnect
+    import requests
+
+    exc = garminconnect.GarminConnectConnectionError(f"API Error {status} - upstream")
+    resp = requests.Response()
+    resp.status_code = status
+    exc.response = resp
+    return exc
+
+
+def test_a_server_error_after_a_write_is_never_read_as_nothing_created():
+    """The vendor reports a 502 under the same class name as a refused
+    connection. Read by name alone, a 502 that followed a successful create
+    released the claim and told the athlete to apply again - and the second
+    apply put the session on the watch twice. A status decides first."""
+    import garminconnect
+    import requests
+
+    from runcoach.plan import _created_nothing
+
+    assert _created_nothing(_vendor_http_error(502)) is False
+    assert _created_nothing(_vendor_http_error(503)) is False
+    assert _created_nothing(_vendor_http_error(500)) is False
+    # a 4xx is the server refusing the request: nothing was created
+    assert _created_nothing(_vendor_http_error(400)) is True
+    assert _created_nothing(_vendor_http_error(409)) is False, "a conflict may mean it exists"
+    # the status only in the message, no response attached
+    assert _created_nothing(garminconnect.GarminConnectConnectionError("API Error 504 - gw")) is False
+    # a read timeout the vendor wrapped: the request landed, the answer did not
+    try:
+        try:
+            raise requests.exceptions.ReadTimeout("read timed out")
+        except requests.exceptions.ReadTimeout as t:
+            raise garminconnect.GarminConnectConnectionError(f"Connection error: {t}") from t
+    except garminconnect.GarminConnectConnectionError as wrapped:
+        assert _created_nothing(wrapped) is False
+    # ...while a connection that was never made still hands the claim back
+    try:
+        try:
+            raise requests.exceptions.ConnectionError("connection refused")
+        except requests.exceptions.ConnectionError as c:
+            raise garminconnect.GarminConnectConnectionError(f"Connection error: {c}") from c
+    except garminconnect.GarminConnectConnectionError as refused:
+        assert _created_nothing(refused) is True
+
+
+def test_the_week_is_sized_from_running_not_from_every_sport(store, today):
+    """`_week_budget` promises running minutes, and read every activity's
+    duration. 2 x 45 min of running plus a daily hour of walking and a long
+    ride sized the next week at the planner's 200 % cap - five times the
+    running this athlete does, the jump the function exists to prevent."""
+    from datetime import timedelta
+
+    from conftest import make_activity
+    from runcoach import plan
+
+    monday = today - timedelta(days=today.weekday())
+    aid = 7_000_000_000
+    for week in range(1, 5):
+        start = monday - timedelta(weeks=week)
+        for d in (1, 4):                                    # two 45-min runs
+            aid += 1
+            store.upsert_activity(make_activity(aid, start + timedelta(days=d), duration_s=2700))
+        for d in range(7):                                  # a daily hour of walking
+            aid += 1
+            store.upsert_activity(make_activity(aid, start + timedelta(days=d), hour=17,
+                                                activity_type="walking", duration_s=3600))
+        aid += 1
+        store.upsert_activity(make_activity(aid, start + timedelta(days=5), hour=9,
+                                            activity_type="cycling", duration_s=7200))
+    budget, note = plan._week_budget(store, today)
+    assert budget == 99, f"{budget} min from {note}"        # 90 min of running, +10 %
+
+
+@pytest.mark.parametrize("minutes", [40, 60, 90])
+def test_a_steady_session_asked_for_by_time_keeps_its_block_short(minutes):
+    """The steady block is ~15 min of even effort near threshold - enough for
+    Garmin to measure VO2max from, the reason the kind exists. Asked for by
+    distance it was 15 min; asked for by time the block grew with the budget,
+    and 90 minutes became one 77-minute block at threshold heart rate."""
+    spec = build_session("steady", duration_min=minutes, zones=ZONES)
+    (work,) = [b for b in spec.blocks if b.kind == "interval"]
+    assert 12 * 60 <= work.seconds <= 15 * 60, f"{work.seconds // 60} min block in {minutes} min"
+    assert spec.estimated_seconds == minutes * 60, "the time budget is still the whole session"
+
+
+def test_zone_bounds_come_from_a_run_not_from_a_ride():
+    """`build_zones` is handed every recent session and took the bounds from
+    the newest one with any. Garmin keeps separate zones per sport, so a ride
+    after the last run put the bike's 145/158 on the Today tab as "Garmin zones
+    on the run" and capped the next easy run 15 bpm too low."""
+    from runcoach.snapshot import build_zones
+
+    sessions = [  # newest first, the way the snapshot hands them over
+        {"type": "cycling", "day": "2026-06-10", "hr_z4_low": 145, "hr_z5_low": 158},
+        {"type": "running", "day": "2026-06-08", "hr_z4_low": 165, "hr_z5_low": 178},
+    ]
+    z = build_zones(sessions, None, None, None)
+    assert (z["z4_low"], z["z5_low"], z["as_of_day"]) == (165, 178, "2026-06-08")
+
+
+def _chain(*excs: BaseException) -> BaseException:
+    """`excs[0]` raised from `excs[1]` raised from ... - the way requests,
+    urllib3 and garminconnect wrap one another."""
+    for outer, inner in zip(excs, excs[1:], strict=False):
+        outer.__cause__ = inner
+    return excs[0]
+
+
+def test_a_connection_dropped_after_sending_is_not_a_refusal():
+    """Garmin can read the request, file it, and drop the connection before it
+    answers. requests calls that `ConnectionError("Connection aborted.")` with
+    `RemoteDisconnected` underneath - a builtin `ConnectionError` too - and it
+    was read as "never landed", which released the claim for a second write.
+    Only a connection that was never made proves nothing was created."""
+    import http.client
+
+    import garminconnect
+    import requests
+    import urllib3
+
+    from runcoach.plan import _created_nothing
+
+    dropped = _chain(garminconnect.GarminConnectConnectionError("Connection error: aborted"),
+                     requests.exceptions.ConnectionError("Connection aborted."),
+                     urllib3.exceptions.ProtocolError("Connection aborted."),
+                     http.client.RemoteDisconnected("Remote end closed connection"))
+    assert _created_nothing(dropped) is False
+    for late in (ConnectionResetError(54, "reset"), BrokenPipeError(32, "pipe"),
+                 ConnectionAbortedError(53, "aborted")):
+        assert _created_nothing(_chain(requests.exceptions.ConnectionError("x"), late)) is False
+
+    refused = _chain(garminconnect.GarminConnectConnectionError("Connection error: refused"),
+                     requests.exceptions.ConnectionError("Max retries exceeded"),
+                     urllib3.exceptions.NewConnectionError(None, "Failed to establish"),
+                     ConnectionRefusedError(61, "Connection refused"))
+    assert _created_nothing(refused) is True
+    import socket
+    unresolved = _chain(requests.exceptions.ConnectionError("x"),
+                        socket.gaierror(8, "nodename nor servname provided"))
+    assert _created_nothing(unresolved) is True
+
+
+def test_a_connect_timeout_is_still_a_connection_never_made():
+    """Read top-down, the outermost decisive class wins. A real `ConnectTimeout`
+    ends its chain in a socket timeout, and walking straight to the bottom read
+    it as "the request may have landed" - a session blocked for nothing."""
+    import socket
+
+    import requests
+    import urllib3
+
+    from runcoach.plan import _created_nothing
+
+    timed_out = _chain(requests.exceptions.ConnectTimeout("connect timed out"),
+                       urllib3.exceptions.MaxRetryError(None, "/", "x"),
+                       urllib3.exceptions.ConnectTimeoutError(None, "connect timeout"),
+                       socket.timeout("timed out"))
+    assert _created_nothing(timed_out) is True
+
+
+def test_weekly_distance_is_running_distance(store, today):
+    """`distance_m` per week fed the Volume chart, "where you stand" and the
+    race-time line - and summed every sport: a 10 km run and an 80 km ride
+    made a 90 km running week."""
+    from conftest import make_activity
+
+    store.upsert_activity(make_activity(8_000_000_001, today, distance_m=10_000))
+    store.upsert_activity(make_activity(8_000_000_002, today, hour=12, activity_type="cycling",
+                                        distance_m=80_000, duration_s=10_800))
+    (week,) = [w for w in store.get_weekly_volume(today, today) if w["workouts"]]
+    assert week["distance_m"] == 10_000
+
+
+def test_aerobic_efficiency_reads_runs_only_untyped_included():
+    """The running check in `build_aerobic` was weakened in passing to let an
+    activity without a type through - which counts it as a run here while
+    every other number in the app does not."""
+    from datetime import date
+
+    from runcoach.snapshot import build_aerobic
+
+    run = {"type": "running", "day": "2026-06-08", "avg_hr": 138, "pace_s_per_km": 390,
+           "distance_m": 8000, "duration_s": 3120}
+    untyped = {**run, "type": None, "pace_s_per_km": 200}
+    alone = build_aerobic([run], today=date(2026, 6, 10), ref_hr=138)
+    assert build_aerobic([run, untyped], today=date(2026, 6, 10), ref_hr=138) == alone
+
+
+# ── a week fitted to the calendar it lands on ───────────────────────────────
+
+def _cal(day, title, sid):
+    return {"day": day.isoformat(), "title": title, "schedule_id": sid, "workout_id": None}
+
+
+def _week(monday, calendar):
+    from runcoach.planning import build_week, fit_week_to_calendar
+
+    sessions, _ = build_week(monday, days_per_week=4, long_run_day="sun", zones=ZONES)
+    return fit_week_to_calendar(sessions, calendar, own_kinds={}, zones=ZONES)
+
+
+def test_a_week_never_lands_on_days_the_calendar_already_fills():
+    """The planner built its week blind and said "this package ADDS to it": a
+    yes put two hard sessions on Tuesday, two on Thursday and two long runs on
+    Sunday. The calendar is the athlete's plan; the package fills around it."""
+    monday = date(2026, 9, 21)
+    cal = [_cal(monday + timedelta(days=1), "Threshold 3x10min", 7010),
+           _cal(monday + timedelta(days=3), "VO2max 5x4min", 7011),
+           _cal(monday + timedelta(days=5), "Recovery jog", 7012),
+           _cal(monday + timedelta(days=6), "Long run", 7013)]
+    sessions, notes = _week(monday, cal)
+    busy = {c["day"] for c in cal}
+    assert all(d.isoformat() not in busy for d, _ in sessions), sessions
+    assert all(s.kind not in ("vo2max", "threshold", "long") for _, s in sessions), \
+        "the calendar already holds the week's two quality sessions and the long run"
+    assert any("already has" in n for n in notes)
+
+
+def test_a_package_session_next_to_a_hard_calendar_day_is_made_easy():
+    """A free day is not a free pass: Tuesday's VO2max next to Wednesday's
+    threshold on the calendar is two hard days in a row."""
+    monday = date(2026, 9, 21)
+    sessions, notes = _week(monday, [_cal(monday + timedelta(days=2), "Threshold 4x8", 7020)])
+    hard = {d: s.kind for d, s in sessions if s.kind in ("vo2max", "threshold")}
+    cal_hard = monday + timedelta(days=2)
+    assert all(abs((d - cal_hard).days) >= 2 for d in hard), hard
+    assert any("48 hours" in n for n in notes), notes
+
+
+def test_a_package_that_fits_is_left_as_it_was():
+    from runcoach.planning import build_week, fit_week_to_calendar
+
+    monday = date(2026, 9, 21)
+    sessions, _ = build_week(monday, days_per_week=4, long_run_day="sun", zones=ZONES)
+    fitted, notes = fit_week_to_calendar(sessions, [], own_kinds={}, zones=ZONES)
+    assert [(d, s.kind) for d, s in fitted] == [(d, s.kind) for d, s in sessions] and notes == []
+
+
+@pytest.mark.parametrize("title,kind", [
+    ("Long run", "long"), ("Langer Lauf", "long"), ("Long Run 22 km", "long"),
+    ("Langsamer Dauerlauf", "easy"), ("Lange Intervalle 3x2km", "hard"),
+    ("Threshold 3x10min", "hard"), ("Recovery jog", "easy"),
+])
+def test_a_calendar_title_is_read_as_what_it_says(title, kind):
+    """`lang` anywhere made "Langsamer Dauerlauf" the week's long run - and the
+    planner then dropped the real one and softened the day before it."""
+    from runcoach.planning import calendar_kind
+
+    assert calendar_kind({"title": title, "workout_id": None}, {}) == kind

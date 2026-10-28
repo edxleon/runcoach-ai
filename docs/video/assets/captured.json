@@ -1,0 +1,9 @@
+{
+ "day": "2026-09-19",
+ "propose": "Easy run 40 min  (easy; ~6.9 km, ~40 min)\n  interval  40:00 min  HR 130-148 bpm\nplanned for 2026-09-19 - proposal p-20261028-164217-3b50\nNOT on Garmin yet. Show this to the athlete; if they say yes, call apply_workout(proposal_id=\"p-20261028-164217-3b50\"). If they want changes, propose again.\n(demo data: the proposal is real, applying needs a Garmin login)",
+ "apply": [
+  "On Garmin: \"Easy run 40 min\" (workout …) scheduled for 2026-09-19, pushed to the watch.",
+  "read back from Garmin and verified: structure and targets as proposed."
+ ],
+ "undo": "Taken off the calendar: 1 session(s)."
+}

@@ -673,7 +673,7 @@ def fetch_activity_detail(client, activity_id: int) -> dict:
 # reads on the STEP (`zoneNumber`, `targetValueOne`, `targetValueTwo`) are not
 # fields of the models but survive as extras (`ExecutableStep` allows them -
 # measured, not assumed). A recovery step is built without a target, which is
-# the library's default and the one rule the cockpit's tooling got wrong.
+# the library's default and the one rule the original app's tooling got wrong.
 
 _STEP_TYPE = {"warmup": (1, "warmup"), "cooldown": (2, "cooldown"),
               "interval": (3, "interval"), "recovery": (4, "recovery")}

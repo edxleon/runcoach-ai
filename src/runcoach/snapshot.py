@@ -53,6 +53,13 @@ def _clean_name(v) -> str | None:
     return _clean_text(v, _NAME_MAX) if isinstance(v, str) else None
 
 
+def _is_run(r: dict) -> bool:
+    """ONE spelling of "this session is a run" for every block of the snapshot.
+    An activity without a type is not one: counting it in one place and not in
+    another gave the same session two meanings on the same screen."""
+    return "running" in str(r.get("type") or "").lower()
+
+
 def _pace(distance_m, duration_s) -> float | None:
     """Seconds per kilometre; None rather than a division-by-zero fantasy."""
     if not distance_m or not duration_s or distance_m < 100:
@@ -350,7 +357,7 @@ def build_aerobic(runs_wide: list[dict], *, today: date, ref_hr: int, weeks: int
     per_week: dict[str, list] = {}
     temp_per_week: dict[str, list] = {}
     for r in runs_wide or []:
-        if "running" not in str(r.get("type") or "").lower():
+        if not _is_run(r):
             continue
         d = r.get("day") or ""
         hr, pace = r.get("avg_hr"), r.get("pace_s_per_km")
@@ -431,6 +438,10 @@ def build_zones(runs: list[dict], lt: dict | None, lt_history: list[dict] | None
                             if lt.get("lthr_bpm") and max_hr.get("max_hr") else None),
     }
     for r in runs:
+        # RUNS only: the list holds every session, and Garmin keeps zones per
+        # sport - a ride's bike zones are not the bounds of the next run.
+        if not _is_run(r):
+            continue
         if r.get("hr_z4_low") or r.get("hr_z5_low"):
             return {"z4_low": r.get("hr_z4_low"), "z5_low": r.get("hr_z5_low"),
                     "as_of_day": r.get("day"), "source": "Garmin zones on the run", **block,

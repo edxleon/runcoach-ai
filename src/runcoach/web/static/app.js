@@ -22,7 +22,7 @@ import {
 } from "./ui.js";
 import { mountApp } from "./chassis.js";
 import {
-  addDays, axisX, bandSplit, barLabel, barScale, carryForward, chartPoints, chartScale, dataAge as ageOf, groupRunsByWeek, hardSessionToday as hardSessionOf, hasNoData, intensityHits, intensitySeries, isFirstRun, showSyncFailure, isRunning, isStrength, lightAddendum as lightAddendumOf, NO_DATE, shortTitle, stepMarks, stepPath, todayIso, volumeAverageKm, volumeComparison, weekdayShort, weekIncomplete, weekLabel, weeksBetween, weekStart, zoneTimeParts,
+  addDays, axisX, bandSplit, barLabel, barScale, carryForward, chartPoints, chartScale, dataAge as ageOf, groupRunsByWeek, hardSessionToday as hardSessionOf, hasNoData, lastHardLabel, intensityHits, intensitySeries, isFirstRun, showSyncFailure, isRunning, isStrength, lightAddendum as lightAddendumOf, NO_DATE, shortTitle, stepMarks, stepPath, todayIso, volumeAverageKm, volumeComparison, weekdayShort, weekIncomplete, weekLabel, weeksBetween, weekStart, zoneTimeParts,
 } from "./logic.js";
 import { mountCards, mountJobs, jobPoller, todayCard, handle409,
          setCardContext } from "./cards.js";
@@ -78,7 +78,7 @@ function renderVerdict() {
   // moved out of index.html, a test looking for "GO" found it in the inline
   // script's source and passed without ever seeing the rendered page.
   el.dataset.verdict = String(t.verdict || "");
-  // The empty page, before there is anything to judge. In the cockpit this
+  // The empty page, before there is anything to judge. In the original app this
   // state never existed - the sync had always run before the tab was opened.
   // Standalone it is the first screen anyone sees, and "No call · not enough
   // data for a verdict" over a column of dashes reads as a broken app.
@@ -245,11 +245,7 @@ function renderSignals() {
       // printing it as "today" told an athlete their five-day-old session was
       // this morning's. `build_decision` gates this through `fresh`; this cell
       // did not, so the two disagreed on the same screen.
-      const d = s.days_since_hard_workout;
-      const stale = (D().stale_days ?? 0) >= 1;
-      const txt = d == null ? "–"
-                : stale ? `${d} d before ${fmtDayShort(D().data_through)}`
-                : d === 0 ? "today" : d === 1 ? "yesterday" : `${d} d ago`;
+      const txt = lastHardLabel(s.days_since_hard_workout, t.day, appToday(), fmtDayShort);
       return cell("Last hard session", txt, s.training_status || "");
     })()}
   </div>`;
@@ -341,7 +337,7 @@ function renderZones() {
 /** NO price anywhere in the page: a dollar figure under every trigger turns
  *  cost into the deciding criterion, and on a subscription the figure the CLI
  *  reports is nominal anyway. It stays in the job JSON for anyone who asks;
- *  the cockpit this was extracted from had a cost dashboard, this app does not. */
+ *  the app this was extracted from had a cost dashboard, this one does not. */
 
 /** Is a paid job running right now? The source is the job state from the
  *  payload, not the duration of the POST: the request is through after a

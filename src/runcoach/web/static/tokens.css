@@ -208,7 +208,7 @@ nav.tabbar svg { width: 22px; height: 22px; fill: none; stroke: currentColor;
                  stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 
 /* ── Desktop ──────────────────────────────────────────────────────────────
-   Inside the cockpit this was one tab of six, opened on a phone. Standalone,
+   Inside the original app this was one tab of six, opened on a phone. Standalone,
    `runcoach serve` opens the DESKTOP browser first - and a 480 px column with
    a bottom tab bar stretched across 1280 px is a phone in a big window. Above
    900 px the tab bar moves under the header as a row and sticks there, the

@@ -6,7 +6,7 @@ agent decides which kind fits today and explains it, exactly as it does with
 the readiness verdict. Nothing here touches Garmin - `garmin.to_running_workout`
 converts a spec to the vendor DTO, and only `plan.apply` ever sends it.
 
-Two rules from the cockpit this app was extracted from, learned the hard way:
+Two rules from the larger app this one was extracted from, learned the hard way:
 
 * A recovery step never carries a target. The community tooling set the work
   zone on the jog as well and drove the athlete into zone 5 between reps.
@@ -48,6 +48,8 @@ MIN_WARMUP_S = 480
 MIN_COOLDOWN_S = 300
 #: The shortest block Garmin/Firstbeat will re-measure VO2max from.
 STEADY_MIN_S = 12 * 60
+#: The steady block's length when the route or the time budget has room for it.
+STEADY_WORK_S = 15 * 60
 #: How much faster than threshold pace a VO2max rep runs (~3-5k race pace).
 VO2MAX_PACE_FACTOR = 0.93
 #: How much slower than threshold pace the recovery jog is.
@@ -246,13 +248,13 @@ def build_session(kind: str, *, distance_km: float | None = None,
             target = pace(lt + 10, lt - 5)
             notes.append("no measured LTHR - steady block set by pace instead of heart rate")
         if distance_km is not None:
-            work = 15 * 60
+            work = STEADY_WORK_S
             meters = int(round(distance_km * 1000))
             work_m = int(work * 1000 / lt)
             rest_m = meters - work_m
             if rest_m < MIN_WARMUP_M + MIN_COOLDOWN_M:
-                raise ValueError(f"{distance_km:.1f} km is too short for a 12 min steady block "
-                                 f"plus warm-up and cool-down")
+                raise ValueError(f"{distance_km:.1f} km is too short for a {STEADY_WORK_S // 60} min "
+                                 f"steady block plus warm-up and cool-down")
             # The same floor the interval branches apply. Without it the 55/45
             # split put a 990 m warm-up in front of a threshold block at the
             # smallest route that passes the check above - under the minimum
@@ -267,7 +269,10 @@ def build_session(kind: str, *, distance_km: float | None = None,
             # cool-down take what the steady block leaves. Asking for 10 min
             # used to return a 30 min session without a word.
             secs = int(duration_min) * 60
-            work = secs - MIN_WARMUP_S - MIN_COOLDOWN_S
+            # The block is capped like the distance branch's; a longer budget
+            # goes to easy running around it. Grown with the budget, 90 minutes
+            # was one 77-minute block at threshold heart rate.
+            work = min(STEADY_WORK_S, secs - MIN_WARMUP_S - MIN_COOLDOWN_S)
             if work < STEADY_MIN_S:
                 raise ValueError(
                     f"{duration_min} min is too short for a steady session: the block itself is "
@@ -511,6 +516,89 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
                 assumptions.append(a)
         spec.assumptions = []
     return sessions, assumptions
+
+
+#: Whole words only: "lang" anywhere made "Langsamer Dauerlauf" a long run.
+_LONG_TITLE_RE = re.compile(r"\blong\b|\blange[rnms]?\s+(?:lauf|run)\b|\blanglauf\b", re.I)
+
+
+def calendar_kind(entry: dict, own_kinds: dict) -> str:
+    """`long`, `hard` or `easy` for a calendar entry. A workout this app
+    created is known by its kind; anything else only by its title - free
+    text, so a guess, and the guess errs towards hard."""
+    kind = own_kinds.get(entry.get("workout_id"))
+    if kind is not None:
+        return "long" if kind == "long" else "hard" if kind in HARD_KINDS else "easy"
+    title = str(entry.get("title") or "")
+    # Hard first: "Lange Intervalle 3x2km" is intervals, whatever else it says.
+    if _HARD_TITLE_RE.search(title):
+        return "hard"
+    return "long" if _LONG_TITLE_RE.search(title) else "easy"
+
+
+def fit_week_to_calendar(sessions: list[tuple], calendar: list[dict], *, own_kinds: dict,
+                         zones: dict | None = None) -> tuple[list[tuple], list[str]]:
+    """The planned week, fitted to what the calendar already holds in it.
+
+    `build_week` plans blind, and the package used to be ADDED to the calendar:
+    with a plan already there, one yes put two hard sessions on a Tuesday and two
+    long runs on a Sunday. The calendar is the athlete's plan, so it wins:
+    - a day that already has an entry gets nothing from the package;
+    - the week holds no more quality sessions than the package itself planned,
+      and one long run - the calendar's count first;
+    - a package quality session less than 48 hours from another hard day
+      (a long run counts) or on the day before a long run becomes an easy run.
+    Returns the sessions that survive and one note per change."""
+    from datetime import date as _date
+
+    notes: list[str] = []
+    cal = [(_date.fromisoformat(e["day"]), calendar_kind(e, own_kinds), e) for e in calendar]
+    busy = {d for d, _, _ in cal}
+    quality_cap = sum(1 for _, spec in sessions if spec.kind in HARD_KINDS)
+    quality_cal = sum(1 for _, k, _ in cal if k == "hard")
+    long_cal = any(k == "long" for _, k, _ in cal)
+
+    kept: list[tuple] = []
+    for day, spec in sessions:
+        if day in busy:
+            titles = ", ".join(f"\"{e.get('title') or '?'}\"" for d, _, e in cal if d == day)
+            notes.append(f"{day}: the calendar already has {titles} - kept, nothing added that day")
+            continue
+        if spec.kind == "long" and long_cal:
+            notes.append(f"{day}: no second long run - the calendar has one this week")
+            continue
+        kept.append((day, spec))
+
+    def hard_days(exclude: _date | None = None) -> dict:
+        days = {d: k for d, k, _ in cal if k in ("hard", "long")}
+        days.update({d: ("long" if s.kind == "long" else "hard") for d, s in kept
+                     if (s.kind in HARD_KINDS or s.kind == "long") and d != exclude})
+        return days
+
+    out: list[tuple] = []
+    quality_left = quality_cap - quality_cal
+    for i, (day, spec) in enumerate(kept):
+        if spec.kind in HARD_KINDS:
+            others = hard_days(exclude=day)
+            too_close = [d for d in others if abs((d - day).days) < 2]
+            before_long = [d for d, k in others.items() if k == "long" and (d - day).days == 1]
+            reason = None
+            if quality_left <= 0:
+                reason = "the calendar already holds the week's quality sessions"
+            elif too_close:
+                reason = f"less than 48 hours from the hard day on {min(too_close)}"
+            elif before_long:
+                reason = "it is the day before the long run"
+            if reason:
+                minutes = max(30, spec.estimated_seconds // 60 - 10)
+                easy = build_session("easy", duration_min=minutes, zones=zones)
+                notes.append(f"{day}: {spec.name} became {easy.name} - {reason}")
+                kept[i] = (day, easy)
+                out.append((day, easy))
+                continue
+            quality_left -= 1
+        out.append((day, spec))
+    return out, notes
 
 
 def swap_for_readiness(decision: str, scheduled: list[dict], own_kinds: dict) -> dict:

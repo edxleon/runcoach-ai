@@ -115,7 +115,9 @@ def build_prompt(job: dict) -> str:
 def coaching_reference() -> str:
     """The coach's domain knowledge, sent on STDIN with the task rather than as a
     command-line flag: Windows caps a command line at 32k characters."""
-    text = "\n\n".join(p.read_text(encoding="utf-8") for p in SKILLS if p.is_file())
+    # No `is_file()` filter: a missing file is a broken install, and a card
+    # coached on half the rules is the worst way to find out.
+    text = "\n\n".join(p.read_text(encoding="utf-8") for p in SKILLS)
     return f"COACHING REFERENCE (how to reason; the task follows below):\n\n{text}\n\n" if text else ""
 
 

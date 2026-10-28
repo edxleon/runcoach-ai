@@ -213,3 +213,15 @@ test("renderProposal: the preview is escaped, the button is the only write, and 
   assert.ok(half.includes("Put the remaining 1 on watch"));
   assert.ok(half.includes("3 of 4 on Garmin"), "and says how far it got");
 });
+
+test("renderProposal: a half-applied week can still come back off", async () => {
+  // A package with two of four sessions on Garmin showed only "put the
+  // remaining 2 on watch": the two that were already there had no way back
+  // from the app, only from Claude Code.
+  const { renderProposal } = await import("../src/runcoach/web/static/cards.js");
+  const p = { id: "p-20260921-090000-ab12", status: "applied", days: 4, pending: 2,
+              day: "2026-09-21", preview: "…", workouts: [900001, 900002] };
+  const html = renderProposal(p, {});
+  assert.match(html, /data-apply="p-20260921-090000-ab12"/, "the rest can still be added");
+  assert.match(html, /data-undo="p-20260921-090000-ab12"/, "and what is on can come off");
+});

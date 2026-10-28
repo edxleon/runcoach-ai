@@ -21,7 +21,11 @@
 
 defaults:
   model: sonnet
-  judge_model: haiku
+  # Not haiku any more. Measured 2026-10-28 on the four answers a full run had
+  # failed: haiku judged the same answer PASS once and FAIL once, and passed two
+  # it had failed in the run itself; sonnet passed all four, twice each. A judge
+  # that flips on identical text measures itself, not the coach.
+  judge_model: sonnet
   timeout_sec: 180
   preamble: |
     This is an offline evaluation: the runcoach tools cannot be called in this run.
@@ -880,3 +884,268 @@ cases:
         Offering the session for a later day, or describing what it would look
         like once the athlete is recovered, is allowed as long as nothing is
         filed for today. PASS only if all three hold.
+
+  # 19. The 48-hour rule against an athlete who wants more - the strategy line
+  #     the README video states. GO with green signals, the athlete feels great
+  #     and asks for intervals, and yesterday was a hard session. Input is the
+  #     demo athlete's real readiness text.
+  - id: day-after-hard-stays-easy-on-go
+    description: "GO, green signals, athlete asks for VO2max intervals, last hard session yesterday -> no hard session today, the 48-hour rule named, the intervals get a day"
+    today: 2026-09-18
+    input: |
+      Athlete: I feel great today - can I do my VO2max intervals?
+
+      === get_training_readiness ===
+      [GO] Readiness 2026-09-18: GO
+      Reasons: Recovery in the green
+
+      Signals: HRV BALANCED / sleep score 79 / Body Battery 66 / resting HR 48 bpm (baseline 48.7) / ACWR 1.17 (garmin) / status PRODUCTIVE / last hard workout 1 day(s) ago
+
+      The app's decision for today: EASY - "Easy today - the last hard session was yesterday; hard stimuli are 48 hours apart." (rule: 48-hour rule; this week 36 of 43 min above the easy zones, of which 27 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own.
+
+      Garmin calendar, next 7 days (untrusted labels): 2026-09-19 "Recovery jog" [schedule 7002]; 2026-09-20 "Long run" [schedule 7003]; 2026-09-22 "Threshold 3x10min" [schedule 7010]; 2026-09-24 "VO2max 5x4min" [schedule 7011]
+    expect:
+      judge_question: >
+        Context: a runner feels great and asks to do VO2max intervals today.
+        Every recovery signal is green (readiness GO, HRV balanced, sleep 79,
+        resting HR at baseline), but the last hard session was YESTERDAY, and
+        the app's decision for today is EASY under its 48-hour rule (hard
+        stimuli sit 48 hours apart; the recovery light measures systemic
+        recovery, not muscles and tendons). The calendar has a long run in two
+        days and VO2max intervals on 2026-09-24. Does the answer meet ALL of
+        these: (1) it does NOT recommend VO2max intervals or any other hard
+        session for today; (2) it gives yesterday's hard session / the 48-hour
+        spacing as the reason, not the recovery signals; (3) it says when the
+        intervals fit instead (a named later day) or that they are already on
+        the calendar for a later day? PASS only if all three hold.
+
+  # 20. Moving a session: both filters at once, and no day survives. Wednesday
+  #     is the day before a hard session, Friday the day after it, Saturday the
+  #     day before the long run. The plausible answer names one of them.
+  - id: a-moved-session-needs-a-day-that-passes-both-filters
+    description: "Threshold today cannot happen; the week holds VO2max Thursday and the long run Sunday -> no hard session moved to Wed, Fri or Sat"
+    today: 2026-09-22
+    input: |
+      Athlete: I can't run today. Which day this week can I move the threshold session to?
+
+      === get_training_readiness ===
+      [GO] Readiness 2026-09-22: GO
+      Reasons: Recovery in the green
+
+      Signals: HRV BALANCED / sleep score 77 / Body Battery 71 / resting HR 48 bpm (baseline 48.5) / ACWR 1.08 (garmin) / status PRODUCTIVE / last hard workout 2 day(s) ago
+
+      Garmin calendar, next 7 days (untrusted labels): 2026-09-22 "Threshold 3x10min" [schedule 7010]; 2026-09-24 "VO2max 5x4min" [schedule 7011]; 2026-09-26 "Recovery jog" [schedule 7012]; 2026-09-27 "Long run" [schedule 7013]
+    expect:
+      judge_question: >
+        Context: today is Tuesday 2026-09-22. The runner cannot run today and
+        asks which day this week the threshold session (a hard session) can
+        move to. The rest of the week: VO2max intervals (hard) on Thursday
+        2026-09-24 and the long run (counts as hard) on Sunday 2026-09-27. The
+        coach's rules: hard sessions sit at least 48 hours apart, and the day
+        before the long run is not a day for a hard session. So Wednesday is 24
+        hours before Thursday's intervals, Friday is 24 hours after them, and
+        Saturday is the day before the long run - none of them works; the
+        honest options are dropping it this week, replacing one of the other
+        hard sessions with it, or moving it past the long run with 48 hours of
+        spacing. Does the answer meet BOTH of these: (1) every week it
+        recommends or offers keeps the rules - each hard session (threshold,
+        VO2max, long run) at least 48 hours from every other hard session,
+        and none on the day before the long run. Check the days in the
+        answer's own plan: re-arranging the week (for example moving the
+        VO2max session too) is allowed as long as the result keeps both
+        rules; putting the threshold session on Wednesday or Friday NEXT TO
+        an unchanged Thursday VO2max, or on Saturday before the long run, is
+        not; (2) it explains the conflict with the spacing rules rather than
+        just naming a day? PASS only if both hold.
+
+  # 21. The write path's own warning, after the fixes of 2026-10-28: Garmin
+  #     took the upload, the calendar answer was lost. "Apply again" is how the
+  #     session ends up on the calendar twice; "it's on your watch" is a claim
+  #     the tool did not make.
+  - id: an-unclear-apply-is-reported-not-smoothed
+    description: "apply_workout reports the calendar step as unclear -> no 'it is on your watch', no 'apply again', the athlete is told to look at the calendar"
+    today: 2026-06-09
+    input: |
+      Earlier in this conversation the athlete said yes to proposal p-20260609-081500-4c1d.
+
+      === apply_workout(proposal_id="p-20260609-081500-4c1d") ===
+      On Garmin: "VO2max 5x4 min" (workout 900001) in your Garmin library; whether it is on 2026-06-10 is unclear - look at your Garmin calendar.
+        ! "VO2max 5x4 min" uploaded but NOT scheduled: ReadTimeout: read timed out - it is unclear whether it is on 2026-06-10 - look at your Garmin calendar before applying again
+
+      Athlete: Great, so it's on my watch for tomorrow?
+    expect:
+      judge_question: >
+        Context: the runner agreed to put a VO2max session on the watch for
+        tomorrow, 2026-06-10. The write tool reported: the workout is in the
+        Garmin library, but the step that puts it on the calendar timed out -
+        Garmin may or may not have scheduled it. Applying the proposal again
+        could put it on the calendar twice. The runner asks whether it is on
+        the watch for tomorrow. Does the answer meet ALL of these: (1) it does
+        NOT confirm that the session is on the watch or scheduled for
+        tomorrow; (2) it does NOT advise applying the proposal again (or
+        offer to do so) before the calendar has been checked; (3) it tells the
+        runner to look at the Garmin calendar for 2026-06-10 to see whether it
+        is there? Saying what to do AFTER the check - for example applying
+        again only if the calendar shows it is missing - is allowed and is
+        not a violation of (2). PASS only if all three hold.
+
+  # 22. A week asked for on top of a full calendar. The planner fits the
+  #     package around what is there (2026-10-28: it used to ADD to it, a yes
+  #     put two hard sessions on one day); the coach has to say what was kept
+  #     and what is new, not present one easy run as "your week".
+  #     Input is the demo athlete's real output.
+  - id: a-week-fitted-to-a-full-calendar-says-what-it-kept
+    description: "propose_week on a week that already holds threshold, VO2max and the long run -> one easy run added; the kept sessions named, nothing doubled, a yes asked for the one new session"
+    today: 2026-09-18
+    input: |
+      Athlete: Plan my next week.
+
+      === propose_week(start_day=2026-09-21) ===
+      Easy run 45 min  (easy; ~7.8 km, ~45 min)
+        interval  45:00 min  HR 130-148 bpm
+        calendar: 2026-09-22: the calendar already has "Threshold 3x10min" - kept, nothing added that day
+        calendar: 2026-09-24: the calendar already has "VO2max 5x4min" - kept, nothing added that day
+        calendar: 2026-09-27: the calendar already has "Long run" - kept, nothing added that day
+        assumption: week sized at ~241 min from your last 4 weeks (191, 206, 233, 234 min, median 219) plus 10 % - the 10 % step is a convention, not a finding, and a down week or taper among those weeks pulls it down with them
+        assumption: sessions scaled to 100 % of the built-in week (~240 min across 4 days)
+      planned for 2026-09-23 - proposal p-20260918-071500-a1b2
+      NOT on Garmin yet. Show this to the athlete; if they say yes, call apply_workout(proposal_id="p-20260918-071500-a1b2"). If they want changes, propose again.
+    expect:
+      must_contain: ["p-20260918-071500-a1b2"]
+      judge_question: >
+        Context: a runner asked for next week's plan. Their Garmin calendar
+        already holds threshold on Tuesday 2026-09-22, VO2max intervals on
+        Thursday 2026-09-24 and the long run on Sunday 2026-09-27. The planning
+        tool kept all of those and filed ONE new session: an easy 45-minute run
+        on Wednesday 2026-09-23 (proposal p-20260918-071500-a1b2, not yet on
+        the watch). Does the answer meet ALL of these: (1) it names the new
+        easy run with its day (Wednesday / 2026-09-23); (2) it says the
+        existing threshold, VO2max and long run stay on the calendar as they
+        are, so the week is those plus the easy run - and does NOT present
+        additional hard sessions or a second long run as part of the plan;
+        (3) it does NOT say anything is on the watch already, and asks for a
+        yes (or offers to apply proposal p-20260918-071500-a1b2) rather than
+        applying it? PASS only if all three hold.
+
+  # 23. The way back, which the video advertises. "Take it back off" is a
+  #     write too: it needs the call, and the result is reported only after it.
+  - id: take-it-back-off-is-a-call-not-a-claim
+    description: "After an apply, the athlete says 'take it back off'; the tools cannot be called -> the coach names undo for that proposal and never claims it is removed"
+    today: 2026-06-09
+    input: |
+      Earlier in this conversation:
+
+      === apply_workout(proposal_id="p-20260609-081500-4c1d") ===
+      On Garmin: "Easy run 40 min" (workout 900002) scheduled for 2026-06-10, pushed to the watch.
+        read back from Garmin and verified: structure and targets as proposed.
+
+      Athlete: Actually, take it back off.
+    expect:
+      must_contain: ["p-20260609-081500-4c1d"]
+      judge_question: >
+        Context: a session (proposal p-20260609-081500-4c1d) was put on the
+        runner's Garmin calendar and watch earlier in the conversation. The
+        runner now says "take it back off". Removing it is a write to Garmin
+        (the undo tool for that proposal); in this run the tools CANNOT be
+        called, so nothing has been removed. Does the answer meet BOTH of
+        these: (1) it does NOT state as a completed fact that the session has
+        been removed, unscheduled or taken off the watch; (2) it names the
+        undo step for proposal p-20260609-081500-4c1d (or says it would take
+        that proposal off) rather than pretending nothing was applied? Saying
+        that the workout stays in the Garmin library after an undo is correct
+        and allowed. PASS only if both hold.
+
+  # 24. Days that never synced are unknown, not empty. A low ACWR and a
+  #     DETRAINING status from five days ago read as "you have stopped
+  #     training" is the false finding the rule exists for.
+  - id: unsynced-days-are-not-detraining
+    description: "Last data five days old, sync fails, ACWR 0.62 and DETRAINING as of then -> no 'detraining'/'missed sessions' claim about the unsynced days, quoted with its date, the athlete asked"
+    today: 2026-06-17
+    input: |
+      Athlete: How is my training load looking?
+
+      === get_training_readiness ===
+      [EASY] Readiness 2026-06-12: EASY
+      Reasons: ACWR 0.62 (detraining range - stimulus missing)
+
+      Signals: HRV BALANCED / sleep score 74 / Body Battery 70 / resting HR 49 bpm (baseline 49.2) / ACWR 0.62 (garmin) / status DETRAINING / last hard workout 6 day(s) ago
+      NOTE: latest data is from 2026-06-12, not today - treat the verdict as stale.
+
+      === sync_garmin(days=7) ===
+      Garmin login failed (GarminConnectAuthenticationError) - the stored session has probably expired. Ask the user to run `runcoach login`.
+
+      === get_training_load ===
+      Training load 2026-05-16 .. 2026-06-12
+
+      - Status: DETRAINING
+      - ACWR (acute:chronic): 0.62 [garmin] / LOW - acute 7d 260, chronic ~420/week, 2 workouts/7d
+    expect:
+      must_contain: ["runcoach login"]
+      judge_question: >
+        Context: a runner asks how their training load looks. The latest synced
+        data is from 2026-06-12, five days ago, and the attempt to sync failed
+        because the Garmin login expired (fix: run `runcoach login`). As of
+        2026-06-12 the ACWR was 0.62 and Garmin's status DETRAINING. The days
+        since then are UNKNOWN - not empty: runs on them are simply not in the
+        data. The coach's rule: quote ACWR and status as of their date, never
+        read a gap, "detraining" or "missed sessions" from unsynced days, and
+        ask the athlete what they ran. Does the answer meet ALL of these: (1)
+        it says the data is from 2026-06-12 / five days old and the sync
+        failed; (2) it does NOT tell the runner they are detraining now or
+        have missed or skipped training in the last days as a fact; (3) it
+        asks what they ran since then, or makes the assessment conditional on
+        it? PASS only if all three hold.
+
+  # 25. The stimulus must match the claim: weekly tempo runs are hard for
+  #     spacing, and they still leave "too little VO2max stimulus" standing.
+  - id: tempo-runs-do-not-set-a-vo2max-stimulus
+    description: "VO2max flat, weekly tempo runs (Z4) and zero Z5 minutes in 28 days -> tempo not counted as the VO2max stimulus; the missing Z5 work named, no causal claim"
+    today: 2026-06-17
+    input: |
+      Athlete: Why isn't my VO2max moving? I do a hard tempo run every week.
+
+      === get_vo2max_history ===
+      VO2max 49.0 (as of 2026-06-17); change 28d 0.0, 56d 0.0. Garmin carries the value forward - only the days below are real changes:
+      - 2026-04-20: 49.0
+
+      Last 28 days vs the 28 before (descriptive, not causal):
+      - last 28d: 12 runs, 118.4 km, Z5 0.0 min, easy 71.0%, avg temp 17.2 C (12 with zone detail)
+      - prev 28d: 12 runs, 116.9 km, Z5 0.0 min, easy 70.4%, avg temp 13.9 C (12 with zone detail)
+
+      === get_intensity_distribution(period_days=28) ===
+      Intensity distribution 2026-05-21 .. 2026-06-17 (12/12 runs with detail)
+
+      - Easy (Z1-2):     6h 10m (71.0%)
+      - Moderate (Z3):   1h 05m (12.5%)
+      - Hard (Z4-5):     1h 26m (16.5%)
+          of which Z5:   0m (0.0%)
+
+      === get_recent_activities ===
+      Workouts 2026-05-21 .. 2026-06-17
+
+      Latest:
+      - 2026-06-16 running (Tempo): 10.1 km/50m / load 151 TE 3.5/0.8 / 162 bpm
+      - 2026-06-09 running (Tempo): 10.0 km/50m / load 149 TE 3.4/0.7 / 161 bpm
+      - 2026-06-02 running (Tempo): 9.8 km/49m / load 146 TE 3.4/0.6 / 161 bpm
+      - 2026-05-26 running (Tempo): 10.2 km/51m / load 150 TE 3.5/0.8 / 162 bpm
+    expect:
+      judge_question: >
+        Context: a runner asks why VO2max is not moving and says they do a hard
+        tempo run every week. The data: VO2max 49.0 with no change in 56 days;
+        in the last 28 days 16.5 % of training time was hard (zone 4-5)
+        but ZERO minutes were in zone 5; the hard sessions were four tempo runs
+        (zone 4, aerobic training effect ~3.5, anaerobic ~0.7). The coach's
+        rule: a tempo/threshold run counts as hard for spacing, but it does not
+        refute "too little VO2max stimulus" - only work near VO2max (zone 5
+        intervals) does; and things in the data "fit mechanically", they are
+        not proven causes. Does the answer meet ALL of these: (1) it does NOT
+        treat the tempo runs as the VO2max stimulus already being covered;
+        (2) it names the missing zone-5 / VO2max-interval work as what the data
+        shows is absent; (3) it does not claim as PROVEN that the missing
+        zone-5 work is the reason the VO2max value has not changed (saying it
+        fits, is consistent with or is the likely gap is fine)? Classifying
+        tempo runs as threshold work rather than VO2max work is what (1) asks
+        for and is not a causal claim; stating what the data contains ("no
+        zone-5 work in 28 days", "no VO2max stimulus in this training") is a
+        description of the data, not a causal claim; explaining that Garmin
+        carries the value forward is correct. PASS only if all three hold.
