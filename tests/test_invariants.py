@@ -1482,7 +1482,9 @@ def test_the_readme_counts_the_cases_that_actually_exist():
     readme = (root / "README.md").read_text(encoding="utf-8")
 
     assert f"{n} cases such as" in readme, f"the prose does not say {n}"
-    assert f"evals-{n}%2F{n}" in readme, f"the badge does not say {n}/{n}"
+    # The denominator only: the numerator is whatever the last run passed
+    # (checked below), and demanding n/n here made an honest badge fail.
+    assert re.search(rf"evals-[0-9]+%2F{n}-", readme), f"the badge does not count {n} cases"
 
     results = (root / "evals" / "RESULTS.md").read_text(encoding="utf-8")
     m = re.search(r"\*\*([0-9]+)/([0-9]+) PASS\*\*", results)

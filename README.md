@@ -1,7 +1,7 @@
 # runcoach-ai
 
 [![ci](https://github.com/edxleon/runcoach-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/edxleon/runcoach-ai/actions/workflows/ci.yml)
-[![evals 18/18](https://img.shields.io/badge/evals-18%2F18-brightgreen)](evals/RESULTS.md)
+[![evals 14/18](https://img.shields.io/badge/evals-14%2F18-yellow)](evals/RESULTS.md)
 [![license MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 **A local-first AI running coach for your Garmin data — powered by the Claude subscription you already have.**
@@ -79,6 +79,8 @@ Use the same data in Claude Code or Claude Desktop as an MCP server:
 ```bash
 claude mcp add runcoach -- runcoach mcp
 # then just ask: "should I train today?"
+# or: "plan me an easy 40 minutes for tomorrow" - you see the session, and it goes
+# on your watch only after you say yes ("take it back off" undoes it)
 ```
 
 Keep it fresh without the app (cron / Task Scheduler): `runcoach sync`.
@@ -91,7 +93,7 @@ uv tool uninstall runcoach-ai   # removes the program only - delete ~/.runcoach 
 ```
 
 `uv tool install` takes whatever is on `main`; pin a release instead with
-`uv tool install git+https://github.com/edxleon/runcoach-ai@v0.1.0`.
+`uv tool install git+https://github.com/edxleon/runcoach-ai@v0.2.0`.
 
 ## What you get
 
@@ -230,15 +232,20 @@ uv run python scripts/pii_gate.py  # release gate
 
 ## Status & roadmap
 
-v0.1 was **read-only** towards Garmin. The write path exists on `main` since v0.2 — `propose_workout`
-builds a session for your route from your own zones and files it, `propose_week` files a polarised
-week as one package, a proposal can replace the hard session the calendar had on a red day, and
-`apply_workout` uploads, schedules, pushes to the watch and reads back to verify — and it is tested
-against a fake Garmin client only. It has not yet been run end to end against a real watch, so it is not in the quick start above;
-the section on planning follows that test, not this commit. The app's card runs cannot apply anything;
+v0.1 was **read-only** towards Garmin. v0.2 adds the write path: `propose_workout` builds a session
+for your route from your own zones and files it, `propose_week` files a polarised week as one package,
+a proposal can replace the hard session the calendar had on a red day, and `apply_workout` uploads,
+schedules, pushes to the watch and reads back to verify. The app's card runs cannot apply anything;
 in the app a proposal is applied by a click on the card ("Put on watch", two taps), in Claude Code by
 your answer — and taken back off the same way, because a write you cannot undo is a write nobody makes
 the first time.
+
+What has been run against a real account, not only the fake Garmin client the suite uses: on
+2026-10-28, one easy session through `runcoach mcp` — proposed from the athlete's own zones, uploaded,
+scheduled, pushed, seen on the watch, read back and verified, then undone — with every step
+cross-checked by a second, independent Garmin client. The app's button calls the same `plan.apply` and
+`plan.undo`. Not yet run for real: `propose_week` as a package, and the red-day swap that unschedules a
+calendar entry. One athlete, one account, one watch.
 
 ## License
 
