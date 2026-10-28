@@ -5,6 +5,7 @@ Neither the password nor the code is ever written to disk."""
 from __future__ import annotations
 
 import getpass
+import os
 import sys
 
 from . import paths
@@ -32,6 +33,37 @@ def verify() -> int:
         return 2
 
 
+#: Said BEFORE the e-mail is asked for: what happens to it, what is kept, where,
+#: and how to take it back. A login prompt without it asks for trust it has not
+#: explained.
+LOGIN_NOTICE = """\
+How the Garmin sign-in works
+  - Your e-mail and password go to Garmin only, once, to sign in. runcoach never
+    stores them.
+  - Garmin answers with a session token. Only that token is saved, on this
+    computer, in {store} - a folder only your user account can read.
+  - The token is sent to Garmin and nowhere else: runcoach uses it to read your
+    data and, only after your yes, to put a workout on your watch.
+  - To revoke it: delete that folder, or change your Garmin password.
+"""
+
+
+def _lock_down(store) -> None:
+    """The token folder and its files readable by this user only. The home
+    directory is created 0700, but `RUNCOACH_GARMIN_TOKENS` can point anywhere,
+    and the notice above promises it for whatever folder is used. Windows has
+    no POSIX modes; there the user profile's ACL is what protects it."""
+    if os.name == "nt":
+        return
+    try:
+        store.chmod(0o700)
+        for f in store.iterdir():
+            if f.is_file():
+                f.chmod(0o600)
+    except OSError:
+        pass
+
+
 def interactive_login(next_step: str | None = "`runcoach serve`") -> int:
     from garminconnect import Garmin
 
@@ -48,6 +80,8 @@ def interactive_login(next_step: str | None = "`runcoach serve`") -> int:
               "token files into it), not a single file.", file=sys.stderr)
         return 2
 
+    _lock_down(store)
+    print(LOGIN_NOTICE.format(store=store))
     # `input()` raises EOFError when there is no terminal - a pipe, a cron, a
     # CI job, `< /dev/null` - and KeyboardInterrupt on Ctrl+C. Both used to end
     # in a traceback, which is the wrong answer to "I ran this in the wrong
@@ -78,10 +112,11 @@ def interactive_login(next_step: str | None = "`runcoach serve`") -> int:
         return 2
 
     _dump(client, str(store))
+    _lock_down(store)
     try:
         name = client.get_full_name()
     except Exception:  # noqa: BLE001 — a nicety; never worth failing the login over
         name = "?"
-    print(f"OK - tokens stored in {store} (signed in as {name})."
+    print(f"OK - only the session token was saved, in {store} (signed in as {name})."
           + (f" Next: {next_step}" if next_step else ""))
     return 0

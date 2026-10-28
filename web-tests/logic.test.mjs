@@ -431,3 +431,31 @@ test("last hard session: relative to the day the count was made on", () => {
   assert.equal(lastHardLabel(null, "2026-06-10", "2026-06-10", fmt), "–");
   assert.equal(lastHardLabel(2, null, "2026-06-10", fmt), "–", "no readiness day, no claim");
 });
+
+/* ── setup checklist ───────────────────────────────────────────────────── */
+
+import { setupSteps } from "../src/runcoach/web/static/logic.js";
+
+test("setup: a fresh install sees all three steps and the one command for each", () => {
+  const steps = setupSteps({ garmin_session: false, claude_status: "missing", counts: {} });
+  assert.deepEqual(steps.map(s => [s.key, s.done]), [["garmin", false], ["claude", false], ["sync", false]]);
+  assert.match(steps[0].text, /runcoach login/);
+  assert.match(steps[1].text, /claude auth login/);
+  assert.match(steps[1].text, /no API key/, "it says plainly that nothing else is to connect");
+  assert.match(steps[2].text, /after the Garmin sign-in/);
+});
+
+test("setup: the subscription is done when the CLI says so, and the sync shows as running", () => {
+  const steps = setupSteps({ garmin_session: true, claude_status: "subscription",
+                             sync_state: "running", counts: {} });
+  assert.equal(steps[1].done, true);
+  assert.equal(steps[2].running, true);
+  assert.match(steps[2].text, /last 30 days now/);
+});
+
+test("setup: nothing to set up in the demo, and a signed-out Claude stays visible with data", () => {
+  assert.deepEqual(setupSteps({ demo: true }), []);
+  const steps = setupSteps({ garmin_session: true, claude_status: "signed_out",
+                             data_through: "2026-10-28", counts: { runs: 3 } });
+  assert.deepEqual(steps.filter(s => !s.done).map(s => s.key), ["claude"]);
+});

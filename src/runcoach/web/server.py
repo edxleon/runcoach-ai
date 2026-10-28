@@ -210,6 +210,9 @@ class App:
             # AuthenticationError as the top banner - an error report for a
             # state that is simply step one of the README.
             "garmin_session": paths.garmin_session_present(),
+            # `idle` / `running` / `done` / `error`: the setup checklist shows the
+            # first sync as running instead of as a step still to do.
+            "sync_state": self.refresh_status()["state"],
         }
 
     def _cards_with_proposals(self) -> list[dict]:

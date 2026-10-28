@@ -109,3 +109,31 @@ def test_the_first_sync_of_an_empty_store_takes_a_month(tmp_path, monkeypatch):
         assert asked == [sync.FIRST_SYNC_DAYS]
     finally:
         app.worker_stop.set()
+
+
+def test_the_login_says_what_happens_to_the_password_before_asking_for_it(tmp_path, monkeypatch, capsys):
+    """What is kept, where, and how to take it back - before the e-mail prompt."""
+    from runcoach import auth
+
+    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setattr("builtins.input", lambda prompt="": (_ for _ in ()).throw(EOFError()))
+    assert auth.interactive_login() == 1
+    out = " ".join(capsys.readouterr().out.split())
+    assert "runcoach never stores them" in out
+    assert "Only that token is saved, on this computer" in out
+    assert str(paths.garmin_dir()) in out and "To revoke it" in out
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX modes")
+def test_the_token_folder_is_readable_by_its_owner_only(tmp_path, monkeypatch):
+    """The notice promises it for whatever folder is used - also one that
+    `RUNCOACH_GARMIN_TOKENS` points at outside the 0700 home."""
+    from runcoach import auth
+
+    store = tmp_path / "elsewhere"
+    store.mkdir(mode=0o755)
+    (store / "garmin_tokens.json").write_text("{}", encoding="utf-8")
+    (store / "garmin_tokens.json").chmod(0o644)
+    auth._lock_down(store)
+    assert store.stat().st_mode & 0o777 == 0o700
+    assert (store / "garmin_tokens.json").stat().st_mode & 0o777 == 0o600

@@ -22,7 +22,7 @@ import {
 } from "./ui.js";
 import { mountApp } from "./chassis.js";
 import {
-  addDays, axisX, bandSplit, barLabel, barScale, carryForward, chartPoints, chartScale, dataAge as ageOf, groupRunsByWeek, hardSessionToday as hardSessionOf, hasNoData, lastHardLabel, intensityHits, intensitySeries, isFirstRun, showSyncFailure, isRunning, isStrength, lightAddendum as lightAddendumOf, NO_DATE, shortTitle, stepMarks, stepPath, todayIso, volumeAverageKm, volumeComparison, weekdayShort, weekIncomplete, weekLabel, weeksBetween, weekStart, zoneTimeParts,
+  addDays, axisX, bandSplit, barLabel, barScale, carryForward, chartPoints, chartScale, dataAge as ageOf, groupRunsByWeek, hardSessionToday as hardSessionOf, hasNoData, lastHardLabel, setupSteps, intensityHits, intensitySeries, isFirstRun, showSyncFailure, isRunning, isStrength, lightAddendum as lightAddendumOf, NO_DATE, shortTitle, stepMarks, stepPath, todayIso, volumeAverageKm, volumeComparison, weekdayShort, weekIncomplete, weekLabel, weeksBetween, weekStart, zoneTimeParts,
 } from "./logic.js";
 import { mountCards, mountJobs, jobPoller, todayCard, handle409,
          setCardContext } from "./cards.js";
@@ -94,22 +94,16 @@ function renderVerdict() {
       <div class="verdict-head">
         <span class="verdict-word s-unknown">${logged ? "Almost" : "Hello"}</span>
         <span class="verdict-sub">${logged ? "signed in, nothing synced yet"
-                                           : "no Garmin session yet"}</span>
+                                           : "three steps to your first verdict"}</span>
       </div>
-      <ol class="first-run">
-        ${logged ? "" : `<li>Sign in to Garmin once: <code>runcoach login</code> in any
-            terminal (e-mail, password and the MFA code; only session tokens are stored) -
-            or restart <code>runcoach serve</code>, which asks for it. This page does not
-            need a restart: press ↻ afterwards.</li>`}
-        <li>${logged ? "The first sync fetches the last 30 days and is running now - its progress is at the top. "
-                     : "Then ↻: the first sync fetches the last 30 days. "}If it stopped, press ↻.</li>
-        <li>Rather look around first? <code>runcoach serve --demo</code> shows a
-            synthetic athlete with every card filled.</li>
-      </ol>
-      <div class="note">Everything below stays empty until then — empty, not zero.</div>`;
+      ${setupHtml(false)}
+      <div class="note">Rather look around first? <code>runcoach serve --demo</code> shows a
+        synthetic athlete with every card filled. Everything below stays empty until the
+        first sync - empty, not zero.</div>`;
     return;
   }
   el.innerHTML = `
+    ${setupHtml(true)}
     ${old ? `<div class="stale-banner" style="margin-bottom:12px">
         <span>This is the state of ${esc(fmtDay(age.day))}${
           age.days === 1 ? " (yesterday)" : ` — ${age.days} days old`}.
@@ -345,6 +339,20 @@ function renderZones() {
  *  the buttons and nothing would show that something is running. */
 function hasActiveJob() {
   return (D().jobs || []).some(j => j.status === "queued" || j.status === "running");
+}
+
+/* The setup checklist: all three steps on an empty page, only what is still
+   missing once there is data (a Claude that was never signed in must not hide
+   behind a full Today tab). Empty when everything is done. */
+function setupHtml(onlyMissing) {
+  const steps = setupSteps(D());
+  const shown = onlyMissing ? steps.filter(s => !s.done && !s.running) : steps;
+  if (!shown.length || steps.every(s => s.done)) return "";
+  const mark = s => s.done ? "✓" : s.running ? "⟳" : "○";
+  return `<div class="setup-card"><div class="setup-title">Setup</div><ol class="setup-steps">${
+    shown.map(s => `<li class="${s.done ? "done" : s.running ? "running" : "todo"}">
+      <span class="setup-mark" aria-hidden="true">${mark(s)}</span>
+      <span><b>${esc(s.title)}</b> - ${s.text}</span></li>`).join("")}</ol></div>`;
 }
 
 const coachUnavailable = () => D().claude_available === false || D().claude_status === "signed_out";

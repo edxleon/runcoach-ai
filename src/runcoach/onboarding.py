@@ -26,8 +26,8 @@ from collections.abc import Callable
 from . import paths
 
 #: How long a Claude status answer is reused by the web state. The CLI takes
-#: about a second; the page polls every few seconds.
-CLAUDE_STATUS_TTL_S = 60
+#: about a second; short enough that a reload after `claude auth login` shows it.
+CLAUDE_STATUS_TTL_S = 20
 _cache: dict = {"at": 0.0, "status": None}
 
 
@@ -115,7 +115,8 @@ def first_start(*, interactive: bool, ask: Callable[[str], str] = input,
         say("  Garmin   signed in")
     else:
         say("  Garmin   not signed in - runcoach reads your data with your own Garmin session")
-        if yes("           Sign in now (e-mail, password and the MFA code, once)?"):
+        if yes("           Sign in now? (e-mail, password and the MFA code, once - only a\n"
+               "           session token is kept, on this computer)"):
             ok = garmin_login() == 0
             say("  Garmin   signed in - the first sync fetches the last 30 days" if ok
                 else "  Garmin   not signed in - `runcoach login` any time; no restart needed")

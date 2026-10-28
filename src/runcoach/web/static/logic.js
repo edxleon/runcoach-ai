@@ -102,6 +102,39 @@ export function hasNoData(s) {
   return !st.data_through && !((st.counts || {}).runs);
 }
 
+/* ── Setup: the three things a new install needs, each with its one step ──
+   A new user met four steps in two windows and could not see where the Claude
+   subscription goes. The checklist names Garmin, Claude and the first sync,
+   says which are done, and gives exactly one command for each that is not -
+   the subscription is the `claude` CLI's own login, so its step is always
+   `claude auth login` in a terminal, never something entered on this page. */
+export function setupSteps(s) {
+  const st = s || {};
+  if (st.demo) return [];
+  const garmin = st.garmin_session !== false;
+  const claude = st.claude_status || "unknown";
+  const data = !hasNoData(st);
+  const claudeText = {
+    subscription: "signed in with your Claude subscription - coach cards run on it.",
+    unknown: "Claude Code is installed (its sign-in could not be read - <code>claude auth status</code> shows it).",
+    missing: "for the coach cards. Install Claude Code (<a href=\"https://claude.com/claude-code\" target=\"_blank\" rel=\"noopener\">claude.com/claude-code</a>), then in a terminal: <code>claude auth login</code> and sign in with your Claude plan. That is the whole connection: no API key, nothing to enter here. Reload this page afterwards.",
+    signed_out: "Claude Code is installed but not signed in. In a terminal: <code>claude auth login</code>, sign in with your Claude plan, then reload this page.",
+    other: "signed in, but not with a Claude subscription. In a terminal: <code>claude auth login</code> and choose your Claude account, then reload.",
+  }[claude] || "";
+  return [
+    { key: "garmin", done: garmin, title: "Garmin",
+      text: garmin ? "signed in."
+        : "not signed in. In a terminal: <code>runcoach login</code> (e-mail, password and the MFA code, once). Your password goes to Garmin only and is never stored; only a session token is kept, on this computer, readable by your user account alone. Then press ↻ - no restart needed." },
+    { key: "claude", done: claude === "subscription" || claude === "unknown", title: "Claude",
+      text: claudeText },
+    { key: "sync", done: data, running: !data && st.sync_state === "running", title: "First sync",
+      text: data ? "done."
+        : st.sync_state === "running" ? "fetching the last 30 days now - this takes a minute or two."
+        : garmin ? "press ↻ - it fetches the last 30 days."
+        : "starts after the Garmin sign-in and fetches the last 30 days." },
+  ];
+}
+
 /** The state before `runcoach login`: no session AND nothing stored. A store
  *  with data and no session is an EXPIRED login, which is a different message
  *  (and must keep its sync-failure banner). */

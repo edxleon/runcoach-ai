@@ -381,3 +381,17 @@ ol.first-run code { font-family: ui-monospace, Consolas, monospace; font-size: 1
 .btn.armed { background: var(--warn-tint); border-color: var(--warn); color: var(--warn); }
 .btn[disabled] { opacity: .5; cursor: default; }
 .btn-row { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* ── setup checklist (Today tab, until Garmin, Claude and the first sync are done) ── */
+.setup-card { margin: 4px 0 14px; padding: 12px 14px; border: 1px solid var(--line);
+              border-radius: var(--r); background: var(--surface2); }
+.setup-title { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+               margin-bottom: 6px; }
+.setup-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.setup-steps li { display: grid; grid-template-columns: 18px 1fr; gap: 8px; line-height: 1.45; }
+.setup-steps .setup-mark { font-weight: 700; color: var(--muted); }
+.setup-steps li.done .setup-mark { color: var(--ok); }
+.setup-steps li.running .setup-mark { color: var(--accent); }
+.setup-steps li.todo b { color: var(--text); }
+.setup-steps code { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px;
+                    padding: 1px 5px; border-radius: 4px; background: var(--surface); }
