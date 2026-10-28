@@ -1,7 +1,7 @@
 # runcoach-ai
 
 [![ci](https://github.com/edxleon/runcoach-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/edxleon/runcoach-ai/actions/workflows/ci.yml)
-[![evals 24/25](https://img.shields.io/badge/evals-24%2F25-yellow)](evals/RESULTS.md)
+[![evals 25/25](https://img.shields.io/badge/evals-25%2F25-brightgreen)](evals/RESULTS.md)
 [![license MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 **A local-first AI running coach for your Garmin data — powered by the Claude subscription you already have.**
@@ -29,7 +29,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-719 tests, 62 frontend tests and that gate on three operating systems and two Python versions, with every
+728 tests, 62 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -68,12 +68,18 @@ uv tool install git+https://github.com/edxleon/runcoach-ai
 runcoach serve --demo
 
 # 3. the real thing
-runcoach login        # once: Garmin e-mail, password, MFA code -> only session tokens are stored
-runcoach serve        # opens http://127.0.0.1:8765 right away, syncs in the background
+runcoach serve        # first start: asks for the Garmin login (e-mail, password, MFA code -
+                      # only session tokens are stored), checks Claude, then opens
+                      # http://127.0.0.1:8765 and syncs the last 30 days in the background
 ```
 
-Coach cards need the [Claude Code](https://claude.com/claude-code) CLI, signed in with your Claude
-subscription. `runcoach doctor` tells you what is missing — it checks the Garmin session by actually
+**The Claude subscription is not connected inside runcoach.** Coach cards run on the
+[Claude Code](https://claude.com/claude-code) CLI on your machine, signed in with your plan: install
+it and run `claude auth login` once. `runcoach serve` checks that at start (and offers the login when
+it is missing), the Coach tab says what is missing, and there is no API key anywhere. Garmin works the
+same way: `runcoach login` signs in from any terminal, and a running app picks it up on ↻ - no restart.
+
+`runcoach doctor` tells you what is missing — it checks the Garmin session by actually
 using it, and reports the data age, because a token that quietly expired is how this kind of app dies.
 Use `runcoach doctor --offline` to skip the Garmin call. Exit 1 means something needs fixing, so
 `runcoach doctor || notify-me` works in a cron; a missing Claude CLI is reported but does not set it,

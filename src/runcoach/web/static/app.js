@@ -97,12 +97,12 @@ function renderVerdict() {
                                            : "no Garmin session yet"}</span>
       </div>
       <ol class="first-run">
-        ${logged ? "" : `<li>In a terminal: <code>runcoach login</code> — Garmin e-mail,
-            password and the MFA code, once. Only session tokens are stored.</li>`}
-        <li>${logged ? "In a terminal: " : "Then "}<code>runcoach sync --days 30</code>
-            once — the same command <code>runcoach doctor</code> names. A plain
-            <code>sync</code> (and the ↻ button) re-fetches only the last few days,
-            which is right for daily use and too little to fill the Trend tab.</li>
+        ${logged ? "" : `<li>Sign in to Garmin once: <code>runcoach login</code> in any
+            terminal (e-mail, password and the MFA code; only session tokens are stored) -
+            or restart <code>runcoach serve</code>, which asks for it. This page does not
+            need a restart: press ↻ afterwards.</li>`}
+        <li>${logged ? "The first sync fetches the last 30 days and is running now - its progress is at the top. "
+                     : "Then ↻: the first sync fetches the last 30 days. "}If it stopped, press ↻.</li>
         <li>Rather look around first? <code>runcoach serve --demo</code> shows a
             synthetic athlete with every card filled.</li>
       </ol>
@@ -347,7 +347,12 @@ function hasActiveJob() {
   return (D().jobs || []).some(j => j.status === "queued" || j.status === "running");
 }
 
-const coachUnavailable = () => D().claude_available === false;
+const coachUnavailable = () => D().claude_available === false || D().claude_status === "signed_out";
+/* What exactly is missing on the Claude side - the subscription is the CLI's
+   own login, so the step is always in a terminal, never in this app. */
+const claudeHint = () => D().claude_status === "signed_out"
+  ? "Claude Code is installed but not signed in: run <code>claude auth login</code> once (your Claude subscription), then reload."
+  : "Coach cards run on your Claude subscription through Claude Code: install it from claude.com/claude-code, run <code>claude auth login</code> once, then reload.";
 
 /* Both predicates live in `logic.js` so web-tests can reach them; these are
    the page's shorthand for "against the current payload". */
@@ -402,7 +407,7 @@ function renderActions() {
       ? (firstRun() ? "Nothing to analyse yet — start with runcoach login, above."
                     : "Nothing to analyse yet — sync first.")
       : coachUnavailable()
-        ? "Coach cards need the Claude Code CLI — see the Coach tab."
+        ? claudeHint()
         : "Starts a real agent run. A second tap confirms. The answer appears in the Coach tab."}</div>`;
 
   document.getElementById("coach-hint").innerHTML = noData()
@@ -410,8 +415,7 @@ function renderActions() {
          has stored. ${firstRun() ? "Start with <code>runcoach login</code>."
                                   : "Press ↻ or run <code>runcoach sync</code>."}</div>`
     : coachUnavailable()
-      ? `<div class="coach-hint">Claude Code CLI not found — coach cards need it
-           (run <code>runcoach doctor</code>).</div>` : "";
+      ? `<div class="coach-hint">${claudeHint()}</div>` : "";
   const plan = tpls.find(t => t.id === "plan-session");
   document.getElementById("coach-actions").innerHTML = `
     <div class="subhead">Start an analysis</div>

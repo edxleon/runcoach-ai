@@ -179,7 +179,10 @@ def test_the_first_screen_guides_instead_of_reporting_an_error(first_run_url, tm
     assert 'data-area="runcoach"' in dom, "the page module never ran"
 
     assert "runcoach login" in dom, "the first step is not on the page"
-    assert "runcoach sync --days 30" in dom, "the depth `doctor` recommends is not offered"
+    # The month a first sync needs is fetched by itself now (an empty store
+    # syncs 30 days); the page says so instead of handing out a second command.
+    assert "last 30 days" in dom, "the first sync's depth is not explained"
+    assert "no" in dom and "restart" in dom, "the page does not say a login needs no restart"
     assert "GarminConnect" not in dom and "AuthenticationError" not in dom, \
         "an exception name is not a first impression"
     assert "too little data for a verdict" not in dom, "the guide replaces the verdict"

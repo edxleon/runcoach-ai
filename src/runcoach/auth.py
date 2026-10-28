@@ -32,7 +32,7 @@ def verify() -> int:
         return 2
 
 
-def interactive_login() -> int:
+def interactive_login(next_step: str | None = "`runcoach serve`") -> int:
     from garminconnect import Garmin
 
     store = paths.garmin_dir()
@@ -82,5 +82,6 @@ def interactive_login() -> int:
         name = client.get_full_name()
     except Exception:  # noqa: BLE001 — a nicety; never worth failing the login over
         name = "?"
-    print(f"OK - tokens stored in {store} (signed in as {name}). Next: `runcoach serve`")
+    print(f"OK - tokens stored in {store} (signed in as {name})."
+          + (f" Next: {next_step}" if next_step else ""))
     return 0

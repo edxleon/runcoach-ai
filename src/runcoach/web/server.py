@@ -23,7 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote, urlparse
 
-from .. import __version__, paths, snapshot
+from .. import __version__, onboarding, paths, snapshot
 from ..store import Store
 from . import agent, jobs
 
@@ -191,6 +191,9 @@ class App:
             "version": __version__,
             "demo": self.demo,
             "claude_available": agent.claude_available(),
+            # `missing` / `subscription` / `other` / `signed_out` / `unknown`,
+            # cached for a minute: the page says which step is missing.
+            "claude_status": onboarding.claude_status(),
             "templates": [{"id": t["id"], "title": t.get("title") or t["id"],
                            "params": t.get("params") or [], "hint": t.get("hint") or ""}
                           for t in self.templates()],
@@ -393,7 +396,10 @@ class App:
         ok, reason = True, None
         lines: list[str] = []
         try:
-            rep = sync.run(self.store, garmin.login(), sync.DEFAULT_DAYS, say=lines.append)
+            # An empty store gets a month at once: the first sync is what fills the
+            # Trend tab, and `runcoach sync --days 30` was a step of its own.
+            days = sync.FIRST_SYNC_DAYS if self.store.is_empty() else sync.DEFAULT_DAYS
+            rep = sync.run(self.store, garmin.login(), days, say=lines.append)
             # `errors` alone was not enough. The side channels run LAST, after
             # ~80 detail calls, so a 429 or an expired session lands there most
             # often — and `rep.fatal` does not raise `errors`. The button then
@@ -788,7 +794,8 @@ def make_server(host: str, port: int, app: App) -> ThreadingHTTPServer:
 
 
 def serve(*, host: str = "127.0.0.1", port: int = 8765, demo: bool = False,
-          open_browser: bool = True, sync_on_start: bool = True) -> int:
+          open_browser: bool = True, sync_on_start: bool = True,
+          setup_check: bool = False) -> int:
     token = os.environ.get("RUNCOACH_TOKEN") or None
     if host not in ("127.0.0.1", "localhost", "::1") and not token:
         print("Refusing to listen on a non-loopback address without RUNCOACH_TOKEN.\n"
@@ -812,6 +819,12 @@ def serve(*, host: str = "127.0.0.1", port: int = 8765, demo: bool = False,
     lock = _take_home_lock()
     if lock is None:
         return 1
+    if setup_check and not demo:
+        # Garmin and Claude, checked and - in a terminal - signed into right
+        # here, before the page exists. Otherwise the page told a new user to
+        # open another terminal for `runcoach login`, and most restarted this
+        # one afterwards because nothing said they need not.
+        onboarding.first_start(interactive=onboarding.is_interactive())
     try:
         app = App(demo=demo, token=token)
     except Exception as exc:  # noqa: BLE001 — a corrupt database is a finding

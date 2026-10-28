@@ -30,6 +30,8 @@ class _StoppedError(Exception):
 
 
 DEFAULT_DAYS = 3
+#: The first sync of an empty store: enough for the Trend tab and the ACWR fallback.
+FIRST_SYNC_DAYS = 30
 ZONE_KEYS = ("hr_z1_s", "hr_z2_s", "hr_z3_s", "hr_z4_s", "hr_z5_s")
 
 

@@ -57,7 +57,8 @@ def cmd_serve(args) -> int:
     from .web import server
 
     return server.serve(host=args.host, port=args.port, demo=args.demo,
-                        open_browser=not args.no_browser, sync_on_start=not args.no_sync)
+                        open_browser=not args.no_browser, sync_on_start=not args.no_sync,
+                        setup_check=True)
 
 
 def cmd_mcp(_args) -> int:
@@ -165,6 +166,12 @@ def cmd_doctor(args) -> int:
                   out.returncode == 0, fatal=False)
         except Exception as exc:  # noqa: BLE001 — reported as a failed check, not a traceback
             check(f"claude --version ({type(exc).__name__})", False, fatal=False)
+        # The subscription is the CLI's own login - the one thing to "connect".
+        from .onboarding import CLAUDE_LINES, claude_status
+
+        status = claude_status(fresh=True)
+        check(f"Claude: {CLAUDE_LINES[status]}", status in ("subscription", "unknown"),
+              "run `claude auth login` and sign in with your Claude subscription", fatal=False)
 
     # The app strips these before spawning the agent, so that the README's "your
     # subscription, not an API key" holds. Without a word here that is a trap
