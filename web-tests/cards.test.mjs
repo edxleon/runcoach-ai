@@ -225,3 +225,14 @@ test("renderProposal: a half-applied week can still come back off", async () => 
   assert.match(html, /data-apply="p-20260921-090000-ab12"/, "the rest can still be added");
   assert.match(html, /data-undo="p-20260921-090000-ab12"/, "and what is on can come off");
 });
+
+test("renderProposal: the button that writes says what changes and that it can be undone", async () => {
+  const { renderProposal } = await import("../src/runcoach/web/static/cards.js");
+  const open = renderProposal({ id: "p-20260921-090000-ab12", status: "open", days: 1,
+                                day: "2026-09-21", preview: "…" }, {});
+  assert.match(open, /nothing else on your calendar changes/);
+  assert.match(open, /Take off watch/);
+  const done = renderProposal({ id: "p-20260921-090000-ab12", status: "applied", days: 1,
+                                pending: 0, workouts: [900001], preview: "…" }, {});
+  assert.doesNotMatch(done, /proposal-net/, "nothing left to write, nothing to reassure about");
+});

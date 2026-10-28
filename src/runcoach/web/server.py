@@ -213,6 +213,10 @@ class App:
             # `idle` / `running` / `done` / `error`: the setup checklist shows the
             # first sync as running instead of as a step still to do.
             "sync_state": self.refresh_status()["state"],
+            # For the footer's "your data is here, delete it to remove all". The
+            # home directory is written as `~`: the path is for the reader, and a
+            # screenshot of the page should not carry an account name.
+            "data_dir": paths.display_path(paths.home()),
         }
 
     def _cards_with_proposals(self) -> list[dict]:

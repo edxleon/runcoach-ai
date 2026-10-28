@@ -40,6 +40,13 @@ const D = () => state || {};
    the frontend: otherwise the app and the coach claim different verdicts.
    The COLOUR is deliberately not a system traffic light: "easy" is not a
    malfunction. */
+/* Today's decision (`logic.decide_today`) - the headline whenever there is
+   one; `unknown` (stale data) falls back to the verdict line above. */
+const DECISION = {
+  hard: { word: "Go",   cls: "i-go"   },
+  easy: { word: "Easy", cls: "i-easy" },
+  rest: { word: "Rest", cls: "i-rest" },
+};
 const VERDICT = {
   GO:   { word: "Go",   cls: "i-go",   sub: "room for a real stimulus today" },
   EASY: { word: "Easy", cls: "i-easy", sub: "keep it calm today" },
@@ -67,6 +74,11 @@ function renderVerdict() {
   const v = VERDICT[t.verdict] || { word: "No call", cls: "s-unknown",
                                     sub: "too little data for a verdict" };
   const reasons = (t.reasons || []).map(r => `<li>${esc(r)}</li>`).join("");
+  // The HEADLINE is today's decision, the recovery light is one input to it.
+  // Shown the other way round, a big green "Go" sat above "Easy today - the
+  // last hard session was yesterday": whoever read only the big word ran hard.
+  const call = DECISION[(D().decision_today || {}).decision];
+  const head = call ? { ...call, sub: `today's call · recovery light: ${v.word}` } : v;
   const age = dataAge();
   const old = age && age.days >= 1;
   const goal = (D().profile || {}).goal;
@@ -109,8 +121,8 @@ function renderVerdict() {
           age.days === 1 ? " (yesterday)" : ` — ${age.days} days old`}.
         There are no values for today yet.</span></div>` : ""}
     <div class="verdict-head">
-      <span class="verdict-word ${v.cls}">${esc(v.word)}</span>
-      <span class="verdict-sub">${esc(v.sub)}</span>
+      <span class="verdict-word ${head.cls}">${esc(head.word)}</span>
+      <span class="verdict-sub">${esc(head.sub)}</span>
     </div>
     ${reasons ? `<ul class="reasons">${reasons}</ul>`
               : `<div class="empty-note">No reasons in the data.</div>`}
@@ -341,6 +353,12 @@ function hasActiveJob() {
   return (D().jobs || []).some(j => j.status === "queued" || j.status === "running");
 }
 
+/* Said where the buttons are, because that is where the questions come up:
+   does this cost extra, what does Claude get, can it touch my watch. */
+const COACH_REASSURANCE = "A second tap starts it. It runs on your Claude subscription - " +
+  "no API key, no bill per card. Claude gets the numbers this app shows, never your " +
+  "Garmin password, and an analysis never changes anything on your watch.";
+
 /* The setup checklist: all three steps on an empty page, only what is still
    missing once there is data (a Claude that was never signed in must not hide
    behind a full Today tab). Empty when everything is done. */
@@ -416,7 +434,7 @@ function renderActions() {
                     : "Nothing to analyse yet — sync first.")
       : coachUnavailable()
         ? claudeHint()
-        : "Starts a real agent run. A second tap confirms. The answer appears in the Coach tab."}</div>`;
+        : COACH_REASSURANCE}</div>`;
 
   document.getElementById("coach-hint").innerHTML = noData()
     ? `<div class="coach-hint">No data to analyse yet — the coach reads what a sync
@@ -429,6 +447,7 @@ function renderActions() {
     <div class="subhead">Start an analysis</div>
     <div class="btn-row">${tpls.filter(t => !(t.params || []).length)
       .map(t => tplButton(t)).join("")}</div>
+    ${coachUnavailable() || noData() ? "" : `<div class="note">${COACH_REASSURANCE}</div>`}
     ${plan ? `
     <div class="subhead" style="margin-top:14px">Plan a session for a route</div>
     <div class="btn-row plan-form" data-plan-form>
@@ -1259,7 +1278,11 @@ function renderHealth() {
 function renderAll() {
   resetArm();
   document.getElementById("demo-badge").hidden = !D().demo;
-  document.getElementById("about").textContent = D().version ? `runcoach ${D().version}` : "";
+  // Where the data lives and how to remove it: the question nobody asks until
+  // they want to stop, and then it should not need the README.
+  document.getElementById("about").textContent = !D().version ? "" : D().demo
+    ? `runcoach ${D().version} · demo data - nothing of yours is stored`
+    : `runcoach ${D().version} · your data stays on this computer, in ${D().data_dir || "~/.runcoach"} - delete that folder to remove everything`;
   renderVerdict(); renderWeek(); renderSignals(); renderSleep(); renderZones(); renderActions();
   renderRuns();
   renderTrendHead(); renderVo2(); renderThreshold(); renderIntensity(); renderAerobic();

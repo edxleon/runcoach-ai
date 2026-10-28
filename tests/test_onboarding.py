@@ -137,3 +137,13 @@ def test_the_token_folder_is_readable_by_its_owner_only(tmp_path, monkeypatch):
     auth._lock_down(store)
     assert store.stat().st_mode & 0o777 == 0o700
     assert (store / "garmin_tokens.json").stat().st_mode & 0o777 == 0o600
+
+
+def test_the_data_folder_is_shown_without_the_account_name(tmp_path, monkeypatch):
+    """The footer names where the data lives; a screenshot of it should not
+    name the user."""
+    from pathlib import Path
+
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    assert paths.display_path(tmp_path / ".runcoach") == "~/.runcoach"
+    assert paths.display_path(Path("/opt/elsewhere")) == "/opt/elsewhere"

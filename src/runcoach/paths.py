@@ -107,3 +107,11 @@ def home_lock() -> Path:
     twice - two paid runs - because the `already_running` check only looks at
     job files, which carry no owner."""
     return home() / "serve.lock"
+
+
+def display_path(p: Path) -> str:
+    """`p` with the user's home written as `~` - for text a person reads."""
+    try:
+        return "~/" + Path(p).resolve().relative_to(Path.home().resolve()).as_posix()
+    except ValueError:
+        return str(p)

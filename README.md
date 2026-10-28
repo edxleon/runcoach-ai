@@ -29,7 +29,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-730 tests, 65 frontend tests and that gate on three operating systems and two Python versions, with every
+731 tests, 66 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -105,6 +105,30 @@ uv tool uninstall runcoach-ai   # removes the program only - delete ~/.runcoach 
 
 `uv tool install` takes whatever is on `main`; pin a release instead with
 `uv tool install git+https://github.com/edxleon/runcoach-ai@v0.2.1`.
+
+## Before you start: the usual worries
+
+- **Is my Garmin password stored?** No. It goes to Garmin once, to sign in. Garmin answers with a
+  session token, and only that is kept, on your computer, in a folder only your user account can read.
+- **Does it cost anything extra?** runcoach is free (MIT). Coach cards use your Claude plan the way any
+  Claude Code use does, with no API key and no bill per card. Without Claude, everything except the
+  cards still works.
+- **What does Claude see?** The numbers this app shows (readiness, recent runs, zones, weekly load),
+  and only when you start a card or ask in Claude Code. It never sees your Garmin password, the
+  session token or any raw file. It reaches Claude through your own account, under your plan's terms.
+- **Can it mess up my watch or my calendar?** Reading is all it does on its own. Something goes to
+  Garmin only when you press "Put on watch" or say yes in Claude Code, and then only the session
+  shown to you. "Take off watch" removes it again. The coach's own card runs cannot write at all.
+- **Can Garmin block my account?** runcoach signs in through
+  [python-garminconnect](https://github.com/cyberjunky/python-garminconnect), a community library
+  that Garmin does not officially support. A daily sync makes about 25-40 requests and the first one
+  (a month of data) a few hundred. It pauses between workout downloads, never fetches more than 90 days,
+  and stops at the first rate-limit answer instead of retrying into it. That is no guarantee, but it
+  is not scraping either.
+- **Is this medical advice?** No. It is a training tool. Pain, dizziness or anything that feels wrong
+  goes to a doctor, and the coach says so instead of planning around it.
+- **How do I remove everything?** Delete `~/.runcoach` (the app's footer shows the folder) and run
+  `uv tool uninstall runcoach-ai`. To cut the token off at Garmin as well, change your Garmin password.
 
 ## What you get
 

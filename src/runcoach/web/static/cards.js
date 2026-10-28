@@ -320,6 +320,11 @@ export function renderProposal(p, opts = {}) {
            partial && ids.length ? undo : ""}${
            can ? "" : `<span class="note">${
              opts.applyHint ? esc(opts.applyHint) : "needs a Garmin login"}</span>`}`;
+  // The safety net, next to the button that writes: what changes, and that
+  // it can be taken back. Said only while there is something left to write.
+  const net = applied ? "" : `<div class="note proposal-net">Only what is listed above goes to
+    Garmin - nothing else on your calendar changes. "Take off watch" removes it again; the
+    workout stays in your Garmin library.</div>`;
   return `<div class="card-proposal" data-proposal="${esc(p.id)}">
     <div class="subhead">${week ? `Proposed week · ${esc(p.days)} sessions` : "Proposed session"}${
       p.day ? ` · ${esc(p.day)}` : ""}${
@@ -327,6 +332,7 @@ export function renderProposal(p, opts = {}) {
     <pre class="proposal-steps">${esc(p.preview || "")}</pre>
     ${warn}
     <div class="btn-row">${button}</div>
+    ${net}
   </div>`;
 }
 
