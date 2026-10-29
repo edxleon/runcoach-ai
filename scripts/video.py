@@ -39,10 +39,23 @@ ASSETS = VIDEO / "assets"
 SHOTS = ROOT / "docs" / "screenshots"
 OUT = VIDEO / "runcoach-demo.mp4"
 POSTER = VIDEO / "poster.png"
+#: The same frame with a play button: the GitHub mobile app shows no video
+#: player, so the README links this picture to the file instead.
+POSTER_PLAY = VIDEO / "poster-play.png"
 #: Pinned: HyperFrames renders deterministically only against itself.
 HYPERFRAMES = "hyperframes@0.8.181"
 #: The poster is the coach card's answer - the frame that says what the app is.
 POSTER_AT_S = 17.5
+
+
+# A green disc with a white triangle, drawn per pixel (this ffmpeg has no
+# drawtext): disc radius 70 at (640, 446), triangle pointing right inside it.
+_DISC = "lte((X-640)*(X-640)+(Y-446)*(Y-446),4900)"
+_TRI = "gte(X,618)*lte(X,680)*lte(abs(Y-446),(680-X)*36/62)"
+_PLAY_BUTTON = ("format=rgb24,geq="
+                f"r='if({_TRI},255,if({_DISC},16,r(X,Y)))':"
+                f"g='if({_TRI},255,if({_DISC},185,g(X,Y)))':"
+                f"b='if({_TRI},255,if({_DISC},129,b(X,Y)))'")
 
 
 def run(cmd: list[str], **kw) -> None:
@@ -119,6 +132,8 @@ def main() -> int:
         cwd=VIDEO, env=env)
     run([need("ffmpeg"), "-hide_banner", "-loglevel", "error", "-y", "-ss", str(POSTER_AT_S),
          "-i", str(OUT), "-frames:v", "1", "-vf", "scale=1280:-1", str(POSTER)])
+    run([need("ffmpeg"), "-hide_banner", "-loglevel", "error", "-y", "-i", str(POSTER),
+         "-vf", _PLAY_BUTTON, str(POSTER_PLAY)])
     shutil.rmtree(VIDEO / ".hyperframes", ignore_errors=True)   # renderer state: local paths
     print(f"written {OUT.relative_to(ROOT)} and {POSTER.relative_to(ROOT)}")
     return 0
