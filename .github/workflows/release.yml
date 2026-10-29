@@ -1,0 +1,91 @@
+name: release
+
+# A pushed tag `vX.Y.Z` becomes the GitHub release, with the wheel and the
+# sdist built HERE and signed with a build-provenance attestation. Until now a
+# release was four hand steps on one laptop (bump, build, create, upload), and
+# nothing checked that the tag, `pyproject.toml` and `__version__` agree - a
+# wheel named 0.3.0 on a v0.3.1 release would have passed.
+#
+#   git tag v0.3.2 && git push origin v0.3.2
+#
+# The notes come from `docs/releases/<tag>.md` when it exists, else GitHub
+# generates them from the commits. A release that already exists (created by
+# hand) keeps its notes and gets the files attached.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write        # create the release, upload its files
+      id-token: write        # the attestation's OIDC identity
+      attestations: write    # store the attestation
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # nothing here pushes; no token left in .git/config
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          python-version: "3.12"
+          # No cache: a cache any workflow run can write must not feed the
+          # build of a signed release artifact.
+          enable-cache: false
+      # The Python suite runs the shipped logic.js through node
+      # (tests/test_js_python_contract.py): the same node as ci.yml.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          package-manager-cache: false   # no cache in a release build, as above
+
+      - name: The tag, pyproject.toml and __version__ name the same version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          uv run --python 3.12 python - <<'EOF'
+          import os, re, tomllib
+          tag = os.environ["TAG"].removeprefix("v")
+          project = tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]
+          init = re.search(r'__version__ = "([^"]+)"', open("src/runcoach/__init__.py").read())[1]
+          print(f"tag {tag}, pyproject {project}, __version__ {init}")
+          raise SystemExit(0 if tag == project == init else "versions disagree - bump both, re-tag")
+          EOF
+
+      # The matrix in ci.yml ran on this commit when it reached main; this is
+      # the short version again, so a tag on a commit that never went through
+      # CI (or a red one) cannot become a release.
+      - name: Lint and tests
+        run: |
+          uv run --python 3.12 ruff check
+          uv run --python 3.12 pytest -q
+          uv run --python 3.12 python scripts/pii_gate.py
+
+      - name: Build
+        run: uv build
+
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          elif [ -f "docs/releases/$TAG.md" ]; then
+            gh release create "$TAG" dist/* --verify-tag --title "$TAG" --notes-file "docs/releases/$TAG.md"
+          else
+            gh release create "$TAG" dist/* --verify-tag --title "$TAG" --generate-notes
+          fi

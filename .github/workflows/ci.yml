@@ -37,6 +37,8 @@ jobs:
       # Actions are pinned to commit SHAs, not tags: a tag is mutable, and these
       # three run with access to the workflow token before any test does.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # nothing here pushes; no token left in .git/config
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           python-version: ${{ matrix.python }}
@@ -84,6 +86,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # nothing here pushes; no token left in .git/config
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           python-version: "3.12"
@@ -91,3 +95,17 @@ jobs:
           cache-dependency-glob: uv.lock
       - name: Install the wheel as a user and use it as one
         run: uv run --no-project python scripts/install_check.py
+
+  # The workflows themselves, audited: unpinned actions, template injection,
+  # credentials left in the checkout, caches feeding a release. Every workflow
+  # here runs with a token, and a Dependabot PR edits them weekly.
+  workflows:
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # nothing here pushes; no token left in .git/config
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - name: zizmor
+        run: uvx zizmor@1.31.1 --min-severity medium .github/workflows

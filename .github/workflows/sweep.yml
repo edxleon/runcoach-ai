@@ -1,0 +1,43 @@
+name: sweep
+
+# The synthetic athletes (evals/sim.py) on many seeds, once a week. ci.yml runs
+# each athlete on its one fixed seed - the gate. This moves the pauses, the
+# illnesses and the skipped sessions around over 40 more seeds per athlete,
+# which is how the planner bugs of v0.3.1 were found. It is the bug hunt, not a
+# gate: a red run names the athlete and seed, and that course becomes a fixed
+# scenario in tests/test_what_comes_next.py before the fix.
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"     # Mondays, 04:17 UTC
+  workflow_dispatch:
+    inputs:
+      seeds:
+        description: "extra seeds per athlete"
+        required: false
+        default: "40"
+
+concurrency:
+  group: sweep
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # nothing here pushes; no token left in .git/config
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Synthetic athletes, many seeds
+        env:
+          RUNCOACH_SIM_SEEDS: ${{ inputs.seeds || '40' }}
+        run: uv run --python 3.12 pytest -q tests/test_simulation.py
