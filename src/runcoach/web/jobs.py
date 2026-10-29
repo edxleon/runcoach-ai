@@ -32,7 +32,16 @@ RETENTION_DAYS = 14
 RETENTION_MAX = 50
 CARDS_MAX = 60
 
-ID_RE = re.compile(r"^j-[0-9a-z-]+$")   # also guards against path traversal
+#: A job or card id. Always `fullmatch`: `match` with `$` lets a trailing
+#: newline through. It is the path-traversal guard, so `_checked` applies it
+#: inside every helper that turns an id into a file name.
+ID_RE = re.compile(r"j-[0-9a-z-]+")
+
+
+def _checked(job_id: str) -> str:
+    if not isinstance(job_id, str) or not ID_RE.fullmatch(job_id):
+        raise ValueError(f"not a job or card id: {job_id!r}")
+    return job_id
 
 
 def _now() -> datetime:
@@ -48,15 +57,15 @@ def new_id() -> str:
 
 
 def job_path(job_id: str) -> Path:
-    return paths.jobs_dir() / f"{job_id}.json"
+    return paths.jobs_dir() / f"{_checked(job_id)}.json"
 
 
 def log_path(job_id: str) -> Path:
-    return paths.jobs_dir() / f"{job_id}.log"
+    return paths.jobs_dir() / f"{_checked(job_id)}.log"
 
 
 def card_path(card_id: str) -> Path:
-    return paths.cards_dir() / f"{card_id}.json"
+    return paths.cards_dir() / f"{_checked(card_id)}.json"
 
 
 #: How long `_write_json` keeps trying to swap a file in. On Windows a reader
@@ -143,17 +152,18 @@ def write_job(job: dict) -> None:
 
 
 def read_job(job_id: str) -> dict | None:
-    return _read_json(job_path(job_id)) if ID_RE.match(job_id) else None
+    return _read_json(job_path(job_id)) if ID_RE.fullmatch(job_id) else None
 
 
 def read_jobs(limit: int = 20) -> list[dict]:
     """Newest first (the id carries the timestamp)."""
     files = sorted(paths.jobs_dir().glob("j-*.json"), reverse=True)
-    return [j for j in (_read_json(p) for p in files[:limit]) if j and j.get("id")]
+    return [j for j in (_read_json(p) for p in files[:limit])
+            if j and isinstance(j.get("id"), str) and ID_RE.fullmatch(j["id"])]
 
 
 def _cancel_path(job_id: str) -> Path:
-    return paths.jobs_dir() / f"{job_id}.cancel"
+    return paths.jobs_dir() / f"{_checked(job_id)}.cancel"
 
 
 def request_cancel(job_id: str) -> None:
@@ -226,14 +236,14 @@ def delete_card(card_id: str) -> bool:
     newest card of each kind forever, and `previous_card_block` feeds it into every
     later card of that kind — so a card steered by an untrusted workout name would
     otherwise keep steering, with no way out."""
-    if not ID_RE.match(card_id) or not card_path(card_id).is_file():
+    if not ID_RE.fullmatch(card_id) or not card_path(card_id).is_file():
         return False
     card_path(card_id).unlink(missing_ok=True)
     return True
 
 
 def read_card(card_id: str) -> dict | None:
-    return _read_json(card_path(card_id)) if ID_RE.match(card_id) else None
+    return _read_json(card_path(card_id)) if ID_RE.fullmatch(card_id) else None
 
 
 def list_cards() -> list[tuple[str, dict]]:
@@ -241,7 +251,7 @@ def list_cards() -> list[tuple[str, dict]]:
     file, which would make an old card jump to the top and become the "previous
     card" of the next run."""
     cards = [(p.stem, c) for p in paths.cards_dir().glob("j-*.json")
-             if ID_RE.match(p.stem) and (c := _read_json(p)) is not None]
+             if ID_RE.fullmatch(p.stem) and (c := _read_json(p)) is not None]
     cards.sort(key=lambda e: str(e[1].get("generated_at") or e[1].get("day") or ""), reverse=True)
     return cards
 

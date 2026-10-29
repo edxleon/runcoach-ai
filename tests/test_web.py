@@ -265,7 +265,7 @@ def test_job_ids_guard_against_path_traversal():
     assert jobs.read_job("../../etc/passwd") is None
     assert jobs.read_card("..\\secret") is None
     job = jobs.new_job("secret prompt", title="t" * 200, kind="week-review")
-    assert jobs.ID_RE.match(job["id"]) and len(job["title"]) == 80
+    assert jobs.ID_RE.fullmatch(job["id"]) and len(job["title"]) == 80
     assert "prompt" not in jobs.public(job) and jobs.public(job)["id"] == job["id"]
 
 
@@ -699,3 +699,25 @@ def test_the_templates_explain_the_week_rules_instead_of_overriding_them(demo_ap
         assert rule in week, rule
     day = tpls["train-today"]
     assert "names WHICH hard session" in day and "has a run for today - then that run is the plan" in day
+
+
+def test_a_path_helper_refuses_what_is_not_an_id():
+    """The routes check an id with a regex before it reaches a file name - but
+    the check lived in each caller, and `re.match(r"...$")` lets a trailing
+    newline through. The helpers that turn an id into a path now refuse
+    anything that is not one, so a future caller cannot forget (CodeQL
+    py/path-injection, 2026-10-29)."""
+    import pytest
+
+    from runcoach import plan
+
+    for bad in ("../../etc/passwd", "j-abc/../x", "j-abc\n", "", "j-ABC"):
+        for helper in (jobs.job_path, jobs.log_path, jobs.card_path):
+            with pytest.raises(ValueError):
+                helper(bad)
+        assert not jobs.ID_RE.fullmatch(bad)
+    for bad in ("p-20260101-000000-abcd\n", "../p-20260101-000000-abcd"):
+        with pytest.raises(ValueError):
+            plan._path(bad)
+        assert plan.read(bad) is None
+    assert jobs.job_path("j-20260101-000000-ab12").name == "j-20260101-000000-ab12.json"

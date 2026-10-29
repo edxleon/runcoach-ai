@@ -85,6 +85,7 @@ _LOST_AFTER_SENDING = {"ProtocolError", "RemoteDisconnected", "IncompleteRead",
 #: click uses - and a shape that only mostly agrees across three copies is a
 #: path-traversal check with a hole in it.
 PROPOSAL_ID_PATTERN = r"^p-[0-9]{8}-[0-9]{6}-[0-9a-f]{4}$"
+#: Always `fullmatch`: `match` with `$` lets a trailing newline through.
 PROPOSAL_ID_RE = re.compile(PROPOSAL_ID_PATTERN)
 
 
@@ -151,6 +152,8 @@ def _created_nothing(exc: BaseException, _depth: int = 0) -> bool:
 
 
 def _path(proposal_id: str) -> Path:
+    if not isinstance(proposal_id, str) or not PROPOSAL_ID_RE.fullmatch(proposal_id):
+        raise ValueError(f"not a proposal id: {proposal_id!r}")
     return paths.proposals_dir() / f"{proposal_id}.json"
 
 
@@ -166,7 +169,7 @@ def read(proposal_id: str, store: Store | None = None) -> dict | None:
     file leaves a proposal that still reads "open": the card offers to write a
     session that is already on Garmin, and `runcoach doctor` answers "0 applied
     only in part" about exactly the state it exists to find."""
-    if not PROPOSAL_ID_RE.match(proposal_id):
+    if not PROPOSAL_ID_RE.fullmatch(proposal_id):
         return None
     d = _read_json(_path(proposal_id))
     # A file that parses but is not a proposal is not a proposal. `_finish`

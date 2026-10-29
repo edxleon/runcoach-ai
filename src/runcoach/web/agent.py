@@ -418,7 +418,7 @@ def run(job: dict, *, db: str | None = None, snapshot_meta: dict | None = None) 
     # files: the model may not invent an id, and the page resolves it - an
     # unknown id becomes "no proposal", never a button.
     if not (isinstance(card.get("proposal"), str)
-            and plan.PROPOSAL_ID_RE.match(card["proposal"])):
+            and plan.PROPOSAL_ID_RE.fullmatch(card["proposal"])):
         card.pop("proposal", None)
     card.update(
         kind=str(job.get("template_id") or card.get("kind") or ""),

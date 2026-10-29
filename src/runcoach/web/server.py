@@ -251,7 +251,7 @@ class App:
         from .. import garmin, plan
 
         pid = str(op.get("proposal_id") or "").strip()
-        if not plan.PROPOSAL_ID_RE.match(pid):
+        if not plan.PROPOSAL_ID_RE.fullmatch(pid):
             return {"error": "proposal_id missing or malformed"}, 400
         if self.demo:
             return {"error": "the demo has no Garmin account to write to"}, 400
@@ -294,7 +294,7 @@ class App:
         from .. import garmin, plan
 
         pid = str(op.get("proposal_id") or "").strip()
-        if not plan.PROPOSAL_ID_RE.match(pid):
+        if not plan.PROPOSAL_ID_RE.fullmatch(pid):
             return {"error": "proposal_id missing or malformed"}, 400
         if self.demo:
             return {"error": "the demo has no Garmin account to change"}, 400
@@ -713,8 +713,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(MANIFEST)
         if route.startswith("/static/"):
             name = route[len("/static/"):]
-            path = STATIC / name
-            if not _STATIC_RE.match(name) or not path.is_file():
+            if not _STATIC_RE.fullmatch(name) or not (path := STATIC / name).is_file():
                 return self._json({"error": "not found"}, 404)
             return self._send(200, path.read_bytes(), _MIME[path.suffix], cache=False)
         if not route.startswith("/api/"):
