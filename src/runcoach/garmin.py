@@ -560,24 +560,47 @@ def fetch_day(client, day: date) -> DailyMetrics:
     return m
 
 
-def fetch_activities(client, since_date: date, *, max_fetch: int = 50) -> list[Activity] | None:
-    """Most recent workouts with `start_time >= since_date`. Each entry is
+#: Workouts per `get_activities` call, and the most pages one fetch reads.
+#: One page of 50 used to be the whole fetch: with runs and gym sessions side by
+#: side that reached back about 14 weeks, whatever window the sync asked for, and
+#: the habits (26 weeks back) of anyone returning from a pause came out empty.
+ACTIVITY_PAGE = 100
+ACTIVITY_MAX_PAGES = 10
+
+
+def fetch_activities(client, since_date: date) -> list[Activity] | None:
+    """Most recent workouts with `start_time >= since_date`, page by page
+    until a page reaches past `since_date` or comes back short. Each entry is
     guarded individually — a broken one is skipped, not the whole batch.
 
-    `None` means the ENDPOINT failed; `[]` means it answered and there were no
-    workouts. Collapsing the two let a 500 read as "a quiet week"."""
-    failed: set = set()
-    # `raw=True`: an empty list has to survive as an empty list. With the default
-    # `or {}` it arrived here as a dict and was indistinguishable from a null body.
-    raw = _safe("get_activities", lambda: client.get_activities(0, max_fetch),
-                failed, ("activities",), raw=True)
-    # Anything that is not a list is an endpoint that answered with something
-    # unreadable - which is NOT "no workouts this week". Only a real empty list
-    # means that, and it is the one case that returns [].
-    if failed or not isinstance(raw, list):
-        return None
+    `None` means the ENDPOINT failed on the first page; `[]` means it answered
+    and there were no workouts. Collapsing the two let a 500 read as "a quiet
+    week". A later page that fails ends the fetch with what was read: those
+    workouts are real, and the next sync asks again."""
+    raw: list = []
+    for page in range(ACTIVITY_MAX_PAGES):
+        failed: set = set()
+        # `raw=True`: an empty list has to survive as an empty list. With the default
+        # `or {}` it arrived here as a dict and was indistinguishable from a null body.
+        batch = _safe("get_activities",
+                      lambda start=page * ACTIVITY_PAGE: client.get_activities(start, ACTIVITY_PAGE),
+                      failed, ("activities",), raw=True)
+        # Anything that is not a list is an endpoint that answered with something
+        # unreadable - which is NOT "no workouts this week". Only a real empty list
+        # means that, and it is the one case that returns [].
+        if failed or not isinstance(batch, list):
+            if page == 0:
+                return None
+            log.warning("get_activities page %d failed - keeping the %d workouts read",
+                        page + 1, len(raw))
+            break
+        raw.extend(batch)
+        starts = [_parse_gmt(a.get("startTimeGMT")) for a in batch if isinstance(a, dict)]
+        if len(batch) < ACTIVITY_PAGE or any(t is not None and t.date() < since_date for t in starts):
+            break
 
     out: list[Activity] = []
+    seen: set[int] = set()
     for a in raw:
         if not isinstance(a, dict):
             continue
@@ -586,8 +609,10 @@ def fetch_activities(client, since_date: date, *, max_fetch: int = 50) -> list[A
             aid = int(a.get("activityId"))
         except (TypeError, ValueError):
             continue
-        if start is None or start.date() < since_date:
+        # A workout saved between two calls shifts the pages by one and shows up twice.
+        if start is None or start.date() < since_date or aid in seen:
             continue
+        seen.add(aid)
         out.append(Activity(
             activity_id=aid,
             start_time=start,

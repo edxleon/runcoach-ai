@@ -29,7 +29,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-864 tests, 68 frontend tests and that gate on three operating systems and two Python versions, with every
+869 tests, 68 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -281,7 +281,7 @@ network you do not control.
 | `RUNCOACH_AUTOSYNC_MIN` | `30` | in a Claude Code / Desktop chat, `get_training_readiness` syncs first when the last sync is older than this; `0` turns it off |
 | `RUNCOACH_QUOTA_WAIT_S` | `3600` | how long a job waits for subscription quota |
 | `RUNCOACH_JOB_TIMEOUT_S` | `600` | hard timeout for a single coach job |
-| `RUNCOACH_ACTIVITY_BACKFILL_DAYS` | `35` | minimum window of workouts a sync fetches (the ACWR fallback needs ~28 days) |
+| `RUNCOACH_ACTIVITY_BACKFILL_DAYS` | `182` | minimum window of the workout list a sync fetches (your habits look back 26 weeks; zone detail is fetched for the last 35 days) |
 | `RUNCOACH_LT_HISTORY_DAYS` | `180` | how far back the lactate-threshold history is fetched |
 | `RUNCOACH_LOG` | `WARNING` | log level — set `INFO` or `DEBUG` to watch a sync. `INFO` and `DEBUG` also log every HTTP request of the web app |
 

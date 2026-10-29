@@ -19,7 +19,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import timedelta
 
-from . import garmin, paths
+from . import garmin, habits, paths
 from .store import Store
 
 log = logging.getLogger(__name__)
@@ -32,6 +32,11 @@ class _StoppedError(Exception):
 DEFAULT_DAYS = 3
 #: The first sync of an empty store: enough for the Trend tab and the ACWR fallback.
 FIRST_SYNC_DAYS = 30
+#: The workout LIST reaches as far back as the habits look (one or two cheap
+#: calls); the zone DETAIL, four calls per workout, only this far - the
+#: intensity reads and the ACWR fallback need about 28 days.
+ACTIVITY_LIST_DAYS = habits.LOOKBACK_WEEKS * 7
+DETAIL_DAYS = 35
 ZONE_KEYS = ("hr_z1_s", "hr_z2_s", "hr_z3_s", "hr_z4_s", "hr_z5_s")
 
 
@@ -159,10 +164,12 @@ def run(store: Store, client, days: int = DEFAULT_DAYS, *, say=print) -> SyncRep
         say(rep.summary())
         return rep
 
-    # Activities: a wider window than the daily fetches. One cheap call delivers
-    # the ~28-day load history that the ACWR fallback needs.
-    act_days = max(days, _env_int("RUNCOACH_ACTIVITY_BACKFILL_DAYS", 35))
+    # Activities: a wider window than the daily fetches. The list delivers the
+    # ~28-day load history the ACWR fallback needs and the half year the habits
+    # read; after a pause the weeks before it are what the planner goes by.
+    act_days = max(days, _env_int("RUNCOACH_ACTIVITY_BACKFILL_DAYS", ACTIVITY_LIST_DAYS))
     since = today - timedelta(days=act_days - 1)
+    detail_since = max(since, today - timedelta(days=max(days, DETAIL_DAYS) - 1))
     try:
         # One day wider: an early-morning local run can start on the previous UTC day.
         acts = garmin.fetch_activities(client, since - timedelta(days=1))
@@ -189,7 +196,7 @@ def run(store: Store, client, days: int = DEFAULT_DAYS, *, say=print) -> SyncRep
 
     # Detail backfill: four Garmin calls per workout → capped, newest first,
     # gentle backoff. The rest is picked up by the next run.
-    for aid in store.activities_missing_detail(since, today, limit=20):
+    for aid in store.activities_missing_detail(detail_since, today, limit=20):
         try:
             outcome, _ = ingest_detail(store, client, aid)
             if outcome == "soft_fail":

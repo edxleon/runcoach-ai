@@ -95,8 +95,8 @@ def learned(store: Store, today: date, snap: dict | None = None) -> list[Fact]:
         if now.preferred:
             facts.append(Fact("weekdays", "Your days", ", ".join(now.preferred),
                               now.evidence["preferred"], "your history", iso,
-                              _change([", ".join(sorted(h.preferred)) if h.known else None
-                                       for h in habits_at])))
+                              _change([(", ".join(sorted(h.preferred)) or "no fixed weekdays")
+                                       if h.known else None for h in habits_at])))
         elif "rhythm" in now.evidence:
             facts.append(Fact("weekdays", "Your days", "no fixed weekdays",
                               now.evidence["rhythm"], "your history", iso))

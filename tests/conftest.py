@@ -146,7 +146,8 @@ class FakeGarmin:
         return self.data.get("intensity", {})
 
     def get_activities(self, start, limit):
-        return self.data.get("activities", [])
+        acts = self.data.get("activities", [])
+        return acts[start:start + limit] if isinstance(acts, list) else acts
 
     def get_activity_hr_in_timezones(self, activity_id):
         return self.data.get("hr_zones", [])

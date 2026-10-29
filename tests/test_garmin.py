@@ -8,7 +8,7 @@ error propagation.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -204,6 +204,54 @@ def test_fetch_activities_parse_and_filter():
     assert (a.distance_m, a.duration_s, a.aerobic_te, a.te_label) == (6117, 2381, 3.1, "TEMPO")
     assert a.start_time.isoformat() == "2026-06-08T06:25:57+00:00"
     assert (a.avg_hr, a.max_hr, a.training_load, a.anaerobic_te) == (153, 178, 205, 3.4)
+
+
+def _daily_runs(n: int, newest: date) -> list[dict]:
+    """`n` workouts, one a day, newest first - the order Garmin lists them in."""
+    return [{"activityId": 100 + i, "startTimeGMT": f"{newest - timedelta(days=i)} 07:00:00",
+             "activityType": {"typeKey": "running"}} for i in range(n)]
+
+
+def test_fetch_activities_reads_page_by_page_back_to_the_window():
+    """One page of 50 used to be the whole fetch: half a year of runs and gym
+    sessions never arrived, and the habits of a returning runner came out empty."""
+    class Paging(FakeGarmin):
+        calls: list = []
+
+        def get_activities(self, start, limit):
+            self.calls.append((start, limit))
+            return super().get_activities(start, limit)
+
+    newest = date(2026, 10, 29)
+    client = Paging(activities=_daily_runs(250, newest))
+    out = fetch_activities(client, newest - timedelta(days=150))
+    assert len(out) == 151
+    assert client.calls == [(0, 100), (100, 100)]      # the second page reached past the window
+
+
+def test_a_failed_later_page_keeps_the_workouts_already_read():
+    class SecondPageDown(FakeGarmin):
+        def get_activities(self, start, limit):
+            if start:
+                raise RuntimeError("500 Server Error")
+            return super().get_activities(start, limit)
+
+    newest = date(2026, 10, 29)
+    out = fetch_activities(SecondPageDown(activities=_daily_runs(250, newest)),
+                           newest - timedelta(days=200))
+    assert len(out) == 100
+
+
+def test_a_workout_on_two_pages_is_read_once():
+    """A workout saved between two calls shifts Garmin's pages by one."""
+    class Shifted(FakeGarmin):
+        def get_activities(self, start, limit):
+            acts = self.data["activities"]
+            return acts[max(0, start - 1):start - 1 + limit] if start else acts[:limit]
+
+    newest = date(2026, 10, 29)
+    out = fetch_activities(Shifted(activities=_daily_runs(150, newest)), newest - timedelta(days=200))
+    assert len(out) == len({a.activity_id for a in out}) == 150
 
 
 def test_fetch_activities_non_list_response():

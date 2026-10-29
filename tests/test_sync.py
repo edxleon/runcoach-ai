@@ -115,20 +115,30 @@ def test_days_are_clamped(store, today, asked, fetched):
 
 
 def test_activity_window_is_wider_than_the_day_window(store, today, monkeypatch):
-    inside = today - timedelta(days=34)
-    edge = today - timedelta(days=35)       # one extra day: an early local run on the previous UTC day
-    outside = today - timedelta(days=36)
+    """The list reaches back as far as the habits look (26 weeks). With 35 days a
+    runner back from a pause had no running week on record at all."""
+    inside = today - timedelta(days=181)
+    edge = today - timedelta(days=182)      # one extra day: an early local run on the previous UTC day
+    outside = today - timedelta(days=183)
     client = SyncClient(activities=[raw_activity(1, inside), raw_activity(2, edge),
                                     raw_activity(3, outside)])
     rep, _ = _run(store, client, days=1)
     assert rep.activities == 2
-    assert client.activity_calls == [(0, 50)]
+    assert client.activity_calls == [(0, 100)]
 
     monkeypatch.setenv("RUNCOACH_ACTIVITY_BACKFILL_DAYS", "5")
     client = SyncClient(activities=[raw_activity(4, today - timedelta(days=5)),
                                     raw_activity(5, today - timedelta(days=6))])
     rep, _ = _run(store, client, days=1)
     assert rep.activities == 1
+
+
+def test_zone_detail_is_fetched_for_the_last_35_days_only(store, today):
+    """Four calls per workout: half a year of them would be 700 calls."""
+    client = SyncClient(activities=[raw_activity(1, today - timedelta(days=10)),
+                                    raw_activity(2, today - timedelta(days=100))])
+    _run(store, client, days=1)
+    assert client.detail_calls == [1]
 
 
 # ── hard errors ──────────────────────────────────────────────────────────────
