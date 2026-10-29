@@ -143,7 +143,7 @@ uv tool uninstall runcoach-ai   # removes the program only - delete ~/.runcoach 
 ## How it works
 
 ```mermaid
-flowchart LR
+flowchart TD
     G[Garmin Connect] -- "token resume, read" --> S[sync.py]
     S --> DB[(SQLite<br/>~/.runcoach)]
     DB --> L[logic.py<br/>readiness · decision<br/>intervals · bands]
