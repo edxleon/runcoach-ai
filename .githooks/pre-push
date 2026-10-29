@@ -19,7 +19,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     if echo "$changed" | grep -qE '^src/runcoach/skills/|^evals/cases\.yaml$' &&
        ! echo "$changed" | grep -qx 'evals/RESULTS.md'; then
         echo "pre-push: the coach prompt or the eval cases changed, evals/RESULTS.md did not."
-        echo "          uv run --with pyyaml python evals/run_evals.py   (or --no-verify, and say why)"
+        echo "          uv run python evals/run_evals.py   (or --no-verify, and say why)"
         exit 1
     fi
 done

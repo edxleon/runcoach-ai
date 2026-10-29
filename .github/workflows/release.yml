@@ -1,7 +1,9 @@
 name: release
 
 # A pushed tag `vX.Y.Z` becomes the GitHub release, with the wheel and the
-# sdist built HERE and signed with a build-provenance attestation. Until now a
+# sdist built HERE and signed with a build-provenance attestation. Three jobs:
+# `build` and `test` run without rights, `release` holds them and runs no
+# Python at all. Until now a
 # release was four hand steps on one laptop (bump, build, create, upload), and
 # nothing checked that the tag, `pyproject.toml` and `__version__` agree - a
 # wheel named 0.3.0 on a v0.3.1 release would have passed.
@@ -24,9 +26,76 @@ permissions:
   contents: read
 
 jobs:
-  release:
+  # The suite, with no rights at all. Everything the tests import - this code
+  # and every dependency - runs here, so it must not run where the job can
+  # mint an OIDC token or write a release.
+  test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # nothing here pushes; no token left in .git/config
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          python-version: "3.12"
+          enable-cache: false   # no cache anywhere on the way to a release
+      # The Python suite runs the shipped logic.js through node
+      # (tests/test_js_python_contract.py): the same node as ci.yml.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+      - name: The tag, pyproject.toml and __version__ name the same version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          uv run --python 3.12 --locked python - <<'EOF'
+          import os, re, tomllib
+          tag = os.environ["TAG"].removeprefix("v")
+          project = tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]
+          init = re.search(r'__version__ = "([^"]+)"', open("src/runcoach/__init__.py").read())[1]
+          print(f"tag {tag}, pyproject {project}, __version__ {init}")
+          raise SystemExit(0 if tag == project == init else "versions disagree - bump both, re-tag")
+          EOF
+      # The matrix in ci.yml ran on this commit when it reached main; this is
+      # the short version again, so a tag on a commit that never went through
+      # CI (or a red one) cannot become a release.
+      - name: Lint and tests
+        run: |
+          uv run --python 3.12 --locked ruff check
+          uv run --python 3.12 --locked pytest -q
+          uv run --python 3.12 --locked python scripts/pii_gate.py
+
+  # The package, built with no rights: `uv build` runs the build backend
+  # (hatchling, pinned exactly in pyproject.toml) and nothing of this project.
+  # Built before anything else touches the tree, and handed on as an artifact.
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # nothing here pushes; no token left in .git/config
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          python-version: "3.12"
+          enable-cache: false   # no cache anywhere on the way to a release
+      - name: Build
+        run: uv build
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          retention-days: 1
+          if-no-files-found: error
+
+  # Attest and publish - no Python, no project code, no dependency runs here,
+  # only the checkout (for the notes file), GitHub's attest action and `gh`.
+  release:
+    needs: [build, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write        # create the release, upload its files
       id-token: write        # the attestation's OIDC identity
@@ -35,43 +104,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false   # nothing here pushes; no token left in .git/config
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          python-version: "3.12"
-          # No cache: a cache any workflow run can write must not feed the
-          # build of a signed release artifact.
-          enable-cache: false
-      # The Python suite runs the shipped logic.js through node
-      # (tests/test_js_python_contract.py): the same node as ci.yml.
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 22
-          package-manager-cache: false   # no cache in a release build, as above
-
-      - name: The tag, pyproject.toml and __version__ name the same version
-        env:
-          TAG: ${{ github.ref_name }}
-        run: |
-          uv run --python 3.12 python - <<'EOF'
-          import os, re, tomllib
-          tag = os.environ["TAG"].removeprefix("v")
-          project = tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]
-          init = re.search(r'__version__ = "([^"]+)"', open("src/runcoach/__init__.py").read())[1]
-          print(f"tag {tag}, pyproject {project}, __version__ {init}")
-          raise SystemExit(0 if tag == project == init else "versions disagree - bump both, re-tag")
-          EOF
-
-      # The matrix in ci.yml ran on this commit when it reached main; this is
-      # the short version again, so a tag on a commit that never went through
-      # CI (or a red one) cannot become a release.
-      - name: Lint and tests
-        run: |
-          uv run --python 3.12 ruff check
-          uv run --python 3.12 pytest -q
-          uv run --python 3.12 python scripts/pii_gate.py
-
-      - name: Build
-        run: uv build
+          name: dist
+          path: dist/
 
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:

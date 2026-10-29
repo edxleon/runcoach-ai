@@ -16,7 +16,7 @@ Python half of this again and blocks a push whose coach prompt changed without a
 
 | Change | Also |
 |---|---|
-| `src/runcoach/skills/*.md` or `evals/cases.yaml` | full eval run (`uv run --with pyyaml python evals/run_evals.py`), it rewrites `evals/RESULTS.md`; a new case also once with `--no-skills` - it must FAIL there; a flaky case: narrow the judge question first (`evals/README.md`) |
+| `src/runcoach/skills/*.md` or `evals/cases.yaml` | full eval run (`uv run python evals/run_evals.py`), it rewrites `evals/RESULTS.md`; a new case also once with `--no-skills` - it must FAIL there; a flaky case: narrow the judge question first (`evals/README.md`) |
 | the wording of a tool in `tools.py` | `uv run python evals/fixture_gen.py [case-id]` and paste into `cases.yaml`; `tests/test_eval_fixture.py` says which |
 | a rule in `logic.py`, `planning.py` or `plan.py` | a scenario test in `tests/test_what_comes_next.py`, red against the old code first; then `RUNCOACH_SIM_SEEDS=40 uv run pytest -q tests/test_simulation.py` |
 | the number of tests or eval cases | README count and badge - pinned by `tests/test_invariants.py` |
