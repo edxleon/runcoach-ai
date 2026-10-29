@@ -1,7 +1,7 @@
 # runcoach-ai
 
 [![ci](https://github.com/edxleon/runcoach-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/edxleon/runcoach-ai/actions/workflows/ci.yml)
-[![evals 27/27](https://img.shields.io/badge/evals-27%2F27-brightgreen)](evals/RESULTS.md)
+[![evals 29/29](https://img.shields.io/badge/evals-29%2F29-brightgreen)](evals/RESULTS.md)
 [![license MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 **A local-first AI running coach for your Garmin data — powered by the Claude subscription you already have.**
@@ -29,7 +29,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-795 tests, 66 frontend tests and that gate on three operating systems and two Python versions, with every
+811 tests, 66 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -209,16 +209,24 @@ the frontend, which draws curves, gets points.
   history, in code: the load ratio can hold or unload it, every fourth week is a down week, ten
   days without a run make a return week of easy running only (half the weeks before after more
   than three weeks off), and twenty-eight days without a new VO2max value put a steady block in
-  the threshold slot. A budget too small for the planned days drops days instead of inflating the
-  sessions. Each rule is a named assumption on the proposal, none of them a prompt's discretion.
+  the threshold slot. A budget too small for the planned days plans a shorter week - one quality
+  session at three days, never a lone hard one - instead of inflating the sessions. In the four
+  weeks after a pause the step grows from the last seven days, not from a median that lags the
+  climb. Each rule is a named assumption on the proposal, none of them a prompt's discretion.
   On a hard day the decision also says *which* hard session, from what the last seven days did
   and did not contain; after a pause the day is easy instead.
 - Without a measured threshold pace, sessions are sized from Garmin's own 5 km and 10 km predictions
   rather than from a 5:00/km default that fitted one athlete.
+- Those rules are run, not only unit-tested: [`evals/sim.py`](evals/sim.py) puts eight synthetic
+  athletes - one who follows the plan, one who skips 40 %, one who takes three weeks off, one who
+  falls ill, one who always runs harder - through sixteen weeks of the app, day by day against the
+  real tools, and checks what a runner would expect of a coach over the whole course. It found the
+  two planner bugs above. It cannot tell whether the training works - its body is a toy - and it
+  finds only what its data model knows, so the live test on a real account stays.
 
 **Prompts are tested like code.** The coach's behaviour lives in two Markdown files
 ([`skills/`](src/runcoach/skills)) with an LLM-as-judge regression suite ([`evals/`](evals)):
-27 cases such as *"a run already happened today → no second hard session"*, *"warning signs of low energy
+29 cases such as *"a run already happened today → no second hard session"*, *"warning signs of low energy
 availability are not explained away"*, *"an instruction inside a workout name is not followed"*. They run
 without Garmin data against the real CLI — though only over those two files, not over the other two
 pieces of the shipped prompt (`templates.json` and the JSON-card frame in `web/agent.py`, which

@@ -67,7 +67,7 @@ The app reads the history for what is due, in code, and prints it; you explain i
 - **The measurement is not a hard session to trade away.** A steady block in a proposal is there because Garmin has had nothing to measure from; "I feel great, make it 5x4 instead" moves the intervals to after the reading, it does not replace it.
 - **A down week is the plan working.** Every fourth week is lighter ("down week" in a proposal): that is the progression, not lost form, and not detraining - the low ACWR that follows is expected. It is 70 % of the median of the recent weeks; say that, and do not measure it against the biggest week or call the drop unusual. The small week IS the answer: no volume is added back, and no bigger week is offered or announced as an option - not even "tell me if you want more". Only an explicit request from the athlete for more is a reason to propose again.
 - **After a pause the small week is the right week.** A return week is sized down from the weeks before the pause; the step up comes the week after.
-- **Held or unloaded** on the load ratio is read like the readiness light: Garmin's ratio can cut a week, a computed one can only hold it.
+- **Held or unloaded** on the load ratio is read like the readiness light: Garmin's ratio can cut a week, a computed one can only hold it. A week held on Garmin's ratio is not raised on request while the ratio is above 1.3 - not by a bigger proposal, not by "add a few minutes to the long run yourself". Explain it from the athlete's weeks (which one ran above plan and pushed the ratio up) and say the step up comes once the ratio is back under 1.3.
 - The line that sized the week is the one to explain, in the athlete's numbers: which rule fired and from which weeks.
 
 ## Analysing a run

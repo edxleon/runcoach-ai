@@ -87,3 +87,31 @@ def test_no_case_is_built_on_a_label_the_code_cannot_produce():
             f"logic.run_kind produces '{got}' - the case describes a state the "
             f"code cannot reach")
     assert seen >= 10, f"only {seen} activity lines parsed - the shape changed"
+
+
+def _sim_case_ids():
+    import fixture_gen
+
+    return sorted(fixture_gen.SIM_CASES)
+
+
+@pytest.mark.parametrize("case_id", _sim_case_ids())
+def test_a_case_from_a_synthetic_course_matches_what_the_tools_said_that_day(case_id):
+    """The cases rendered from a day of an evals/sim.py course. Red when a tool
+    rewords, AND when a change to the planner moves the course off the moment
+    the case is about - the rendering asserts that moment is still there."""
+    import fixture_gen
+
+    data = yaml.safe_load((ROOT / "evals" / "cases.yaml").read_text(encoding="utf-8"))
+    case = next((c for c in data["cases"] if c["id"] == case_id), None)
+    assert case is not None, f"{case_id} is gone from cases.yaml"
+    expected = fixture_gen.sim_input(case_id).strip()
+    if expected != case["input"].strip():
+        import difflib
+
+        diff = "\n".join(difflib.unified_diff(case["input"].strip().splitlines(),
+                                              expected.splitlines(), "cases.yaml",
+                                              "fixture_gen.py", lineterm=""))
+        pytest.fail(f"regenerate with `uv run python evals/fixture_gen.py {case_id}` and "
+                    f"paste it into the case.\n\n{diff}")
+    assert str(case["today"]) == fixture_gen.SIM_CASES[case_id][1].isoformat()

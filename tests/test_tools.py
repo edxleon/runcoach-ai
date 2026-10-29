@@ -2207,9 +2207,13 @@ def test_propose_week_puts_the_measurement_in_the_threshold_slot(store, today):
     store.update_activity_detail(9_000_000_002, {**DETAIL, "splits": [], "unknown": set()})
     store.upsert_lactate_history([{"day": today - timedelta(days=25), "lthr_bpm": 168,
                                    "lt_speed_mps": 3.5}])
-    for k, back in enumerate((2, 5, 9, 12, 16, 19, 23)):      # ordinary running, no pause
+    # Ordinary running, no pause, and enough of it for all four days: a week
+    # too small for four plans three, with ONE quality session, and that one
+    # is the VO2max work until the Z5 stimulus is set
+    # (test_a_three_day_week_measures_only_after_the_z5_stimulus).
+    for k, back in enumerate((2, 5, 9, 12, 16, 19, 23)):
         store.upsert_activity(make_activity(9_000_000_100 + k, today - timedelta(days=back),
-                                            duration_s=2700, load=None))
+                                            duration_s=3600, load=None))
     for i in range(30):
         store.upsert_daily(make_day(today - timedelta(days=i), vo2max=50.0))
     out = tools.propose_week(store, days_per_week=4, long_run_day="sun")

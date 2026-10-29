@@ -356,3 +356,45 @@ def test_a_structured_steady_workout_counts_as_the_block_it_was():
     assert snapshot.last_steady_day([], [run], today=date(2026, 6, 10)) == date(2026, 6, 7)
     reps = {**run, "structure": {"kind": "intervals", "rep_count": 5}}
     assert snapshot.last_steady_day([], [reps], today=date(2026, 6, 10)) is None
+
+
+# ── found by the synthetic athletes (evals/sim.py) ───────────────────────────
+
+def test_a_small_week_is_a_shorter_week_not_a_week_of_hard_sessions():
+    """A budget too small for four days used to lose its easy runs first and
+    keep both quality sessions: 'vo2max, threshold, long' as a three-day week,
+    or a lone VO2max session as the whole week."""
+    monday = date(2026, 6, 15)
+    for total in range(40, 130, 6):
+        sessions, _ = planning.build_week(monday, days_per_week=4, long_run_day="sun",
+                                          total_minutes=total)
+        kinds = [s.kind for _, s in sessions]
+        hard = sum(k in planning.HARD_KINDS for k in kinds)
+        assert hard <= len(kinds) - hard, (total, kinds)      # never more hard than not
+
+
+def test_a_small_week_can_grow():
+    """Dropped days kept their size, so a 72- and an 80-minute budget gave the
+    same 70-minute week, and a runner who ran it exactly was planned it again,
+    forever: the next day never fit and nothing else grew."""
+    monday = date(2026, 6, 15)
+    got = []
+    for total in (70, 77, 85, 94, 103):
+        sessions, _ = planning.build_week(monday, days_per_week=4, long_run_day="sun",
+                                          total_minutes=total)
+        got.append(sum(s.estimated_seconds for _, s in sessions) // 60)
+    assert all(a < b for a, b in zip(got, got[1:], strict=False)), got
+
+
+def test_the_week_after_the_return_week_does_not_shrink_below_it(store):
+    """Back from four weeks off, the return week was run in full (4 x 24 min).
+    The next week took the median of the windows since the pause - one of them
+    holding a single run - and came out SMALLER than the week just run."""
+    sunday = date(2026, 6, 14)
+    for k in range(10):                     # ~200 min weeks until five weeks ago
+        _run(store, sunday - timedelta(days=36 + 3 * k), 50)
+    _run(store, sunday - timedelta(days=7), 34)        # the first run back
+    for back in (6, 4, 2, 0):
+        _run(store, sunday - timedelta(days=back), 24)
+    budget, lines, mode = plan._week_plan(store, sunday)
+    assert mode != "return" and budget >= 96, (budget, mode, lines)

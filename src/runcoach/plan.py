@@ -570,7 +570,9 @@ def _week_plan(store: Store, today: date, start: date | None = None
     The base is the median of the running weeks among the last four rolling
     weeks (the last eight if fewer than two of those had a run); a step goes
     +10 % on it but never more than +10 % over the bigger of the last two
-    weeks. Then the rules: a pause, or a week starting within the first days
+    weeks; in the four weeks after a comeback the base is the last seven days
+    instead, because the weeks since are climbing. Then the rules: a pause, or
+    a week starting within the first days
     back (`logic.comeback`, the same state the day's decision reads), makes a
     return week - 70 %, or 50 % after more than three weeks, of the weeks
     BEFORE the pause; the load ratio holds or unloads; every fourth week is a
@@ -617,17 +619,27 @@ def _week_plan(store: Store, today: date, start: date | None = None
     if len(ran) < 2:
         return None, ["week sized from the built-in defaults - fewer than two weeks of running "
                       "on record to scale to"], "default"
-    base = _median(ran)
-    basis = (f"from your last {len(span)} weeks of running ({', '.join(str(m) for m in span)} "
-             f"min, {shown}; median of the running weeks {base} - a down week or taper among "
-             f"them pulls it down with them)")
+    recently_back = bool(cb) and cb.get("first_back") is not None and \
+        (start - cb["first_back"]).days < planning.DOWN_WEEK_EVERY * 7
+    if recently_back and weeks[-1] > 0:
+        # Back from a pause the weeks climb, and a median of climbing weeks -
+        # one of them holding the single first run back - lags behind the
+        # week just run: the week after a full return week came out smaller
+        # than it. So the step grows from the last seven days.
+        base = weeks[-1]
+        basis = (f"from your last 7 days ({base} min): back from a pause since "
+                 f"{cb['first_back'].isoformat()}, the weeks are climbing and a median of "
+                 f"them would lag behind the one just run")
+    else:
+        base = _median(ran)
+        basis = (f"from your last {len(span)} weeks of running "
+                 f"({', '.join(str(m) for m in span)} min, {shown}; median of the running weeks "
+                 f"{base} - a down week or taper among them pulls it down with them)")
 
     rules: list[tuple[float, str, str]] = []
     if brake_line:
         rules.append((f_brake, brake_line, "unload" if f_brake < planning.WEEK_HOLD else "hold"))
     due, line = planning.down_week_due(monday)
-    recently_back = bool(cb) and cb.get("first_back") is not None and \
-        (start - cb["first_back"]).days < planning.DOWN_WEEK_EVERY * 7
     if due and not recently_back:
         rules.append((planning.WEEK_DOWN, line, "down"))
     rules.sort(key=lambda r: r[0])

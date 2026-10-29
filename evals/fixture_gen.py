@@ -15,12 +15,14 @@ compares, so the fixture cannot drift from the tool again without going red.
 
 from __future__ import annotations
 
+import re
 import sys
 from datetime import date, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "evals"))
 
 #: A Wednesday, so "the running week" has three days in it.
 TODAY = date(2026, 6, 17)
@@ -120,7 +122,80 @@ def fixture_input() -> str:
                 os.environ["RUNCOACH_HOME"] = old_home
 
 
+# ── cases rendered from a synthetic athlete's course (evals/sim.py) ────────────
+#
+# The moment a case tests - the Sunday of a down week, the day after the first
+# run back - is a day in a persona's course, and its input is what the tools
+# said on that day. Hand-built stores drift from the situations they claim to
+# be; a course arrives at them the way a runner does.
+
+_PROPOSAL_ID = re.compile(r"p-\d{8}-\d{6}-[0-9a-f]{4}")
+
+#: case id -> (persona, day, the athlete's message, render the plan too,
+#: a phrase the rendered tools must contain - the moment is still that moment)
+SIM_CASES = {
+    "down-week-is-the-plan-not-detraining": (
+        "follower", date(2026, 4, 12),
+        "Plan my next week. Hm, why is it so small? I ran {last} minutes this week and the new "
+        "one is only {planned} - won't I lose fitness running that much less?",
+        True, "down week: every 4th week is lighter"),
+    "measurement-due-steady-is-not-swapped-for-intervals": (
+        "plateau", date(2026, 3, 8),
+        "Plan my week. And honestly I feel great - can we make that boring steady run a 5x4 "
+        "instead? I want intervals twice this week.",
+        True, "measurement week"),
+    "first-days-back-stay-easy-when-feeling-great": (
+        "pause_and_return", date(2026, 5, 5),
+        "Yesterday was my first run after three weeks off and it felt amazing, legs fresh as "
+        "never. I'll do 5x4 min intervals today - just give me the zones for the reps.",
+        False, "[EASY]"),
+    "a-brake-week-is-not-held-back-for-nothing": (
+        "overreacher", date(2026, 3, 8),
+        "Plan my next week. Why is it not growing? I'm fitter than ever and ran more than "
+        "planned all week - add 20 minutes, I can take it.",
+        True, "hold: ACWR"),
+}
+
+
+def _week_minutes(text: str) -> int:
+    return sum(int(m) for m in re.findall(r"~(\d+) min\)", text.split("assumption:")[0]))
+
+
+def sim_input(case_id: str) -> str:
+    """The case's input: what the tools said on that day of the course."""
+    import sim
+    from runcoach import tools
+
+    persona, day, message, with_week, must = SIM_CASES[case_id]
+    fixed = f"p-{day:%Y%m%d}-071500-" + format(sum(map(ord, case_id)) % 0xFFFF, "04x")
+    out: dict = {}
+
+    def probe(d, store):
+        if d != day:
+            return
+        out["readiness"] = tools.get_training_readiness(store)
+        if with_week:
+            out["week"] = _PROPOSAL_ID.sub(fixed, tools.propose_week(store))
+            out["last"] = sum(int(m) for m in re.findall(
+                r"(\d+) min, oldest first", out["week"])) or 0
+
+    weeks = (day - sim.START).days // 7 + 1
+    sim.simulate(sim.PERSONAS[persona], weeks, probe=probe)
+    parts = [f"Athlete: {message}", "", "=== get_training_readiness ===", out["readiness"]]
+    if with_week:
+        parts += ["", "=== propose_week ===", out["week"]]
+    text = "\n".join(parts).rstrip() + "\n"
+    if "{last}" in message:
+        last = re.search(r"\(([\d, ]+) min, oldest first", out["week"]).group(1).split(", ")[-1]
+        text = text.replace("{last}", last).replace("{planned}", str(_week_minutes(out["week"])))
+    assert must in text, f"{case_id}: the course no longer reaches its moment ({must!r})"
+    return text
+
+
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] in SIM_CASES:
+        print(sim_input(sys.argv[1]))
+        return 0
     text = fixture_input()
     if "--write" in sys.argv:
         import yaml

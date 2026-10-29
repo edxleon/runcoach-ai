@@ -555,9 +555,10 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
     `long_run=False` make a week of easy running only - the return week.
 
     A budget too small for this many days at the shortest useful length of
-    each session does not inflate the sessions: days are dropped, easy ones
-    first, and the rest keep the size they had - a dropped day never pours
-    into the others. `max_session_min` caps every session; a kind whose
+    each session does not inflate the sessions: the week gets fewer days,
+    composed like a shorter week (one quality session at three days, never a
+    lone hard one) and scaled to the budget. `max_session_min` caps every
+    session, so fewer days never pour into one long one; a kind whose
     shortest useful form is longer than the cap becomes an easy run."""
     from datetime import timedelta
 
@@ -581,34 +582,54 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
         d = long_date + timedelta(days=offset)
         return d if d <= window[-1] else d - timedelta(days=7)
 
-    plan: dict = {long_date: "long" if long_run else "easy"}
-    slots = _QUALITY_SLOTS[1 if n == 3 else 2]
-    if quality:
-        for offset, kind in zip(slots, (quality * 2)[:len(slots)], strict=False):
-            plan[at(offset)] = kind
-    for offset in _EASY_OFFSETS:
-        if len(plan) >= n:
-            break
-        if at(offset) not in plan:      # a 3-day week has its quality day here
-            plan[at(offset)] = "easy"
+    def compose(n: int) -> tuple[dict, bool]:
+        """The week's days for `n` running days. Three days hold one quality
+        session, four and more two; two days a long run and one quality
+        session; one day only the long run - never a lone hard session.
+        Also whether the session cap turned a kind into an easy run."""
+        days: dict = {long_date: "long" if long_run else "easy"}
+        if n >= 2 and quality:
+            slots = _QUALITY_SLOTS[1 if n <= 3 else 2]
+            for offset, kind in zip(slots, (quality * 2)[:len(slots)], strict=False):
+                days[at(offset)] = kind
+        for offset in _EASY_OFFSETS:
+            if len(days) >= n:
+                break
+            if at(offset) not in days:      # a 3-day week has its quality day here
+                days[at(offset)] = "easy"
+        capped = False
+        if max_session_min:
+            for day, kind in list(days.items()):
+                if min_minutes(kind) > max_session_min:
+                    days[day] = "easy"
+                    capped = True
+        return days, capped
 
-    capped = False
-    if max_session_min:
-        for day, kind in list(plan.items()):
-            if min_minutes(kind) > max_session_min:
-                plan[day] = "easy"
-                capped = True
-    sizes, scale_note = _week_sizes(list(plan.values()), total_minutes, minutes)
-    if max_session_min:
-        for kind in list(sizes):
-            if sizes[kind] > max_session_min:
-                sizes[kind] = max(min_minutes(kind), max_session_min)
-                capped = capped or kind in plan.values()
-    dropped = 0
-    while total_minutes and len(plan) > 1 and \
-            sum(sizes[k] for k in plan.values()) > total_minutes * BUDGET_SLACK:
-        del plan[_day_to_drop(plan)]
-        dropped += 1
+    def sized(days: dict) -> tuple[dict, str | None, bool]:
+        sizes, note = _week_sizes(list(days.values()), total_minutes, minutes)
+        capped = False
+        if max_session_min:
+            for kind in list(sizes):
+                if sizes[kind] > max_session_min:
+                    sizes[kind] = max(min_minutes(kind), max_session_min)
+                    capped = capped or kind in days.values()
+        return sizes, note, capped
+
+    # A budget too small for `n` days at the shortest useful length of each
+    # session plans FEWER days, composed and sized like any shorter week -
+    # not the long week with days cut out of it. Cutting kept both quality
+    # sessions (a "week" of VO2max, threshold and the long run) and kept the
+    # rest at their old size, so a small week could never grow.
+    asked = n
+    while True:
+        plan, capped_kind = compose(n)
+        sizes, scale_note, capped_size = sized(plan)
+        if not total_minutes or n <= 1 or \
+                sum(sizes[k] for k in plan.values()) <= total_minutes * BUDGET_SLACK:
+            break
+        n -= 1
+    dropped = asked - n
+    capped = capped_kind or capped_size
     if scale_note:
         got = sum(sizes[k] for k in plan.values())
         scale_note = re.sub(r"\(~\d+ min across \d+ days\)",
@@ -642,20 +663,6 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
 #: How far over the budget the sessions' floors may take a week before a day
 #: is dropped: the floors are whole sessions, so an exact fit is rare.
 BUDGET_SLACK = 1.15
-#: The order days go when the budget is too small: easy runs first, then the
-#: threshold-type sessions, the VO2max session after them, the long run last.
-_DROP_ORDER = ("easy", "steady", "threshold", "vo2max", "long")
-
-
-def _day_to_drop(plan: dict):
-    """The day whose session goes first (`_DROP_ORDER`), the latest of them."""
-    for kind in _DROP_ORDER:
-        days = [d for d, k in plan.items() if k == kind]
-        if days:
-            return max(days)
-    return max(plan)
-
-
 #: Whole words only: "lang" anywhere made "Langsamer Dauerlauf" a long run.
 _LONG_TITLE_RE = re.compile(r"\blong\b|\blange[rnms]?\s+(?:lauf|run)\b|\blanglauf\b", re.I)
 
