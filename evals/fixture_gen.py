@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import re
 import sys
-from datetime import date, timedelta
+from datetime import UTC, date, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -35,7 +35,7 @@ def build_store(tmp_db: str, today_extra: dict | None = None, days: int = 30):
     The point of the case: the app's rule says GO *and* names the grey zone, and
     the coach has to explain that rather than quietly substitute "your week is
     done". Both halves of the rule are visible in the numbers."""
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     from runcoach.models import Activity, DailyMetrics
     from runcoach.store import Store
@@ -72,7 +72,7 @@ def build_store(tmp_db: str, today_extra: dict | None = None, days: int = 30):
         aid += 1
         store.upsert_activity(Activity(
             activity_id=aid,
-            start_time=datetime(day.year, day.month, day.day, 8, 0, tzinfo=timezone.utc),
+            start_time=datetime(day.year, day.month, day.day, 8, 0, tzinfo=UTC),
             activity_type="running", name="Steady run", distance_m=9500, duration_s=3000,
             avg_hr=158, max_hr=168, training_load=95, aerobic_te=2.8, anaerobic_te=0.3))
         store.update_activity_detail(aid, {

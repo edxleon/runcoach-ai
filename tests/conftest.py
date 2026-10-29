@@ -7,7 +7,7 @@ no network, no Garmin account. Garmin is replaced by small fake client classes.
 from __future__ import annotations
 
 import sys
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -83,7 +83,7 @@ def make_activity(activity_id: int, day: date, *, hour: int = 8, activity_type: 
     """A workout starting at `hour`:00 UTC on `day` (08:00 UTC = 10:00 Berlin, same day)."""
     return Activity(
         activity_id=activity_id,
-        start_time=datetime(day.year, day.month, day.day, hour, 0, tzinfo=timezone.utc),
+        start_time=datetime(day.year, day.month, day.day, hour, 0, tzinfo=UTC),
         activity_type=activity_type, name=extra.pop("name", f"act-{activity_id}"),
         distance_m=distance_m, duration_s=duration_s,
         training_load=load, aerobic_te=aerobic_te, **extra)

@@ -302,6 +302,7 @@ git clone https://github.com/edxleon/runcoach-ai && cd runcoach-ai
 uv run pytest -q                   # no database server, no network, no Garmin account needed
 node --test "web-tests/*.test.mjs" # frontend logic
 uv run ruff check                  # lint — config is real and the backlog is zero
+npx --yes @biomejs/biome@2.5.15 lint --error-on-warnings   # frontend lint (biome.jsonc)
 uv run python evals/run_evals.py   # prompt regression (uses your Claude subscription)
 uv run python scripts/pii_gate.py  # release gate
 ```

@@ -59,7 +59,8 @@ def claude_status(*, fresh: bool = False) -> str:
         status = "missing"
     else:
         try:
-            out = subprocess.run([*cmd, "auth", "status"], capture_output=True, text=True,
+            out = subprocess.run([*cmd, "auth", "status"],  # noqa: S603 — claude_command(), fixed args
+                                 capture_output=True, text=True,
                                  timeout=20, encoding="utf-8", errors="replace")
             info = json.loads(out.stdout or "{}")
             if not isinstance(info, dict) or "loggedIn" not in info:
@@ -99,7 +100,7 @@ def first_start(*, interactive: bool, ask: Callable[[str], str] = input,
             return interactive_login(next_step=None)
     if claude_login is None:
         def claude_login(cmd: list[str]) -> int:
-            return subprocess.run([*cmd, "auth", "login"]).returncode
+            return subprocess.run([*cmd, "auth", "login"]).returncode  # noqa: S603 — as `auth status` above
 
     def yes(question: str) -> bool:
         if not interactive:

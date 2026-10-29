@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 import threading
 import time
-from datetime import date, timedelta
+from datetime import UTC, date, timedelta
 
 from . import paths
 from .logic import run_kind
@@ -602,7 +602,7 @@ def auto_sync(store: Store) -> str | None:
     thread in another process, and two syncs at once are two logins on one
     rate-limited account. Never on the demo athlete."""
     import os
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     if os.environ.get("RUNCOACH_UNATTENDED") or os.environ.get("RUNCOACH_DEMO"):
         return None
@@ -612,7 +612,7 @@ def auto_sync(store: Store) -> str | None:
     last = store.last_synced_at()
     if last:
         try:
-            age_min = (datetime.now(timezone.utc) - datetime.fromisoformat(last)).total_seconds() / 60
+            age_min = (datetime.now(UTC) - datetime.fromisoformat(last)).total_seconds() / 60
         except ValueError:
             age_min = None
         if age_min is not None and age_min < after:

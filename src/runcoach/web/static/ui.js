@@ -29,7 +29,7 @@ export const TOKEN = (() => {
       history.replaceState(null, "", location.pathname + (rest ? "?" + rest : "") + location.hash);
     }
     return localStorage.getItem(TOKEN_KEY);
-  } catch (e) { return null; }        // privacy mode / Node: carry on without a token
+  } catch { return null; }        // privacy mode / Node: carry on without a token
 })();
 
 export function apiHeaders(extra) {
@@ -37,7 +37,7 @@ export function apiHeaders(extra) {
 }
 
 export function forgetToken() {
-  try { localStorage.removeItem(TOKEN_KEY); } catch (e) { /* does not matter */ }
+  try { localStorage.removeItem(TOKEN_KEY); } catch { /* does not matter */ }
 }
 
 /** Everything that comes from data or from model output goes through this —
@@ -389,9 +389,9 @@ export function mountLogin(probeUrl) {
         headers: { [TOKEN_HEADER]: pw } });
       if (r.status === 403) { showLogin("Wrong token"); return; }
       if (!r.ok && r.status !== 404) { showLogin("Server says " + r.status); return; }
-      try { localStorage.setItem(TOKEN_KEY, pw); } catch (e) { /* privacy mode */ }
+      try { localStorage.setItem(TOKEN_KEY, pw); } catch { /* privacy mode */ }
       location.reload();
-    } catch (e) { showLogin("Server not reachable"); }
+    } catch { showLogin("Server not reachable"); }
   });
 }
 

@@ -509,7 +509,7 @@ test("the You tab's week: history fills it, the athlete's setting wins and says 
 });
 
 test("the week editor: only what the athlete touched is sent; a day off moves the history's days", async () => {
-  const { newDraft, pick, resetRow, draftPatch, youHtml } =
+  const { newDraft, pick, draftPatch, youHtml } =
     await import("../src/runcoach/web/static/you.js");
   const week = { set: {}, note: "",
                  history: { days_per_week: 3, run_days: ["tue", "thu", "sat"], long_run_day: "sat",

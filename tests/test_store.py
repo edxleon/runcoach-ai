@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -173,7 +173,7 @@ def test_activity_type_lookup(store):
 def test_local_day_of_a_late_evening_run(store):
     # 23:30 UTC on June 7 = 01:30 Europe/Berlin on June 8 (DST, UTC+2) → the local
     # calendar day is June 8; a naive UTC date would wrongly say June 7.
-    late = datetime(2026, 6, 7, 23, 30, tzinfo=timezone.utc)
+    late = datetime(2026, 6, 7, 23, 30, tzinfo=UTC)
     store.upsert_activity(Activity(activity_id=700, start_time=late, activity_type="running",
                                    training_load=100, aerobic_te=3.0))
     assert len(store.get_recent_activities(date(2026, 6, 8), date(2026, 6, 8))["recent"]) == 1
@@ -186,7 +186,7 @@ def test_local_day_follows_the_configured_timezone(store, monkeypatch):
     monkeypatch.setenv("RUNCOACH_TZ", "America/Los_Angeles")
     # 03:00 UTC on June 8 = 20:00 on June 7 in Los Angeles
     store.upsert_activity(Activity(activity_id=701, activity_type="running",
-                                   start_time=datetime(2026, 6, 8, 3, 0, tzinfo=timezone.utc)))
+                                   start_time=datetime(2026, 6, 8, 3, 0, tzinfo=UTC)))
     assert store.get_recent_runs_detail()[0]["day"] == "2026-06-07"
 
 
@@ -649,7 +649,7 @@ def test_readiness_days_since_hard_uses_the_local_day(store, today):
     store.upsert_daily(make_day(today, hrv_status="BALANCED", sleep_score=85))
     # 23:30 UTC the day before yesterday = 01:30 local time YESTERDAY
     late = datetime.combine(today - timedelta(days=2), datetime.min.time(),
-                            tzinfo=timezone.utc).replace(hour=23, minute=30)
+                            tzinfo=UTC).replace(hour=23, minute=30)
     store.upsert_activity(Activity(activity_id=1, start_time=late, activity_type="running",
                                    aerobic_te=4.0))
     assert store.get_readiness(today)["signals"]["days_since_hard_workout"] == 1
@@ -762,11 +762,11 @@ def test_latest_race_predictions_picks_the_newest_day(store):
 
 def test_max_hr_since(store):
     store.upsert_activity(Activity(activity_id=1, activity_type="running", max_hr=191,
-                                   start_time=datetime(2026, 7, 1, 8, tzinfo=timezone.utc)))
+                                   start_time=datetime(2026, 7, 1, 8, tzinfo=UTC)))
     store.upsert_activity(Activity(activity_id=2, activity_type="running", max_hr=188,
-                                   start_time=datetime(2026, 9, 7, 6, 22, tzinfo=timezone.utc)))
+                                   start_time=datetime(2026, 9, 7, 6, 22, tzinfo=UTC)))
     store.upsert_activity(Activity(activity_id=3, activity_type="running", max_hr=None,
-                                   start_time=datetime(2026, 9, 8, 6, 0, tzinfo=timezone.utc)))
+                                   start_time=datetime(2026, 9, 8, 6, 0, tzinfo=UTC)))
     assert store.max_hr_since(date(2026, 6, 15)) == {"max_hr": 191, "day": "2026-07-01"}
     assert store.max_hr_since(date(2026, 8, 1)) == {"max_hr": 188, "day": "2026-09-07"}
     assert store.max_hr_since(date(2026, 9, 8)) is None

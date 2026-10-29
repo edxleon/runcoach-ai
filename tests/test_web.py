@@ -9,7 +9,7 @@ import json
 import re
 import sys
 import threading
-from datetime import timedelta
+from datetime import UTC, timedelta
 
 import pytest
 
@@ -853,10 +853,10 @@ def test_a_card_is_not_current_once_the_athlete_changed_their_week(httpd):
     """Fresh-reader finding: save a day off, tap "Plan my week" - and the server
     answered "already based on the current data" with the old week, long run on
     the new day off. The profile is an input of every card like the sync."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
     job = jobs.new_job("p", title="t", kind="week-review")
-    later = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(timespec="seconds")
+    later = (datetime.now(UTC) + timedelta(minutes=5)).isoformat(timespec="seconds")
     jobs.write_card(job["id"], {"kind": "week-review", "headline": "h", "bullets": ["b"],
                                 "verdict": "GO", "snapshot_generated_at": later})
     for j in jobs.read_jobs(100):                      # done: only the card is the anchor
@@ -869,7 +869,7 @@ def test_a_card_is_not_current_once_the_athlete_changed_their_week(httpd):
 
     from runcoach import paths
 
-    future = datetime.now(timezone.utc).timestamp() + 600   # saved after the card was made
+    future = datetime.now(UTC).timestamp() + 600   # saved after the card was made
     os.utime(paths.profile_path(), (future, future))
     status, data, _ = call(httpd, "POST", "/api/spawn", {"template_id": "week-review"})
     assert status == 200 and data["ok"] is True, data

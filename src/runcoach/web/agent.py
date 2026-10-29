@@ -322,7 +322,10 @@ def _run_once(job: dict, db: str | None, athlete: str = "", note: str = "") -> t
         # blocking in communicate(), and a full pipe would deadlock the child.
         out_p, err_p = workdir / "out.txt", workdir / "err.txt"
         with open(out_p, "w", encoding="utf-8") as out_f, open(err_p, "w", encoding="utf-8") as err_f:
-            proc = subprocess.Popen(command(workdir, db), cwd=str(workdir), stdin=subprocess.PIPE,
+            # The argv is `command()`: the resolved CLI and our own flags. The prompt,
+            # the one part that carries outside text, goes on stdin, never into argv.
+            proc = subprocess.Popen(command(workdir, db),  # noqa: S603 — see above
+                                    cwd=str(workdir), stdin=subprocess.PIPE,
                                     stdout=out_f, stderr=err_f, **kwargs)
             # The prompt is ~18 KB and a pipe buffer is 4–8 KB, so this write
             # BLOCKS until the child drains stdin — and `claude` connects its MCP
@@ -380,7 +383,7 @@ def _kill_tree(proc) -> None:
             # `env=` although taskkill talks to nobody: the invariant "every
             # spawn in web/ passes a filtered environment" is worth more without
             # an exception list, and `child_env()` keeps SYSTEMROOT and PATH.
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],  # noqa: S603,S607 — Windows built-in
                            capture_output=True, timeout=15, env=child_env())
         else:
             os.killpg(os.getpgid(proc.pid), signal.SIGKILL)

@@ -1090,7 +1090,7 @@ def test_the_busy_watchdog_outlasts_the_longest_legitimate_job():
     then tripped an alarm whose advice — "restarting runcoach clears it" — would
     have killed it."""
     worst = (agent.QUOTA_WAIT_S // agent.QUOTA_SLICE_S) * agent.TIMEOUT_S + agent.QUOTA_WAIT_S
-    assert server.WORKER_BUSY_STALL_S > worst
+    assert worst < server.WORKER_BUSY_STALL_S
     assert server.WORKER_BUSY_STALL_S > agent.TIMEOUT_S + agent.QUOTA_WAIT_S
 
 

@@ -26,7 +26,7 @@ from misaki.espeak import EspeakWrapper
 if os.environ.get("RUNCOACH_ESPEAK_DATA"):
     EspeakWrapper.set_data_path(os.environ["RUNCOACH_ESPEAK_DATA"])
 
-from mlx_audio.tts.generate import generate_audio  # noqa: E402
+from mlx_audio.tts.generate import generate_audio
 
 MODEL = "mlx-community/Kokoro-82M-bf16"
 VOICE = "am_michael"

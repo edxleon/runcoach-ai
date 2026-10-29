@@ -29,7 +29,7 @@ import random
 import sys
 import tempfile
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -219,7 +219,7 @@ class _Sim:
             self.aid += 1
             self.store.upsert_activity(Activity(
                 activity_id=self.aid,
-                start_time=datetime(day.year, day.month, day.day, 17, 0, tzinfo=timezone.utc),
+                start_time=datetime(day.year, day.month, day.day, 17, 0, tzinfo=UTC),
                 activity_type=kind, name=kind, duration_s=minutes * 60, avg_hr=120,
                 training_load=int(minutes * 0.8), aerobic_te=te, anaerobic_te=0.2))
             self.loads[day] = self.loads.get(day, 0) + minutes * 0.8
@@ -289,7 +289,7 @@ class _Sim:
         anaerobic = 2.6 if kind == "vo2max" else 1.0 if kind in ("threshold", "tempo") else 0.4
         self.store.upsert_activity(Activity(
             activity_id=self.aid,
-            start_time=datetime(day.year, day.month, day.day, 7, 0, tzinfo=timezone.utc),
+            start_time=datetime(day.year, day.month, day.day, 7, 0, tzinfo=UTC),
             activity_type="running", name=f"{kind} run", distance_m=minutes * 180,
             duration_s=minutes * 60, avg_hr=150, max_hr=170,
             training_load=int(minutes * _LOAD_PER_MIN.get(kind, 1.5)),
@@ -457,10 +457,7 @@ def check(course: Course) -> list[str]:
         """Ten days into a break, or in the first week back from one. Not the
         first days of a break: nobody, the app included, knows yet that a
         pause has begun."""
-        for last, first in gaps:
-            if last + timedelta(days=10) <= d <= first + timedelta(days=6):
-                return True
-        return False
+        return any(last + timedelta(days=10) <= d <= first + timedelta(days=6) for last, first in gaps)
 
     def ran_lately(d: date) -> int:
         """The bigger of the last two weeks that had running in them, looking

@@ -126,6 +126,7 @@ def _fetch_day_with_retry(client, day, *, retries: int = 1):
             else:
                 log.error("%s: %s: %s", day.isoformat(), type(exc).__name__, exc)
                 return None
+    return None
 
 
 def run(store: Store, client, days: int = DEFAULT_DAYS, *, say=print) -> SyncReport:
@@ -230,7 +231,7 @@ def run(store: Store, client, days: int = DEFAULT_DAYS, *, say=print) -> SyncRep
 def _side_channel(rep: SyncReport, say, label: str, fn) -> None:
     try:
         fn()
-    except Exception as exc:  # noqa: BLE001 — side channels report, they do not abort
+    except Exception as exc:  # side channels report, they do not abort
         if garmin.is_fatal(exc):
             # Do NOT re-raise: that lost the whole report, so the days that WERE
             # written went unreported and the summary line never printed.

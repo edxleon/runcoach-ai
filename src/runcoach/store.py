@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 import sqlite3
 from contextlib import contextmanager
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from . import paths
@@ -77,13 +77,13 @@ _PROFILE_COLS = frozenset({"race_5k_s", "race_10k_s", "race_hm_s", "race_m_s"})
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def _v(value):
     """Python value → SQLite value (dates/datetimes as ISO text, UTC)."""
     if isinstance(value, datetime):
-        return value.astimezone(timezone.utc).isoformat(timespec="seconds")
+        return value.astimezone(UTC).isoformat(timespec="seconds")
     if isinstance(value, date):
         return value.isoformat()
     return value
@@ -847,7 +847,7 @@ class Store:
         again. Only `in_flight` rows: a claim the apply could not resolve is
         `unknown` and stays, because re-uploading is the one outcome worse than
         a missing session."""
-        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=int(minutes))).isoformat()
+        cutoff = (datetime.now(UTC) - timedelta(minutes=int(minutes))).isoformat()
         with self._conn() as conn:
             cur = conn.execute("DELETE FROM proposal_items WHERE state = 'in_flight' "
                                "AND workout_id IS NULL AND claimed_at < ?", (cutoff,))

@@ -5,7 +5,7 @@ empty/null cases that never occur by chance in a real data set) plus full
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -605,7 +605,7 @@ def test_assemble_against_real_store_is_json_serialisable(store, today):
     store.update_daily_fields(d, {"race_5k_s": 1400, "race_10k_s": 2950})
     store.upsert_activity(Activity(
         activity_id=987, activity_type="running",
-        start_time=datetime.combine(d, datetime.min.time(), tzinfo=timezone.utc),
+        start_time=datetime.combine(d, datetime.min.time(), tzinfo=UTC),
         name="Intervals in the park", distance_m=10500, duration_s=3000,
         avg_hr=158, max_hr=181, training_load=120, aerobic_te=3.8))
     store.update_activity_detail(987, {"hr_z1_s": 300, "hr_z2_s": 1200, "hr_z3_s": 600,

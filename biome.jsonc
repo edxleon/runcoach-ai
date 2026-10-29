@@ -1,0 +1,44 @@
+// The shipped frontend (src/runcoach/web/static) has no build step and no
+// framework, so nothing else reads it before a browser does. Lint only: the
+// formatter would rewrite 4,000 hand-laid lines for no behaviour.
+// The version is pinned where it runs (ci.yml, CLAUDE.md) and in $schema.
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "files": {
+    "includes": [
+      "src/runcoach/web/static/*.js",
+      "src/runcoach/web/static/index.html",
+      "web-tests/*.mjs"
+    ]
+  },
+  "formatter": { "enabled": false },
+  "assist": { "enabled": false },
+  "linter": {
+    "rules": {
+      "preset": "recommended",
+      "correctness": {
+        // Not in the preset, and the one that matters most without a build
+        // step: a name used but never bound is a ReferenceError at runtime.
+        "noUndeclaredVariables": "error"
+      },
+      "style": {
+        // Style, not behaviour: `"a" + b` and a template literal do the same.
+        "useTemplate": "off",
+        // The stylesheet's order is the cascade it means; the rule cannot see intent.
+        "noDescendingSpecificity": "off"
+      },
+      "complexity": {
+        // `x && x.y` reads as plainly; rewriting 40 guards is churn, not safety.
+        "useOptionalChain": "off"
+      },
+      "suspicious": {
+        // The formatters guard with the COERCING isNaN on purpose: a value off
+        // the wire may be a string, and Number.isNaN("abc") is false.
+        "noGlobalIsNan": "off",
+        // `list.forEach(x => f(x))` is the house idiom; the returned value is
+        // ignored by forEach and harmless.
+        "useIterableCallbackReturn": "off"
+      }
+    }
+  }
+}

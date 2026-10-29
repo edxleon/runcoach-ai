@@ -9,6 +9,6 @@
 try {
   const stored = localStorage.getItem("runcoach-theme");
   if (stored === "light" || stored === "dark") document.documentElement.dataset.theme = stored;
-} catch (e) {
+} catch {
   /* private mode, blocked site data: the CSS media query still decides */
 }

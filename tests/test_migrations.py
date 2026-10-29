@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import pytest
@@ -120,7 +120,7 @@ def test_garmin_dir_default_and_override(tmp_path, monkeypatch):
 
 
 def test_local_day_uses_runcoach_tz(monkeypatch):
-    late = datetime(2026, 6, 7, 23, 30, tzinfo=timezone.utc)
+    late = datetime(2026, 6, 7, 23, 30, tzinfo=UTC)
     assert paths.local_day(late) == date(2026, 6, 8)             # Europe/Berlin (autouse)
     monkeypatch.setenv("RUNCOACH_TZ", "UTC")
     assert paths.local_day(late) == date(2026, 6, 7)

@@ -325,14 +325,6 @@ export function volumeAverageKm(weeks, currentWeekStart) {
 
 /* ── Intensity per week ───────────────────────────────────────────────── */
 
-/* DENOMINATOR = the measured zone time (easy + moderate + hard), NOT
-   `duration_s`: that sums ALL activities including strength training — a gym
-   session would raise the bar for running intensity. And runs WITHOUT zone
-   detail deliver hard_s = 0 at a full denominator; the line would be
-   unreachable for data reasons: an alarm on a property of the source. The zone
-   sum counts numerator and denominator from the same measurement. */
-const zoneSeconds = w => (w.easy_s || 0) + (w.moderate_s || 0) + (w.hard_s || 0);
-
 /** The three series of the intensity chart, READ from the snapshot:
  *  `above_easy_min` (Z3+Z4+Z5), `quality_min` (Z4+Z5) and `target_min`.
  *

@@ -21,6 +21,8 @@ evals/last-run.json
 .coverage
 .coverage.*
 htmlcov/
+# mutmut's working copy (mutation.yml; Linux only)
+mutants/
 
 # the demo video's build products and copies; `scripts/video.py` recreates them
 docs/video/index.html

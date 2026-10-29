@@ -27,3 +27,7 @@ done
 uv run ruff check
 uv run pytest -q -x -p no:cacheprovider
 uv run python scripts/pii_gate.py
+# The frontend lint, when node is here at all (same version as ci.yml).
+if command -v npx >/dev/null 2>&1; then
+    npx --yes @biomejs/biome@2.5.15 lint --error-on-warnings
+fi

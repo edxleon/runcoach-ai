@@ -57,7 +57,7 @@ HERO = (520, 940)
 CARD_FILE = OUT / "demo-card.json"
 
 
-def card_day() -> "date":
+def card_day() -> date:
     """The day the stored coach card was generated for."""
     stored = json.loads(CARD_FILE.read_text(encoding="utf-8")).get("day")
     if not stored:
@@ -65,7 +65,7 @@ def card_day() -> "date":
     return date.fromisoformat(str(stored))
 
 
-def freeze_today(day: "date") -> None:
+def freeze_today(day: date) -> None:
     """Pin the demo athlete's today, so the screenshots are REPRODUCIBLE.
 
     `demo.py` seeds relative to `paths.today()` and plans by weekday, so the

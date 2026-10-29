@@ -14,7 +14,6 @@
    Imports are relative so that Node can resolve them the same way the browser
    does from /static/app.js.
    ═══════════════════════════════════════════════════════════════════════════ */
-"use strict";
 import {
   esc, fmtDur, fmtHours, fmtPace, fmtKm, fmtNum, fmtDelta, fmtDay, fmtDayShort,
   fmtMinSec, plural, cell, toast, armOrFire, resetArm, apiGet, apiPost,

@@ -1,0 +1,126 @@
+name: mutation
+
+# Mutation testing of the rule modules (`[tool.mutmut]` in pyproject.toml), once
+# a week. 93 % branch coverage says the tests RUN the rules; this says whether
+# they would NOTICE a rule changing: mutmut flips a comparison, a constant, an
+# `and` into an `or`, runs the tests that cover that function, and a mutant no
+# test kills is a change to the coach's decisions that would ship green.
+#
+# Code written with an AI and tested by the same AI tends to test what the code
+# does rather than what it should do; a survivor is where that shows. It is
+# the bug hunt, like sweep.yml, not a gate: survivors are expected, and the
+# useful ones become a scenario test in tests/test_what_comes_next.py, red
+# against the mutant first. Linux only: mutmut needs a clean fork().
+#
+# One job per module, side by side: all ~5,600 mutants on one 4-core runner
+# do not fit in three hours. Measured per module, 4 workers in a Linux
+# container (v0.4.1): habits 601 mutants in 4 min, planning 1,559 in 23, plan
+# 2,387 in 26; the summary 1-2 min after that.
+
+on:
+  schedule:
+    - cron: "23 2 * * 1"     # Mondays, 02:23 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: mutation
+  cancel-in-progress: false   # a run by hand waits; it does not cancel the Monday run
+
+permissions:
+  contents: read
+
+jobs:
+  mutation:
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [logic, planning, plan, habits]
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # nothing here pushes; no token left in .git/config
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      # The suite runs the shipped logic.js through node (test_js_python_contract).
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      # mutmut and its dependencies come from the `mutation` group in uv.lock,
+      # hash-checked: `--with` would resolve them fresh from PyPI every week,
+      # into a job whose uv cache ci.yml and sweep.yml restore.
+      # Red only when mutmut itself cannot run (the clean suite fails in its
+      # copy of the tree) - surviving mutants are the result, not an error.
+      - name: Mutate the rule modules
+        # Its own limit, under the job's: the summary and the artifact still
+        # run after a cancel, and mutmut has saved every result so far.
+        timeout-minutes: 120
+        env:
+          MODULE: ${{ matrix.module }}
+        run: uv run --python 3.12 --locked --group mutation mutmut run --max-children 4 "runcoach.$MODULE.*"
+
+      - name: Survivors as the job summary
+        if: always()
+        env:
+          MODULE: ${{ matrix.module }}
+        run: |
+          # `mutmut results` lists every mutant not killed, of every module (the
+          # other jobs' as "not checked"). Only this module's `survived` is a
+          # test that is missing; `timeout` and `no tests` are counted apart.
+          uv run --python 3.12 --locked --group mutation mutmut results \
+            | grep -E "^ *runcoach\.$MODULE\." > results.txt || true
+          grep -E ': survived$' results.txt > survivors.txt || true
+          {
+            echo "## $MODULE.py - surviving mutants: $(wc -l < survivors.txt)"
+            echo
+            echo "Not survived, not killed: $(grep -cvE ': survived$' results.txt || true)"
+            echo "($(cut -d: -f2 results.txt | grep -vx ' survived' | sort | uniq -c | tr '\n' ' '))"
+            echo
+            echo "Per function (the full diffs are in the artifact):"
+            echo '```'
+            sed -E 's/__mutmut_[0-9]+.*//' survivors.txt | sort | uniq -c | sort -nr
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          # The diffs in one pass: `mutmut show` re-parses the whole mutated
+          # module per call (12 s for plan.py), which for a few hundred
+          # survivors outlasts the job. The mutated file holds every mutant as
+          # `<name>__mutmut_N` next to `<name>__mutmut_orig`.
+          python3 - survivors.txt > survivors.diff <<'PY'
+          import ast, difflib, os, sys
+
+          module = os.environ["MODULE"]
+          path = f"mutants/src/runcoach/{module}.py"
+          source = open(path, encoding="utf-8").read()
+          funcs = {n.name: n for n in ast.walk(ast.parse(source))
+                   if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)}
+          for line in open(sys.argv[1], encoding="utf-8"):
+              key = line.split(":")[0].strip()
+              name = key.removeprefix(f"runcoach.{module}.")
+              base = name.rpartition("__mutmut_")[0]
+              orig, mutant = funcs.get(base + "__mutmut_orig"), funcs.get(name)
+              if orig is None or mutant is None:
+                  print(f"# {key}: not in {path}\n")
+                  continue
+              a = ast.get_source_segment(source, orig).replace(base + "__mutmut_orig", base)
+              b = ast.get_source_segment(source, mutant).replace(name, base)
+              print(f"# {key}")
+              print("\n".join(difflib.unified_diff(a.splitlines(), b.splitlines(), "original",
+                                                   "mutant", lineterm="", n=2)) + "\n")
+          PY
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: mutation-${{ github.run_number }}-${{ matrix.module }}
+          path: |
+            results.txt
+            survivors.txt
+            survivors.diff
+          retention-days: 30
+          if-no-files-found: ignore

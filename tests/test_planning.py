@@ -669,7 +669,6 @@ def test_a_connect_timeout_is_still_a_connection_never_made():
     """Read top-down, the outermost decisive class wins. A real `ConnectTimeout`
     ends its chain in a socket timeout, and walking straight to the bottom read
     it as "the request may have landed" - a session blocked for nothing."""
-    import socket
 
     import requests
     import urllib3
@@ -679,7 +678,7 @@ def test_a_connect_timeout_is_still_a_connection_never_made():
     timed_out = _chain(requests.exceptions.ConnectTimeout("connect timed out"),
                        urllib3.exceptions.MaxRetryError(None, "/", "x"),
                        urllib3.exceptions.ConnectTimeoutError(None, "connect timeout"),
-                       socket.timeout("timed out"))
+                       TimeoutError("timed out"))
     assert _created_nothing(timed_out) is True
 
 

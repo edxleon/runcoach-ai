@@ -167,7 +167,8 @@ def cmd_doctor(args) -> int:
           "install Claude Code and sign in: https://claude.com/claude-code", fatal=False)
     if claude:
         try:
-            out = subprocess.run([claude, "--version"], capture_output=True, text=True, timeout=20)
+            out = subprocess.run([claude, "--version"],  # noqa: S603 — the resolved `claude`, fixed args
+                                 capture_output=True, text=True, timeout=20)
             check(f"claude --version: {out.stdout.strip() or out.stderr.strip()}",
                   out.returncode == 0, fatal=False)
         except Exception as exc:  # noqa: BLE001 — reported as a failed check, not a traceback

@@ -36,7 +36,7 @@ import json
 import logging
 import re
 import secrets
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from . import garmin, habits, logic, paths, planning
@@ -89,7 +89,7 @@ PROPOSAL_ID_RE = re.compile(PROPOSAL_ID_PATTERN)
 
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 #: An HTTP status in the vendor's message ("API Error 502 - ...").

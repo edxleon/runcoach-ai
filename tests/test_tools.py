@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -974,7 +974,7 @@ def _age_claims(store, proposal_id: str, *, minutes: int) -> None:
     import sqlite3
     from datetime import timedelta as _td
 
-    when = (datetime.now(timezone.utc) - _td(minutes=minutes)).isoformat()
+    when = (datetime.now(UTC) - _td(minutes=minutes)).isoformat()
     conn = sqlite3.connect(store.path)
     try:
         conn.execute("UPDATE proposal_items SET claimed_at = ? WHERE proposal_id = ?",
@@ -992,7 +992,7 @@ def _age_proposal(proposal_id: str, *, days: int) -> None:
 
     f = _plan._path(proposal_id)
     d = _json.loads(f.read_text(encoding="utf-8"))
-    d["created"] = (datetime.now(timezone.utc) - _td(days=days)).isoformat(timespec="seconds")
+    d["created"] = (datetime.now(UTC) - _td(days=days)).isoformat(timespec="seconds")
     f.write_text(_json.dumps(d), encoding="utf-8")
 
 
@@ -1927,9 +1927,9 @@ def test_a_proposal_for_a_day_that_has_passed_is_not_applied(store, today, monke
 # ── chat: the first read syncs when the data is old ─────────────────────────
 
 def _age_last_sync(store, minutes: int) -> None:
-    from datetime import datetime, timedelta, timezone
+    from datetime import datetime, timedelta
 
-    stamp = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
+    stamp = (datetime.now(UTC) - timedelta(minutes=minutes)).isoformat()
     with store._conn() as conn:
         conn.execute("UPDATE daily_metrics SET synced_at = ?", (stamp,))
         conn.execute("UPDATE activities SET synced_at = ?", (stamp,))

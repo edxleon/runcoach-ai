@@ -23,7 +23,10 @@ const el = {
     };
   },
   setAttribute() {}, innerHTML: "",
-  querySelector(sel) { return (this._k[sel] ||= { textContent: "" }); },
+  querySelector(sel) {
+    this._k[sel] ??= { textContent: "" };
+    return this._k[sel];
+  },
 };
 globalThis.document = {
   getElementById: id => (id === "progress" ? el : null),

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 from . import logic, paths
 from .logic import decide_today
@@ -631,7 +631,7 @@ def assemble(store: Store, *, today: date | None = None) -> dict:
 
     return {
         "schema": SCHEMA,
-        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "data_through": latest.isoformat() if latest else None,
         "stale_days": (today - latest).days if latest else None,
         "today": today_block,

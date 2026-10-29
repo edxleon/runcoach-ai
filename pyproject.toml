@@ -25,7 +25,15 @@ Issues = "https://github.com/edxleon/runcoach-ai/issues"
 runcoach = "runcoach.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8", "pyyaml>=6", "ruff>=0.14"]
+dev = [
+    "pytest>=8",
+    "pytest-cov>=7",
+    "pyyaml>=6",
+    "ruff>=0.14",
+]
+mutation = [
+    "mutmut==3.5.0",
+]
 
 [build-system]
 requires = ["hatchling==1.32.4"]   # exact: it runs in the release build
@@ -50,13 +58,56 @@ select = [
     "E",    # pycodestyle
     "F",    # pyflakes
     "B",    # flake8-bugbear
-    "BLE",  # flake8-blind-except  (every catch-all carries a `# noqa: BLE001` with its reason)
-    "N",    # pep8-naming          (suppressed at BaseHTTPRequestHandler's do_GET/do_POST)
+    "BLE",  # flake8-blind-except  (a catch-all that swallows carries `# noqa: BLE001` + reason)
+    "N",    # pep8-naming          (ruff knows do_GET/do_POST override the stdlib)
     "I",    # isort
     "W",    # pycodestyle warnings
+    "UP",   # pyupgrade            (the syntax of the oldest Python we support, 3.12)
+    "SIM",  # flake8-simplify
+    "RET",  # flake8-return        (a function that returns a value says so on every path)
+    "S603", # subprocess call      (every spawn in shipped code carries a `noqa` that says
+    "S607", # partial exe path      why its argv holds no outside text)
+    "RUF100", # a `noqa` that suppresses nothing - keeps every marker load-bearing
 ]
+# A nested `if` that carries a comment of its own, and a `try/except: pass` that
+# says why the error is harmless, read better than their one-line forms.
+ignore = ["SIM102", "SIM105"]
 
 [tool.ruff.lint.per-file-ignores]
 # HTML and GSAP templates that build the video composition: one element per
 # line reads better than a string broken at 110 columns.
-"docs/video/build.py" = ["E501"]
+"docs/video/build.py" = ["E501", "S603", "S607"]
+# Tests, evals and maintainer scripts spawn our own tools with fixed arguments;
+# the subprocess rules are about code that ships.
+"tests/**" = ["S603", "S607"]
+"evals/**" = ["S603", "S607"]
+"scripts/**" = ["S603", "S607"]
+
+# Mutation testing (.github/workflows/mutation.yml, Linux only: mutmut needs a
+# clean fork()). The rule modules the coach's decisions come from - the files
+# CLAUDE.md asks a scenario test for. A surviving mutant is a change to a rule
+# that no test notices.
+[tool.mutmut]
+paths_to_mutate = [
+    "src/runcoach/logic.py",
+    "src/runcoach/planning.py",
+    "src/runcoach/plan.py",
+    "src/runcoach/habits.py",
+]
+# mutmut copies only the mutated files into mutants/; the tests import the rest
+# of the package and read the README, the evals and the frontend tests too.
+also_copy = ["src/runcoach", "evals", "web-tests", "scripts", "docs", "README.md", "CLAUDE.md"]
+# The tests that pin rules, plus test_tools.py (apply and undo are only tested
+# there). Not the web, UI and simulation tests: they reach nearly every rule
+# function, and with them a mutant waits ~31 s for its tests instead of ~12 -
+# about ten hours of runner time a week. The simulation's seeds are sweep.yml's.
+pytest_add_cli_args_test_selection = [
+    "tests/test_logic.py",
+    "tests/test_planning.py",
+    "tests/test_habits.py",
+    "tests/test_what_comes_next.py",
+    "tests/test_build_week_golden.py",
+    "tests/test_profile.py",
+    "tests/test_facts.py",
+    "tests/test_tools.py",
+]

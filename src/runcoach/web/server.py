@@ -19,7 +19,7 @@ import sys
 import threading
 import time
 import webbrowser
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote, urlparse
@@ -615,7 +615,7 @@ class App:
         self.worker_busy = True
         try:
             agent.run(job, db=self.db_path, snapshot_meta={
-                "snapshot_generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "snapshot_generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
                 "data_through": (d.isoformat() if (d := self.store.latest_day()) else None)},
                 athlete=self.athlete_text(), note=profile_mod.load().get(profile_mod.NOTE_KEY, ""))
         except Exception as exc:  # noqa: BLE001 — a crashing job must not kill the worker
@@ -654,7 +654,7 @@ week follows from it and they asked for one, file it with the tool and add its
 def _mtime_utc(path) -> str | None:
     """A file's last change in the format the cards stamp (UTC, seconds)."""
     try:
-        return datetime.fromtimestamp(os.stat(path).st_mtime, timezone.utc).isoformat(timespec="seconds")
+        return datetime.fromtimestamp(os.stat(path).st_mtime, UTC).isoformat(timespec="seconds")
     except OSError:
         return None
 
@@ -702,7 +702,7 @@ class Handler(BaseHTTPRequestHandler):
         # the README documents — must not switch per-request logging on, and
         # setting "ERROR" to get less noise must not produce more.
         if (os.environ.get("RUNCOACH_LOG") or "").upper() in ("DEBUG", "INFO"):
-            sys.stderr.write("%s - %s\n" % (self.address_string(), redact_token(fmt % args)))
+            sys.stderr.write(f"{self.address_string()} - {redact_token(fmt % args)}\n")
 
     # ── helpers ──
     def _send(self, code: int, body: bytes, ctype: str, *, cache: bool = False) -> None:
@@ -769,10 +769,10 @@ class Handler(BaseHTTPRequestHandler):
         return host in ("127.0.0.1", "localhost", "::1")
 
     # ── routes ──
-    def do_GET(self):  # noqa: N802
+    def do_GET(self):
         self._guarded(self._get)
 
-    def do_POST(self):  # noqa: N802
+    def do_POST(self):
         self._guarded(self._post)
 
     def _guarded(self, fn) -> None:
@@ -782,7 +782,7 @@ class Handler(BaseHTTPRequestHandler):
         dead server, so the user restarts instead of restoring the file."""
         try:
             fn()
-        except Exception as exc:  # noqa: BLE001 — a server answers, it does not vanish
+        except Exception as exc:  # a server answers, it does not vanish
             log.exception("%s %s failed", self.command, self.path)
             try:
                 self._json({"error": f"{type(exc).__name__}: {exc}"[:300]}, 500)

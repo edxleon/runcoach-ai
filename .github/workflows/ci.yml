@@ -32,6 +32,14 @@ jobs:
         # `requires-python = ">=3.12"` is a promise about every version above it;
         # one unpinned interpreter per OS tested none of them in particular.
         python: ["3.12", "3.13"]
+        # Coverage is measured on ONE leg: the number is the same code on every
+        # OS, but a floor checked six times fails on whichever leg skips the most
+        # platform branches. 93 % at the time the floor was set (v0.4.1); the
+        # floor only stops it from eroding unnoticed.
+        include:
+          - os: ubuntu-latest
+            python: "3.12"
+            coverage: coverage   # the value lands in the check's name: keep it short
     runs-on: ${{ matrix.os }}
     steps:
       # Actions are pinned to commit SHAs, not tags: a tag is mutable, and these
@@ -61,13 +69,36 @@ jobs:
       - name: Lint
         run: uv run --python ${{ matrix.python }} ruff check
       - name: Python tests (no database server, no network, no Garmin account)
-        run: uv run --python ${{ matrix.python }} pytest -q
+        shell: bash   # one syntax for the empty $COVERAGE on every leg, Windows included
+        env:
+          COVERAGE: ${{ matrix.coverage && '--cov=runcoach --cov-branch --cov-report=term:skip-covered --cov-fail-under=92' || '' }}
+          # Outside the tree: the data file holds absolute paths, and pii_gate
+          # (two steps down) reads every file in the checkout.
+          COVERAGE_FILE: ${{ runner.temp }}/.coverage
+        run: uv run --python ${{ matrix.python }} pytest -q $COVERAGE
       - name: Frontend logic tests
         run: node --test "web-tests/*.test.mjs"
       - name: Eval suite is well-formed (dry run, no model calls)
         run: uv run --python ${{ matrix.python }} python evals/run_evals.py --dry-run
       - name: Nothing personal in the tree
         run: uv run --python ${{ matrix.python }} python scripts/pii_gate.py
+
+  # The shipped frontend has no build step, so nothing reads it before a
+  # browser does. Biome lints it (rules and the reasons for the ones switched
+  # off: biome.jsonc). Once, not per leg: the result cannot depend on the OS.
+  frontend:
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # nothing here pushes; no token left in .git/config
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          package-manager-cache: false   # no package.json, nothing to cache
+      - name: Biome
+        run: npx --yes @biomejs/biome@2.5.15 lint --error-on-warnings
 
   # The suite above proves the code from inside the checkout. This job proves
   # the PACKAGE from outside it: build the wheel, `uv tool install` it into a

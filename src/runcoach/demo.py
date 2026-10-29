@@ -5,7 +5,7 @@ without a Garmin account — and keeps screenshots free of personal data."""
 from __future__ import annotations
 
 import random
-from datetime import datetime, time, timedelta, timezone
+from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 
 from . import paths
@@ -123,7 +123,7 @@ def seed(path: Path | None = None) -> Store:
         store.upsert_activity(Activity(
             activity_id=aid,
             start_time=datetime.combine(day, time(12, 0), tzinfo=paths.local_tz() or
-                                        datetime.now().astimezone().tzinfo).astimezone(timezone.utc),
+                                        datetime.now().astimezone().tzinfo).astimezone(UTC),
             activity_type="running", name=name, distance_m=distance_m, duration_s=duration_s,
             avg_hr=_AVG_HR[kind] + round(rng.uniform(-3, 3)),
             max_hr=_MAX_HR[kind],
