@@ -33,7 +33,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_TOOLS = 15   # 12 that never write to Garmin + sync_garmin + the two write tools
+EXPECTED_TOOLS = 16   # 13 that never write to Garmin + sync_garmin + the two write tools
 failures: list[str] = []
 
 
@@ -199,6 +199,7 @@ def main() -> int:
               f"{len(tools)}: {tools}")
         check("sync_garmin" in tools and "get_training_readiness" in tools,
               "the sync tool and the readiness tool are among them")
+        check("get_athlete_profile" in tools, "what the coach has learned is served (v0.4)")
     return report()
 
 

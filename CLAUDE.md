@@ -22,6 +22,7 @@ Python half of this again and blocks a push whose coach prompt changed without a
 | a rule in `logic.py`, `planning.py`, `plan.py` or `habits.py` | a scenario test in `tests/test_what_comes_next.py`, red against the old code first; then `RUNCOACH_SIM_SEEDS=40 uv run pytest -q tests/test_simulation.py`; a week that moves without habits fails `tests/test_build_week_golden.py` - regenerate it only when that is the point |
 | the number of tests or eval cases | README count and badge - pinned by `tests/test_invariants.py` |
 | a Garmin endpoint | `tests/test_api_contract.py` |
+| an MCP tool added or removed | the tool sets in `tests/test_tools.py` and `tests/test_web.py`, the README diagram, and `EXPECTED_TOOLS` in `scripts/install_check.py` (CI's install job - not run by the pre-push hook) |
 | a migration | `tests/test_migrations.py`; columns in `models.py` |
 
 ## Deep review before the commit
