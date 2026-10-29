@@ -68,6 +68,28 @@ def test_days_that_were_not_fixed_before_say_so(store, today):
     assert change and change.endswith("before: no fixed weekdays")
 
 
+def test_what_the_athlete_set_wins_and_the_history_is_named_beside_it(store, today):
+    from runcoach import profile
+
+    monday = today - timedelta(days=today.weekday())
+    aid = 7_200_000_000
+    for back in range(1, 9):
+        week = monday - timedelta(weeks=back)
+        for wd, minutes in ((1, 40), (3, 40), (5, 90)):
+            aid += 1
+            store.upsert_activity(make_activity(aid, week + timedelta(days=wd),
+                                                duration_s=minutes * 60, load=None))
+    profile.save({"long_run_day": "sun", "off_days": ["thu"]})
+    fs = {f.key: f for f in facts.learned(store, today)}
+    assert (fs["long_run"].value, fs["long_run"].source) == ("sun", "you")
+    assert fs["long_run"].evidence == "set by you; your history says sat"
+    assert fs["off_days"].value == "thu"
+    assert fs["weekdays"].source == "your history"          # not set: the history still speaks
+    week = facts.week_settings(store, today)
+    assert week["set"] == {"long_run_day": "sun", "off_days": ["thu"]}
+    assert week["history"]["long_run_day"] == "sat" and week["history"]["run_days"] == ["tue", "thu", "sat"]
+
+
 def test_the_fingerprint_moves_with_a_value_not_with_the_evidence():
     a = [facts.Fact("long_run", "Long run", "sat", "8 of 8", "your history", "2026-06-10")]
     b = [facts.Fact("long_run", "Long run", "sat", "7 of 8", "your history", "2026-06-17")]

@@ -461,15 +461,15 @@ def propose_week(store: Store, *, start: date | None = None, days_per_week: int 
     known = athlete_habits(store, anchor)
     days_per_week, long_run_day, assumptions = habits.resolve(
         days_per_week=days_per_week, long_run_day=long_run_day, profile=profile, habits=known)
-    if known.known and known.preferred:
-        assumptions.append(f"easy runs on your days first - {known.evidence['preferred']}")
+    week = habits.week(profile, known)
+    if week.preferred_line:
+        assumptions.append(week.preferred_line)
     snap = snapshot.assemble(store, today=anchor)
     zones = snap.get("zones") or {}
     budget, basis, mode = _week_plan(store, anchor, start)
     assumptions += basis
-    if known.known and known.avoid_hard and mode != "return":
-        assumptions.append(f"no quality run on {', '.join(sorted(known.avoid_hard))} - "
-                           f"{known.evidence['other']}, that day and the day after")
+    if week.avoid_line and mode != "return":
+        assumptions.append(week.avoid_line)
     cap, cap_line = _session_cap(store, anchor)
     # A measurement week puts the steady block in the threshold slot; a
     # three-day week has only one slot, and that week it is the measurement -
@@ -509,8 +509,8 @@ def propose_week(store: Store, *, start: date | None = None, days_per_week: int 
                                           variant=variant, long_run=mode != "return",
                                           today=anchor, max_session_min=cap,
                                           quality_one=quality_one if quality else None,
-                                          preferred=known.preferred if known.known else (),
-                                          avoid_hard=known.avoid_hard if known.known else frozenset())
+                                          preferred=week.preferred, avoid_hard=week.avoid_hard,
+                                          off_days=week.off_days)
     if cap_line and any(n.startswith("sessions capped") for n in notes):
         notes = [cap_line if n.startswith("sessions capped") else n for n in notes]
     # Fitted to the calendar, never stacked on it: the athlete's plan wins.

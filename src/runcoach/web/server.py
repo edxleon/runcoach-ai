@@ -25,6 +25,7 @@ from pathlib import Path
 from urllib.parse import quote, urlparse
 
 from .. import __version__, facts, garmin, onboarding, paths, snapshot
+from .. import profile as profile_mod
 from ..store import Store
 from . import agent, jobs
 
@@ -209,6 +210,7 @@ class App:
         return {
             **snap,
             "facts": self.learned(snap),
+            "week": self.week(),
             "version": __version__,
             "demo": self.demo,
             "claude_available": agent.claude_available(),
@@ -516,7 +518,11 @@ class App:
                                 "ref": j["id"]}, 409
                 prev = jobs.latest_card(template_id, ctx or None)
                 synced = self.store.last_synced_at()
-                if prev and synced and str(prev.get("snapshot_generated_at") or "") >= synced:
+                made = str(prev.get("snapshot_generated_at") or "") if prev else ""
+                # The athlete's week and note are inputs of every card, like the
+                # sync: a card made before they changed is not on the current data.
+                edited = _mtime_utc(paths.profile_path())
+                if prev and synced and made >= synced and (edited is None or made > edited):
                     return {"error": f"the card from {prev.get('day')} is already based on the "
                                      f"current data", "code": "card_current", "ref": prev["id"]}, 409
             title, kind, parent = str(tpl.get("title") or template_id), template_id, None
@@ -526,6 +532,24 @@ class App:
         job = jobs.new_job(prompt, title=title, kind=kind, ctx=ctx or None, parent=parent,
                            athlete_text=athlete_text)
         return {"ok": True, "job": jobs.public(job)}, 200
+
+    def week(self) -> dict | None:
+        """The You tab's editor: what the athlete set, what the history says."""
+        try:
+            return facts.week_settings(self.store, paths.today())
+        except Exception as exc:  # noqa: BLE001 — the editor, never the page
+            log.warning("week settings unavailable: %s: %s", type(exc).__name__, exc)
+            return None
+
+    def save_profile(self, op: dict) -> tuple[dict, int]:
+        """The athlete's week settings from the You tab: `{"set": {key: value}}`,
+        `None` hands a key back to the history. Validated in `profile.py`."""
+        patch = op.get("set")
+        try:
+            profile_mod.save(patch)
+        except ValueError as exc:
+            return {"error": str(exc)}, 400
+        return {"ok": True, "week": self.week()}, 200
 
     def feedback(self, op: dict) -> tuple[dict, int]:
         cid = str(op.get("card_id") or "").strip()
@@ -593,7 +617,7 @@ class App:
             agent.run(job, db=self.db_path, snapshot_meta={
                 "snapshot_generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 "data_through": (d.isoformat() if (d := self.store.latest_day()) else None)},
-                athlete=self.athlete_text())
+                athlete=self.athlete_text(), note=profile_mod.load().get(profile_mod.NOTE_KEY, ""))
         except Exception as exc:  # noqa: BLE001 — a crashing job must not kill the worker
             job.update(status="failed", result_summary=f"{type(exc).__name__}: {exc}"[:300],
                        finished=datetime.now().astimezone().isoformat(timespec="seconds"))
@@ -625,6 +649,14 @@ the single biggest lever first, with the number from the tools that shows it and
 what it means for their goal; then what it means for this week. If a session or a
 week follows from it and they asked for one, file it with the tool and add its
 "proposal" - never describe a plan in prose as if it were filed."""
+
+
+def _mtime_utc(path) -> str | None:
+    """A file's last change in the format the cards stamp (UTC, seconds)."""
+    try:
+        return datetime.fromtimestamp(os.stat(path).st_mtime, timezone.utc).isoformat(timespec="seconds")
+    except OSError:
+        return None
 
 
 def ask_prompt(question: str) -> str:
@@ -806,6 +838,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(*self.app.spawn(op))
         if route == "/api/feedback":
             return self._json(*self.app.feedback(op))
+        if route == "/api/profile":
+            return self._json(*self.app.save_profile(op))
         if route == "/api/plan/undo":
             return self._json(*self.app.undo_proposal(op))
         if route == "/api/plan/apply":

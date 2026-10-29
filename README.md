@@ -29,7 +29,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-869 tests, 68 frontend tests and that gate on three operating systems and two Python versions, with every
+912 tests, 72 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -139,7 +139,7 @@ uv tool uninstall runcoach-ai   # removes the program only - delete ~/.runcoach 
 | **Runs** | Every run with its intensity band, real interval structure (`5×4′`, not "5 minutes"), zones, weather, performance condition — and an *Analyze this run* button |
 | **Trend** | VO2max as honest steps (and whether a measurement is due), lactate threshold history, weekly hard-minute share vs. an 80/20 target, aerobic efficiency (pace at a fixed heart rate) with spread and trend, volume, polarisation, ACWR, and Garmin's own load focus (its 4-week load per band against its target range) as a second opinion |
 | **Coach** | Ask the coach anything in your own words (*what am I doing wrong?*) - a short card, the biggest lever first. One-tap analyses by Claude as short cards that remember the previous card of their kind, accept your 👍/👎, take follow-up questions and can be deleted. Two start here (*Why is VO2max moving? · Review my week*); the other two start where their subject is — *Should I train today?* on the Today tab, *Analyze this run* on a run |
-| **You** | What the coach has learned about you from your own data, each with its evidence: your running days and long-run day, a weekly other sport, how consistent you are, your intensity pattern, the VO2max trend, Garmin's load focus, resting-HR baseline and zones - and since when, where something changed. Computed at every load, never stored; every card and the MCP tool `get_athlete_profile` read it |
+| **You** | **Your week**, the foundation the planner goes by: runs per week, your days, long run, days you can't run, another sport - read from your history and kept up to date, and yours to change: what you set wins until you hand it back. **For your coach**: a note in your own words ("gym Mon, Wed, Fri", "less time until December") the coach reads before every answer. And what the coach has learned about you, each with its evidence: how consistent you are, your intensity pattern, the VO2max trend, Garmin's load focus, resting-HR baseline and zones - and since when, where something changed. Every card and the MCP tool `get_athlete_profile` read all three |
 
 ## How it works
 
@@ -288,9 +288,12 @@ network you do not control.
 Four more (`RUNCOACH_DB`, `RUNCOACH_DEMO`, `RUNCOACH_CLAUDE_CMD`, `RUNCOACH_PII_EXTRA`) exist for
 internal plumbing and tests; they are not part of the supported surface.
 
-Optional athlete profile: `runcoach profile --max-hr 182 --goal "sub-50 10k"`. Without
-`--days-per-week` and `--long-run-day` the week planner reads them from your history: the days you
-usually run, and the weekday your longest run falls on.
+Optional athlete profile: `runcoach profile --max-hr 182 --goal "sub-50 10k"`. Your week - days
+per week, your days, long run, days off, another sport - is set on the You tab (or with
+`--days-per-week` and `--long-run-day`); whatever you leave open the planner reads from your
+history: the days you usually run, and the weekday your longest run falls on. A day off is never
+planned on. The note to your coach is context for the coach, not a rule: the days are what the
+planner itself keeps to.
 
 ## Development
 

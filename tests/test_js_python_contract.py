@@ -321,3 +321,38 @@ def test_the_form_and_the_server_agree_on_what_a_route_length_looks_like():
     for v in samples:
         if browser[v]:
             assert server[v], f"the form sends {v!r} and the server would refuse it"
+
+
+def test_the_week_editors_preview_is_the_planners_reading():
+    """The You tab's editor shows what the history gives while days off are
+    being tapped (`you.js historyValue`); the planner, the facts and the coach
+    read `habits.effective`. Two review rounds found the tab naming a long-run
+    day or a number of runs the planner had already moved - so the two are
+    run over the same grid here instead of trusted to agree."""
+    from itertools import combinations
+
+    from runcoach import habits, planning
+
+    hists = [habits.Habits(days_per_week=d, long_run_day=lr, preferred=pref, weeks=8,
+                           evidence={"days": "e", "long": "e", "preferred": "e"})
+             for d in (2, 3, 5, 6) for lr in ("sat", "sun", "wed")
+             for pref in (("tue", "thu", "sat"), ("mon", "wed", "fri", "sun"))]
+    hists.append(habits.NONE)
+    offs = [list(c) for k in range(4) for c in combinations(planning.WEEKDAYS, k)]
+    cases, want = [], []
+    for h in hists:
+        history = {"days_per_week": h.days_per_week if h.known else None,
+                   "run_days": [d for d in planning.WEEKDAYS if d in h.preferred] if h.known else None,
+                   "long_run_day": h.long_run_day if h.known else None,
+                   "off_days": [], "sport_days": None}
+        for off in offs:
+            eff = habits.effective({"off_days": off} if off else {}, h)
+            cases.append({"history": history, "off": off})
+            want.append({k: (eff[k].value if k in eff else None)
+                         for k in ("days_per_week", "run_days", "long_run_day")})
+    got = run_js(f"const cases = {json.dumps(cases)};\n"
+                 "return cases.map(c => Object.fromEntries(['days_per_week', 'run_days', 'long_run_day']"
+                 ".map(k => [k, Y.historyValue({history: c.history}, k, c.off)])));",
+                 module="you.js", alias="Y")
+    diff = [(c, w, g) for c, w, g in zip(cases, want, got, strict=True) if w != g]
+    assert not diff, f"{len(diff)} of {len(cases)} differ, e.g. {diff[:2]}"

@@ -26,7 +26,7 @@ import {
 } from "./logic.js";
 import { mountCards, mountJobs, jobPoller, todayCard, handle409,
          setCardContext } from "./cards.js";
-import { youHtml } from "./you.js";
+import { youHtml, newDraft, pick, resetRow, draftPatch } from "./you.js";
 
 /* The /api/state answer IS the snapshot, plus `templates`, `jobs`, `cards`,
    `demo` and `claude_available` next to the snapshot keys. */
@@ -495,7 +495,7 @@ function renderActions() {
   document.getElementById("coach-actions").innerHTML = `
     <div class="subhead">Ask the coach</div>
     <div class="btn-row ask-form">
-      <input class="ask-input" type="text" maxlength="500" aria-label="Your question"
+      <input class="field ask-input" type="text" maxlength="500" aria-label="Your question"
              placeholder="e.g. What am I doing wrong for my VO2max?">
       <button class="btn btn-primary" data-ask ${askLocked ? "disabled" : ""}>Ask</button>
     </div>
@@ -508,14 +508,14 @@ function renderActions() {
     ${plan ? `
     <div class="subhead" style="margin-top:14px">Plan a session for a route</div>
     <div class="btn-row plan-form" data-plan-form>
-      <select class="plan-kind" aria-label="Session kind">
+      <select class="field plan-kind" aria-label="Session kind">
         <option value="vo2max"${sel("vo2max")}>VO2max intervals</option>
         <option value="threshold"${sel("threshold")}>Threshold reps</option>
         <option value="easy"${sel("easy")}>Easy run</option>
         <option value="long"${sel("long")}>Long run</option>
         <option value="steady"${sel("steady")}>Steady at threshold</option>
       </select>
-      <input class="plan-km" type="number" inputmode="decimal" min="1" max="60" step="0.5" value="10"
+      <input class="field plan-km" type="number" inputmode="decimal" min="1" max="60" step="0.5" value="10"
              aria-label="Route length in km"> <span class="note">km</span>
       ${tplButton(plan, null, { form: true })}
     </div>
@@ -1385,11 +1385,87 @@ function renderAll() {
   renderCoach(); renderYou(); renderHealth();
 }
 
+/* The You tab's editor state. It lives here, not in the DOM: the page is
+   re-rendered on every poll, and a half-made edit must survive that.
+   `note` is the text being typed (null = the saved note). */
+const you = { draft: null, error: null, saving: false, note: null, noteError: null };
+
 function renderYou() {
-  document.getElementById("you-facts").innerHTML = youHtml(D().facts);
+  const root = document.getElementById("you-facts");
+  const active = document.activeElement;
+  const typing = active && active.matches && active.matches("[data-note]")
+    ? [active.selectionStart, active.selectionEnd] : null;
+  root.innerHTML = youHtml(D().facts, D().week, you);
+  if (typing) {
+    const area = root.querySelector("[data-note]");
+    area?.focus();
+    area?.setSelectionRange(...typing);
+  }
 }
 
+async function saveProfile(set, done) {
+  try {
+    await apiPost("/api/profile", { set });
+    done();
+    await refresh().catch(() => {});
+    return true;
+  } catch (e) {
+    // A 400 carries the server's sentence ("the long run cannot be on a day off");
+    // anything else is the connection, and the edit stays open for another try.
+    return e?.status === 400 && e.data?.error ? e.data.error : "Could not save - try again.";
+  }
+}
+
+document.addEventListener("input", ev => {
+  const area = ev.target.closest && ev.target.closest("[data-note]");
+  if (!area) return;
+  you.note = area.value;
+  you.noteError = null;
+  const saved = (D().week || {}).note || "";
+  const count = document.querySelector("[data-note-count]");
+  if (count) count.textContent = `${area.value.length}/${area.maxLength}`;
+  const btn = document.querySelector("button[data-note-save]");
+  if (btn) btn.disabled = area.value.trim() === saved.trim();
+});
+
 document.addEventListener("click", ev => {
+  const weekBtn = ev.target.closest("button[data-week-edit], button[data-week-cancel], "
+    + "button[data-week-pick], button[data-week-reset], button[data-week-save], button[data-note-save]");
+  if (weekBtn) {
+    const ds = weekBtn.dataset;
+    if ("weekEdit" in ds) { Object.assign(you, { draft: newDraft(D().week), error: null }); }
+    else if ("weekCancel" in ds) { Object.assign(you, { draft: null, error: null }); }
+    else if (ds.weekPick && you.draft) { you.draft = pick(you.draft, ds.weekPick, ds.value, D().week); you.error = null; }
+    else if (ds.weekReset && you.draft) { you.draft = resetRow(you.draft, D().week, ds.weekReset); }
+    else if ("weekSave" in ds && you.draft && !you.saving) {
+      you.saving = true;
+      saveProfile(draftPatch(you.draft), () => { you.draft = null; }).then(r => {
+        you.saving = false;
+        if (r === true) toast("Saved — the next week plan goes by it.");
+        else you.error = r;
+        renderYou();
+      });
+    } else if ("noteSave" in ds) {
+      const text = document.querySelector("[data-note]")?.value ?? "";
+      weekBtn.disabled = true;
+      // What was typed while the save ran is not the saved text: keep it.
+      saveProfile({ note: text }, () => {
+        const now = document.querySelector("[data-note]")?.value;
+        you.note = now === undefined || now === text ? null : now;
+      }).then(r => {
+        if (r === true) toast(text.trim() ? "Saved — the coach reads it from now on." : "Note removed.");
+        else you.noteError = r;
+        renderYou();
+      });
+      return;
+    }
+    renderYou();
+    const again = ds.weekPick
+      ? document.querySelector(`button[data-week-pick="${ds.weekPick}"][data-value="${ds.value}"]`)
+      : null;
+    again?.focus();
+    return;
+  }
   const ask = ev.target.closest("button[data-ask]");
   if (ask) {
     const question = (document.querySelector(".ask-input")?.value || "").trim();

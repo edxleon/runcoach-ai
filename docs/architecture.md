@@ -10,6 +10,7 @@
 | `logic.py` | Pure functions: `readiness_verdict`, `decide_today`, `next_stimulus`, `measurement_due`, `interval_facts`, `run_kind` | – |
 | `planning.py` / `plan.py` | The session and week builder (pure), the week rules (`brake`, `down_week_due`, `return_week_due`), and the proposal files plus the one write path to Garmin | logic, snapshot, store |
 | `habits.py` | The athlete's habits read from their history (pure): days per week, preferred weekdays, long-run day, weekdays another sport keeps clear - each with its evidence | planning |
+| `profile.py` | The athlete's own settings (`profile.json`): the week they set on the You tab, which beats the history key by key (`habits.week`), and their note to the coach; validated once for the web route and the CLI | paths |
 | `sync.py` | One sync run: days → activities → detail backfill → side channels (threshold, predictions, calendar, account settings) | garmin, store |
 | `snapshot.py` | Everything the UI shows, assembled once per request | store, logic |
 | `tools.py` / `mcp_server.py` | Text handlers and their MCP registration | store, snapshot |
@@ -17,7 +18,7 @@
 | `web/jobs.py` | Jobs and cards as atomic JSON files | – |
 | `web/agent.py` | Builds the prompt, runs the CLI under an allowlist, validates the card | web/jobs |
 | `demo.py` | Deterministic synthetic athlete | store |
-| `web/static/` | The frontend itself — ~3,900 lines of vanilla ES modules, CSS and one HTML file, no build step. **`app.js` is the page**: the only module `index.html` loads, and every card, chart and cell is rendered there. Beneath it: `chassis.js` (tabs, loading and error states, the refresh button), `cards.js` (coach cards and the job strip, including their polling), `you.js` (the You tab: what the coach has learned about the athlete), `ui.js` (formatting, escaping, `apiGet`/`apiPost`), `logic.js` (the pure arithmetic, tested in `web-tests/` and pinned against Python in `tests/test_js_python_contract.py`), `input-guard.js`, `theme.js` + `theme-boot.js` (the pre-paint one is a separate file because the CSP forbids inline script), `tokens.css` + `cards.css` | the JSON of `/api/state` |
+| `web/static/` | The frontend itself — ~3,900 lines of vanilla ES modules, CSS and one HTML file, no build step. **`app.js` is the page**: the only module `index.html` loads, and every card, chart and cell is rendered there. Beneath it: `chassis.js` (tabs, loading and error states, the refresh button), `cards.js` (coach cards and the job strip, including their polling), `you.js` (the You tab: the week editor, the note to the coach and what the coach has learned - pure, the edit draft lives in `app.js`), `ui.js` (formatting, escaping, `apiGet`/`apiPost`), `logic.js` (the pure arithmetic, tested in `web-tests/` and pinned against Python in `tests/test_js_python_contract.py`), `input-guard.js`, `theme.js` + `theme-boot.js` (the pre-paint one is a separate file because the CSP forbids inline script), `tokens.css` + `cards.css` | the JSON of `/api/state` |
 
 ## Data model
 

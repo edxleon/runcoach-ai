@@ -934,7 +934,7 @@ def test_an_exhausted_quota_waits_and_retries_instead_of_failing(tmp_path, monke
     calls = []
     notes = []
 
-    def fake_run_once(job, db, athlete=""):
+    def fake_run_once(job, db, athlete="", note=""):
         calls.append(job["id"])
         notes.append(jobs.read_job(job["id"]).get("note"))
         if len(calls) < 3:
@@ -963,8 +963,8 @@ def test_the_quota_wait_gives_up_eventually(tmp_path, monkeypatch):
     monkeypatch.setattr(time, "sleep", lambda _s: None)
 
     calls = []
-    monkeypatch.setattr(agent, "_run_once",
-                        lambda job, db, athlete="": (calls.append(1), (1, "", "usage limit reached"))[1])
+    monkeypatch.setattr(agent, "_run_once", lambda job, db, athlete="", note="": (
+        calls.append(1), (1, "", "usage limit reached"))[1])
     job = jobs.new_job("prompt", title="t", kind="train-today")
     out = agent.run(job, db=str(tmp_path / "x.db"))
 
@@ -981,7 +981,7 @@ def test_a_cancel_during_the_quota_wait_is_noticed_without_another_spawn(tmp_pat
 
     calls = []
 
-    def fake_run_once(job, db, athlete=""):
+    def fake_run_once(job, db, athlete="", note=""):
         calls.append(1)
         jobs.request_cancel(job["id"])                  # the user hits cancel meanwhile
         return 1, "", "usage limit reached"
@@ -1576,6 +1576,7 @@ _CLIENT_CALL = {
     "/api/jobs/<id>/cancel": "POST",
     "/api/spawn": "POST",
     "/api/feedback": "POST",
+    "/api/profile": "POST",            # the athlete's week settings, a local file
     "/api/cards/<id>/delete": "POST",
     "/api/plan/apply": "POST",          # the one write to Garmin, behind a click
 }
@@ -1620,6 +1621,7 @@ def test_the_page_and_the_server_agree_on_every_api_route(live):
     # "no such card" — the distinction this test exists to make.
     bodies = {
         "/api/feedback": {"card_id": job["id"], "value": "good"},
+        "/api/profile": {"set": {"long_run_day": "sun"}},
         "/api/spawn": {"template_id": "train-today"},
     }
     origin = f"http://127.0.0.1:{live.server_address[1]}"

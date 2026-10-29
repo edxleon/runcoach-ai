@@ -22,7 +22,8 @@ import os
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from . import paths
+from . import habits, paths
+from . import profile as profile_mod
 from .store import Store
 
 #: How many weekly anchors back a change is looked for.
@@ -88,29 +89,33 @@ def learned(store: Store, today: date, snap: dict | None = None) -> list[Fact]:
     facts: list[Fact] = []
     iso = today.isoformat()
 
+    learned_week: list[Fact] = []
     if now.known:
-        facts.append(Fact("days", "Running days", f"{now.days_per_week} a week",
-                          now.evidence["days"], "your history", iso,
-                          _change([h.days_per_week if h.known else None for h in habits_at])))
+        learned_week.append(Fact("days", "Running days", f"{now.days_per_week} a week",
+                                 now.evidence["days"], "your history", iso,
+                                 _change([h.days_per_week if h.known else None for h in habits_at])))
         if now.preferred:
-            facts.append(Fact("weekdays", "Your days", ", ".join(now.preferred),
-                              now.evidence["preferred"], "your history", iso,
-                              _change([(", ".join(sorted(h.preferred)) or "no fixed weekdays")
-                                       if h.known else None for h in habits_at])))
+            learned_week.append(Fact("weekdays", "Your days", ", ".join(now.preferred),
+                                     now.evidence["preferred"], "your history", iso,
+                                     _change([(", ".join(sorted(h.preferred)) or "no fixed weekdays")
+                                              if h.known else None for h in habits_at])))
         elif "rhythm" in now.evidence:
-            facts.append(Fact("weekdays", "Your days", "no fixed weekdays",
-                              now.evidence["rhythm"], "your history", iso))
+            learned_week.append(Fact("weekdays", "Your days", "no fixed weekdays",
+                                     now.evidence["rhythm"], "your history", iso))
         if now.long_run_day:
-            facts.append(Fact("long_run", "Long run", now.long_run_day, now.evidence["long"],
-                              "your history", iso,
-                              _change([h.long_run_day if h.known else None for h in habits_at])))
+            learned_week.append(Fact("long_run", "Long run", now.long_run_day, now.evidence["long"],
+                                     "your history", iso,
+                                     _change([h.long_run_day if h.known else None
+                                              for h in habits_at])))
         if now.avoid_hard:
-            facts.append(Fact("other_sport", "Other sport", now.evidence["other"].removeprefix(
+            learned_week.append(Fact("other_sport", "Other sport", now.evidence["other"].removeprefix(
                 "another sport on "), "no quality run that day or the day after",
                 "your history", iso))
     else:
-        facts.append(Fact("days", "Running days", "not known yet", now.evidence.get(
+        learned_week.append(Fact("days", "Running days", "not known yet", now.evidence.get(
             "weeks", "too few weeks with a run"), "your history", iso))
+    settings = profile_mod.load()
+    facts += _with_settings(learned_week, habits.effective(settings, now), now, iso)
 
     # No change line: 7 and 8 of 8 weeks are the same habit.
     facts.append(Fact("consistency", "Consistency",
@@ -163,6 +168,50 @@ def learned(store: Store, today: date, snap: dict | None = None) -> list[Fact]:
     return facts
 
 
+#: The week settings as facts: setting, fact key, label, how a value reads.
+_SETTINGS = (
+    ("days_per_week", "days", "Running days", lambda v: f"{v} a week"),
+    ("run_days", "weekdays", "Your days", lambda v: ", ".join(v) or "no fixed weekdays"),
+    ("long_run_day", "long_run", "Long run", str),
+    ("off_days", "off_days", "Days you can't run", lambda v: ", ".join(v)),
+    ("sport_days", "other_sport", "Other sport", lambda v: ", ".join(v) or "none"),
+)
+
+
+def _history_value(setting: str, h) -> object:
+    """What the history alone says for a setting - for "your history says"."""
+    if not h.known:
+        return None
+    return {"days_per_week": h.days_per_week, "long_run_day": h.long_run_day,
+            "run_days": list(h.preferred) or None, "sport_days": list(h.sport_days) or None,
+            "off_days": None}[setting]
+
+
+def _with_settings(learned_week: list[Fact], eff: dict, h, iso: str) -> list[Fact]:
+    """The week facts as the planner goes by them (`habits.effective`): what the
+    athlete set, with the history named beside it where it differs; the
+    history's own fact where it stands; and the history moved by a day off
+    where a day off moved it - so the coach never reads "long run: sat" for a
+    Saturday the athlete can no longer run on."""
+    by_key = {f.key: f for f in learned_week}
+    out: list[Fact] = []
+    for setting, key, label, show in _SETTINGS:
+        e = eff.get(setting)
+        old = by_key.get(key)
+        if e is None or (e.source != "you" and not e.adjusted):
+            if old:
+                out.append(old)
+            continue
+        if e.source == "you":
+            hist = _history_value(setting, h)
+            same = (sorted(hist) == sorted(e.value)) if isinstance(hist, list) else hist == e.value
+            evidence = "set by you" + ("" if hist is None or same else f"; your history says {show(hist)}")
+            out.append(Fact(key, label, show(e.value), evidence, "you", iso))
+        else:
+            out.append(Fact(key, label, show(e.value), e.evidence, "your history", iso))
+    return out
+
+
 def render_text(facts: list[Fact], cap: int) -> str:
     """The facts as lines for a prompt, cut at a whole fact: what does not fit
     is named, never half a sentence."""
@@ -180,6 +229,30 @@ def render_text(facts: list[Fact], cap: int) -> str:
 def fingerprint(facts: list[Fact]) -> str:
     """Changes when a fact's VALUE changes - the trigger of the coach's read."""
     return hashlib.sha1("\n".join(f"{f.key}={f.value}" for f in facts).encode()).hexdigest()[:16]
+
+
+def week_settings(store: Store, today: date) -> dict:
+    """What the You tab's editor needs: the values the athlete set, the ones
+    the history would give (`None` where it cannot tell yet), and their note."""
+    from . import plan
+
+    h = plan.athlete_habits(store, today)
+    known = h.known
+    saved = profile_mod.load()
+    return {
+        "set": {k: v for k, v in saved.items() if k in profile_mod.WEEK_KEYS},
+        "note": saved.get(profile_mod.NOTE_KEY) or "",
+        "note_max": profile_mod.NOTE_MAX,
+        "effective": {k: {"value": e.value, "source": e.source}
+                      for k, e in habits.effective(saved, h).items()},
+        "history": {
+            "days_per_week": h.days_per_week if known else None,
+            "run_days": [d for d in profile_mod.WEEKDAYS if d in h.preferred] if known else None,
+            "long_run_day": h.long_run_day if known else None,
+            "off_days": [],
+            "sport_days": list(h.sport_days) if known else None,
+        },
+    }
 
 
 _CACHE: dict = {}

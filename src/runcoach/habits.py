@@ -57,6 +57,8 @@ class Habits:
     #: Weekdays a quality run should not land on: another sport that day or
     #: the day before.
     avoid_hard: frozenset[str] = frozenset()
+    #: The weekdays of the other sport itself, calendar order.
+    sport_days: tuple[str, ...] = ()
     evidence: dict[str, str] = field(default_factory=dict)
     weeks: int = 0
 
@@ -154,7 +156,123 @@ def derive(activities: list[dict], *, today: date, until: date | None = None) ->
         evidence["other"] = "another sport on " + ", ".join(
             f"{planning.WEEKDAYS[w]} ({other_weekdays[w]}/{n})" for w in sport_days)
     return Habits(days_per_week=days_per_week, long_run_day=long_run_day, preferred=preferred,
-                  avoid_hard=frozenset(avoid), evidence=evidence, weeks=n)
+                  avoid_hard=frozenset(avoid), sport_days=tuple(planning.WEEKDAYS[w] for w in sport_days),
+                  evidence=evidence, weeks=n)
+
+
+def no_hard_after(sport_days) -> frozenset[str]:
+    """Another sport keeps a quality run off its day and the day after."""
+    out: set[str] = set()
+    for d in sport_days:
+        i = planning.WEEKDAYS.index(d)
+        out |= {d, planning.WEEKDAYS[(i + 1) % 7]}
+    return frozenset(out)
+
+
+@dataclass(frozen=True)
+class Week:
+    """Where a week's runs may go: the athlete's settings (`profile.py`) where
+    they set one, the history where they did not."""
+    preferred: tuple[str, ...] = ()
+    avoid_hard: frozenset[str] = frozenset()
+    off_days: frozenset[str] = frozenset()
+    #: Assumption lines for the values that came from the history.
+    preferred_line: str | None = None
+    avoid_line: str | None = None
+
+
+def week(profile: dict, habits: Habits) -> Week:
+    """The profile beats the history, key by key; a day off is never one of
+    the athlete's days, whichever source named it."""
+    off = frozenset(profile.get("off_days") or ())
+    pref_line = avoid_line = None
+    if profile.get("run_days") is not None:
+        preferred = tuple(profile["run_days"])
+    elif habits.known and habits.preferred:
+        preferred = habits.preferred
+        pref_line = f"easy runs on your days first - {habits.evidence['preferred']}"
+    else:
+        preferred = ()
+    if profile.get("sport_days") is not None:
+        avoid = no_hard_after(profile["sport_days"])
+    elif habits.known and habits.avoid_hard:
+        avoid = habits.avoid_hard
+        avoid_line = (f"no quality run on {', '.join(sorted(avoid))} - {habits.evidence['other']}, "
+                      f"that day and the day after")
+    else:
+        avoid = frozenset()
+    dropped = [d for d in preferred if d in off]
+    if pref_line and dropped:
+        # None of their days left: there is nothing to put first.
+        pref_line = (None if len(dropped) == len(preferred) else
+                     pref_line + f"; {', '.join(dropped)} "
+                                 f"{'is a day' if len(dropped) == 1 else 'are days'} off now")
+    return Week(preferred=tuple(d for d in preferred if d not in off), avoid_hard=avoid,
+                off_days=off, preferred_line=pref_line, avoid_line=avoid_line)
+
+
+@dataclass(frozen=True)
+class Setting:
+    value: object
+    #: "you" (the profile), "history" (habits.py), "default" (the planner's own)
+    source: str
+    evidence: str
+    #: The history's value moved by a day off: the evidence says so.
+    adjusted: bool = False
+
+
+def effective(profile: dict, habits: Habits) -> dict[str, Setting]:
+    """The week the planner goes by, key by key, with where each value comes
+    from - the one reading the You tab, the facts and the coach all show, so
+    none of them names a long-run day the planner has moved off a day off."""
+    off = [d for d in planning.WEEKDAYS if d in set(profile.get("off_days") or ())]
+    days, long_day, _ = resolve(days_per_week=None, long_run_day=None, profile=profile,
+                                habits=habits)
+    out: dict[str, Setting] = {}
+    # The same cap `planning.build_week` applies: no more runs than free days.
+    free = 7 - len(off)
+    capped = f"; {', '.join(off)} {'is a day' if len(off) == 1 else 'are days'} off" if days > free else ""
+    shown = min(days, free)
+    if profile.get("days_per_week") is not None:
+        out["days_per_week"] = Setting(shown, "you", "set by you")
+    elif habits.known:
+        out["days_per_week"] = Setting(shown, "history", habits.evidence["days"] + capped,
+                                       adjusted=bool(capped))
+    else:
+        out["days_per_week"] = Setting(shown, "default", "the planner's default until your history "
+                                       "shows it" + capped)
+    if profile.get("long_run_day") is not None:
+        out["long_run_day"] = Setting(long_day, "you", "set by you")
+    elif habits.known and habits.long_run_day:
+        moved = habits.long_run_day in off
+        out["long_run_day"] = Setting(
+            long_day, "history",
+            f"your usual {habits.long_run_day} is a day off now" if moved else habits.evidence["long"],
+            adjusted=moved)
+    else:
+        out["long_run_day"] = Setting(long_day, "default",
+                                      "the planner's default until your history shows it")
+    w = week(profile, habits)
+    if profile.get("run_days") is not None:
+        out["run_days"] = Setting(list(w.preferred), "you", "set by you")
+    elif habits.known and habits.preferred:
+        dropped = [d for d in habits.preferred if d in off]
+        out["run_days"] = Setting(
+            [d for d in planning.WEEKDAYS if d in w.preferred], "history",
+            habits.evidence["preferred"] + (f"; {', '.join(dropped)} "
+                                            f"{'is a day' if len(dropped) == 1 else 'are days'} off now"
+                                            if dropped else ""),
+            adjusted=bool(dropped))
+    out["off_days"] = Setting(off, "you" if off else "default", "set by you" if off else "")
+    if profile.get("sport_days") is not None:
+        out["sport_days"] = Setting(list(profile["sport_days"]), "you", "set by you")
+    elif habits.known and habits.sport_days:
+        out["sport_days"] = Setting(list(habits.sport_days), "history", habits.evidence["other"])
+    return out
+
+
+#: Where the long run goes when its usual day is a day off: the weekend first.
+_LONG_FALLBACK = ("sun", "sat", "fri", "thu", "wed", "tue", "mon")
 
 
 def resolve(*, days_per_week: int | None, long_run_day: str | None, profile: dict,
@@ -162,8 +280,10 @@ def resolve(*, days_per_week: int | None, long_run_day: str | None, profile: dic
     """Days and long-run day for a week, and the lines that say where each came
     from: the caller's argument, else the profile, else the history, else the
     built-in default. An argument and a profile value need no line - the
-    athlete said so; the history and the default are assumptions."""
+    athlete said so; the history and the default are assumptions. A history
+    or default long-run day the athlete has since made a day off gives way."""
     lines: list[str] = []
+    off = set(profile.get("off_days") or ())
     if days_per_week is None:
         days_per_week = profile.get("days_per_week")
     if days_per_week is None and habits.known:
@@ -176,10 +296,16 @@ def resolve(*, days_per_week: int | None, long_run_day: str | None, profile: dic
     if long_run_day is None:
         long_run_day = profile.get("long_run_day")
     if long_run_day is None and habits.known and habits.long_run_day:
-        long_run_day = habits.long_run_day
-        lines.append(f"long run on {long_run_day} - {habits.evidence['long']}")
+        if habits.long_run_day in off:
+            usual = next(d for d in _LONG_FALLBACK if d not in off)
+            lines.append(f"long run on {usual} - your usual {habits.long_run_day} is a day off now")
+            long_run_day = usual
+        else:
+            long_run_day = habits.long_run_day
+            lines.append(f"long run on {long_run_day} - {habits.evidence['long']}")
     if long_run_day is None:
-        long_run_day = planning.DEFAULT_LONG_RUN_DAY
+        long_run_day = next(d for d in (planning.DEFAULT_LONG_RUN_DAY, *_LONG_FALLBACK)
+                            if d not in off)
         lines.append(f"long run on {long_run_day} - no long_run_day in the profile "
                      f"(runcoach profile --long-run-day sun)")
     return int(days_per_week), str(long_run_day), lines

@@ -120,6 +120,20 @@ def test_the_athlete_block_sits_before_the_task_and_the_cap_never_reaches_it():
     assert "--- END PREVIOUS CARD" not in prompt, "the cap still cuts the memory, not the facts"
 
 
+def test_the_athletes_note_is_their_words_before_the_task():
+    job = jobs.new_job("Plan my week.", title="t", kind="plan-week")
+    note = "Strength training Mon, Wed, Fri. Less time until December."
+    prompt = agent.build_prompt(job, "- Long run: sat - 8 of 8 weeks", note)
+    m = re.search(r"--- NOTE FROM THE ATHLETE ([0-9a-f]{8}) \(their own words, from the You tab\) ---",
+                  prompt)
+    assert m and f"--- END NOTE {m.group(1)} ---" in prompt
+    assert prompt.index("--- ABOUT THE ATHLETE") < prompt.index(note) < prompt.index("TASK:")
+    assert "never stands in for their yes" in prompt
+    # The note alone is a block too; neither is an empty block.
+    assert "--- ABOUT THE ATHLETE" not in agent.build_prompt(job, "", note)
+    assert agent.build_prompt(job, "", "") == agent.build_prompt(job)
+
+
 def test_previous_card_must_match_kind_and_ctx():
     _previous_card(kind="analyze-run", ctx={"activity_id": "1"})
     other_kind = jobs.new_job("x", title="t", kind="week-review")
@@ -794,3 +808,68 @@ def test_the_limit_messages_claude_really_prints_mean_wait():
     for text in ("The 5-hour limit on easy runs is a rule of thumb.",
                  "error: unknown option --tools"):
         assert not agent._QUOTA_RE.search(text), text
+
+
+# ── the You tab's settings (POST /api/profile) ─────────────────────────────────
+
+def test_the_state_carries_the_week_settings_and_the_note(httpd):
+    status, data, _ = call(httpd, "GET", "/api/state")
+    assert status == 200
+    week = data["week"]
+    assert week["set"] == {} and week["note"] == "" and week["note_max"] == 600
+    assert set(week["history"]) == {"days_per_week", "run_days", "long_run_day", "off_days",
+                                    "sport_days"}
+
+
+def test_a_week_setting_is_saved_and_shows_as_set_by_the_athlete(httpd):
+    status, data, _ = call(httpd, "POST", "/api/profile",
+                           {"set": {"off_days": ["thu"], "note": "Gym on Tuesdays."}})
+    assert status == 200 and data["ok"] is True
+    assert data["week"]["set"] == {"off_days": ["thu"]} and data["week"]["note"] == "Gym on Tuesdays."
+    facts = {f["key"]: f for f in call(httpd, "GET", "/api/state")[1]["facts"]}
+    assert facts["off_days"]["value"] == "thu" and facts["off_days"]["source"] == "you"
+    assert call(httpd, "POST", "/api/profile", {"set": {"off_days": None}})[1]["week"]["set"] == {}
+
+
+@pytest.mark.parametrize("body", [{}, {"set": {}}, {"set": "x"}, {"set": {"goal": "sub 40"}},
+                                  {"set": {"long_run_day": "sun", "off_days": ["sun"]}}])
+def test_a_refused_setting_says_why_and_writes_nothing(httpd, body):
+    from runcoach import paths
+
+    status, data, _ = call(httpd, "POST", "/api/profile", body)
+    assert status == 400 and data["error"]
+    assert not paths.profile_path().exists()
+
+
+def test_the_profile_route_refuses_a_cross_origin_request(httpd):
+    from runcoach import paths
+
+    status, _, _ = call(httpd, "POST", "/api/profile", {"set": {"long_run_day": "sun"}},
+                        headers={"Origin": "https://evil.example"})
+    assert status == 403 and not paths.profile_path().exists()
+
+
+def test_a_card_is_not_current_once_the_athlete_changed_their_week(httpd):
+    """Fresh-reader finding: save a day off, tap "Plan my week" - and the server
+    answered "already based on the current data" with the old week, long run on
+    the new day off. The profile is an input of every card like the sync."""
+    from datetime import datetime, timedelta, timezone
+
+    job = jobs.new_job("p", title="t", kind="week-review")
+    later = (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(timespec="seconds")
+    jobs.write_card(job["id"], {"kind": "week-review", "headline": "h", "bullets": ["b"],
+                                "verdict": "GO", "snapshot_generated_at": later})
+    for j in jobs.read_jobs(100):                      # done: only the card is the anchor
+        j.update(status="done")
+        jobs.write_job(j)
+    status, data, _ = call(httpd, "POST", "/api/spawn", {"template_id": "week-review"})
+    assert status == 409 and data["code"] == "card_current"
+    assert call(httpd, "POST", "/api/profile", {"set": {"off_days": ["sat"]}})[0] == 200
+    import os
+
+    from runcoach import paths
+
+    future = datetime.now(timezone.utc).timestamp() + 600   # saved after the card was made
+    os.utime(paths.profile_path(), (future, future))
+    status, data, _ = call(httpd, "POST", "/api/spawn", {"template_id": "week-review"})
+    assert status == 200 and data["ok"] is True, data

@@ -69,16 +69,22 @@ def cmd_mcp(_args) -> int:
 
 
 def cmd_profile(args) -> int:
-    path = paths.profile_path()
-    try:
-        profile = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        profile = {}
-    for key in ("max_hr", "aerobic_ref_hr", "goal", "days_per_week", "long_run_day"):
+    from . import profile as profile_mod
+
+    current = profile_mod.load()
+    for key in ("max_hr", "aerobic_ref_hr", "goal"):
         value = getattr(args, key)
         if value is not None:
-            profile[key] = value
-    path.write_text(json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8")
+            current[key] = value
+    # The week keys go through the same check as the You tab: a long run on a
+    # day off would otherwise reach the planner and fail every proposal.
+    week = {k: getattr(args, k) for k in ("days_per_week", "long_run_day") if getattr(args, k) is not None}
+    try:
+        profile = profile_mod.validate(week, current) if week else current
+    except ValueError as exc:
+        print(f"Not saved: {exc}", file=sys.stderr)
+        return 2
+    profile_mod.write(profile)
     print(json.dumps(profile, indent=2, ensure_ascii=False))
     return 0
 

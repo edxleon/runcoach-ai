@@ -485,3 +485,93 @@ test("the You tab lists each fact with its evidence, escaped, and says when noth
   assert.ok(!html.includes("<script>") && html.includes("&lt;script&gt;"));
   assert.match(youHtml([]), /Nothing yet/);
 });
+
+test("the You tab's week: history fills it, the athlete's setting wins and says so", async () => {
+  const { youHtml, effective } = await import("../src/runcoach/web/static/you.js");
+  const week = { set: { long_run_day: "sun", off_days: ["thu"] }, note: "", note_max: 600,
+                 history: { days_per_week: 3, run_days: ["tue", "thu", "sat"], long_run_day: "sat",
+                            off_days: [], sport_days: ["tue"] },
+                 effective: { days_per_week: { value: 3, source: "history" },
+                              run_days: { value: ["tue", "sat"], source: "history" },
+                              long_run_day: { value: "sun", source: "you" },
+                              off_days: { value: ["thu"], source: "you" },
+                              sport_days: { value: ["tue"], source: "history" } } };
+  assert.deepEqual(effective(week, "long_run_day"), { value: "sun", source: "you" });
+  assert.deepEqual(effective(week, "days_per_week"), { value: 3, source: "history" });
+  const html = youHtml([{ key: "long_run", label: "Long run", value: "sun",
+                          evidence: "set by you; your history says sat" }], week);
+  assert.match(html, /set by you/);
+  assert.match(html, /from your history/);
+  assert.match(html, /day-long[\s\S]*Sun/);            // the strip marks the long run
+  assert.match(html, /day-off/);
+  assert.match(html, /data-week-edit/);
+  assert.match(html, /For your coach/);
+});
+
+test("the week editor: only what the athlete touched is sent; a day off moves the history's days", async () => {
+  const { newDraft, pick, resetRow, draftPatch, youHtml } =
+    await import("../src/runcoach/web/static/you.js");
+  const week = { set: {}, note: "",
+                 history: { days_per_week: 3, run_days: ["tue", "thu", "sat"], long_run_day: "sat",
+                            off_days: [], sport_days: null } };
+  let d = newDraft(week);
+  assert.deepEqual(draftPatch(d), {});
+  // Review finding: a day off saved the history's running days as the athlete's own.
+  d = pick(d, "off_days", "thu", week);
+  assert.deepEqual(d.values.run_days, ["tue", "sat"]);          // the preview follows the planner
+  assert.deepEqual(draftPatch(d), { off_days: ["thu"] });       // ...but only the day off is theirs
+  // The history's long-run day can be taken off: the long run moves, weekend first.
+  d = pick(d, "off_days", "sat", week);
+  assert.equal(d.values.long_run_day, "sun");
+  assert.deepEqual(draftPatch(d), { off_days: ["thu", "sat"] });
+  assert.doesNotMatch(youHtml([], week, { draft: newDraft(week) }),
+                      /data-week-pick="off_days" data-value="sat"\s+aria-pressed="false" disabled/);
+  d = pick(d, "days_per_week", "4", week);
+  assert.equal(draftPatch(d).days_per_week, 4);
+  d = pick(d, "off_days", "thu", week);
+  d = pick(d, "off_days", "sat", week);                         // untoggled: no days off is no setting
+  assert.equal(draftPatch(d).off_days, null);
+  assert.equal(d.values.long_run_day, "sat");
+});
+
+test("the week editor: the athlete's own values are kept and handed back to the history", async () => {
+  const { newDraft, pick, resetRow, draftPatch, youHtml } =
+    await import("../src/runcoach/web/static/you.js");
+  const week = { set: { long_run_day: "sun", run_days: ["tue", "thu"], off_days: ["sat"] }, note: "",
+                 history: { days_per_week: 3, run_days: ["tue", "thu", "sat"], long_run_day: "sat",
+                            off_days: [], sport_days: null } };
+  let d = newDraft(week);
+  // A running day of their own that becomes a day off leaves the list they SEE;
+  // the save carries only the day off (the server takes it out of their days).
+  d = pick(d, "off_days", "thu", week);
+  assert.deepEqual(d.values.run_days, ["tue"]);
+  assert.deepEqual(draftPatch(d), { off_days: ["thu", "sat"] });
+  // Round 2: tapping the day off again used to cost them Thursday for good.
+  d = pick(d, "off_days", "thu", week);
+  assert.deepEqual(d.values.run_days, ["tue", "thu"]);
+  assert.equal(draftPatch(d).run_days, undefined);
+  // Runs a week of their own that would not fit next to another day off: blocked.
+  const tight = { ...week, set: { ...week.set, days_per_week: 6 } };
+  assert.match(youHtml([], tight, { draft: newDraft(tight) }),
+               /data-week-pick="off_days" data-value="mon"\s+aria-pressed="false" disabled/);
+  // A long-run day they set cannot be taken off; a day off cannot be the long run.
+  const html = youHtml([], week, { draft: newDraft(week) });
+  assert.match(html, /data-week-pick="off_days" data-value="sun"\s+aria-pressed="false" disabled/);
+  assert.match(html, /data-week-pick="long_run_day" data-value="sat"\s+aria-pressed="false" disabled/);
+  // Review finding: "use my history" showed Sat while Sat is a day off; the planner says Sun.
+  d = resetRow(newDraft(week), week, "long_run_day");
+  assert.equal(d.values.long_run_day, "sun");
+  assert.equal(draftPatch(d).long_run_day, null);
+  assert.match(youHtml([], week, { draft: d }), /data-week-save\s*>/);
+});
+
+test("the note to the coach is escaped and keeps what is being typed", async () => {
+  const { youHtml } = await import("../src/runcoach/web/static/you.js");
+  const week = { set: {}, note: "<b>gym</b>", note_max: 600, history: {} };
+  const html = youHtml([], week);
+  assert.ok(!html.includes("<b>gym</b>") && html.includes("&lt;b&gt;gym&lt;/b&gt;"));
+  assert.match(html, /data-note-save disabled/);         // nothing changed yet
+  const typing = youHtml([], week, { note: "less time" });
+  assert.match(typing, />less time<\/textarea>/);
+  assert.match(typing, /data-note-save >/);
+});

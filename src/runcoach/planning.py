@@ -548,7 +548,8 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
                today=None, max_session_min: int | None = None,
                preferred: tuple[str, ...] = (),
                avoid_hard: frozenset = frozenset(),
-               quality_one: str | None = None) -> tuple[list[tuple], list[str]]:
+               quality_one: str | None = None,
+               off_days: frozenset = frozenset()) -> tuple[list[tuple], list[str]]:
     """Seven days from `start`: a polarised week as `[(date, SessionSpec), …]`
     sorted by day, plus the assumptions that shaped it.
 
@@ -575,13 +576,18 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
     avoided ones. Without them the week is the one it always was
     (`tests/test_build_week_golden.py`). `quality_one` is the kind a week with
     ONE quality slot takes (three days or fewer, or a slot lost to another
-    sport); without it, `quality[0]`."""
+    sport); without it, `quality[0]`. `off_days` are the weekdays the athlete
+    cannot run on (`profile.py`): nothing is ever placed there, and a week
+    asking for more days than are left gets the days that are."""
     from datetime import timedelta
 
     if not 2 <= int(days_per_week) <= 7:
         raise ValueError("days_per_week must be between 2 and 7")
     if long_run_day not in WEEKDAYS:
         raise ValueError(f"long_run_day must be one of {', '.join(WEEKDAYS)}")
+    off = frozenset(off_days or ())
+    if long_run_day in off:
+        raise ValueError(f"the long run cannot be on a day off ({long_run_day})")
     quality = DEFAULT_QUALITY if quality is None else tuple(quality)
     if any(q not in HARD_KINDS for q in quality):
         raise ValueError(f"quality sessions must be among {', '.join(HARD_KINDS)}")
@@ -591,6 +597,10 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
         assumptions.append(f"{n} days asked, {MAX_SESSIONS_PER_WEEK} planned: one rest day "
                            f"is not negotiable")
         n = MAX_SESSIONS_PER_WEEK
+    if off and n > 7 - len(off):
+        assumptions.append(f"{n} days asked, {7 - len(off)} planned: "
+                           f"{', '.join(d for d in WEEKDAYS if d in off)} are days off")
+        n = 7 - len(off)
     window = [start + timedelta(days=i) for i in range(7)]
     long_date = next(d for d in window if WEEKDAYS[d.weekday()] == long_run_day)
 
@@ -603,6 +613,9 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
 
     preferred = tuple(preferred or ())
     avoid = frozenset(avoid_hard or ())
+    # A quality run stays off a day off like off a gym day; the sentences
+    # about another sport only name the sport's days.
+    no_hard = avoid | off
     blocked: list[str] = []
     reduced: list[int] = []
 
@@ -613,14 +626,15 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
         session that is - a gym day is not moved for the plan, the plan makes
         room for it. When not even one is, the default rhythm and a line."""
         for size in range(k, 0, -1):
-            clear = [c for c in _QUALITY_ALTERNATIVES[size] if not any(wd(o) in avoid for o in c)]
+            clear = [c for c in _QUALITY_ALTERNATIVES[size] if not any(wd(o) in no_hard for o in c)]
             if clear:
                 if size < k:
                     reduced.append(size)
                 return max(clear, key=lambda c: sum(wd(o) in preferred for o in c))
         blocked.append(", ".join(sorted({wd(o) for c in _QUALITY_ALTERNATIVES[k]
-                                         for o in c if wd(o) in avoid})))
-        return _QUALITY_SLOTS[k]
+                                         for o in c if wd(o) in no_hard})))
+        # The usual rhythm, minus any slot on a day off: that one is simply gone.
+        return tuple(o for o in _QUALITY_SLOTS[k] if wd(o) not in off)
 
     # The athlete's days first (most frequent first), then the default order.
     # Without `preferred` this is exactly `_EASY_OFFSETS`.
@@ -650,10 +664,14 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
             # easy run now, or a six-day week would come out one day short -
             # unless the day is one the other sport keeps clear.
             order = easy_order + [o for o in _QUALITY_SLOTS[k] if o not in slots]
+        # Then any other free day: the usual easy days can all be days off,
+        # and a return week (no quality slots) never tried Tuesday and
+        # Thursday at all - a six-day comeback came out as five, in silence.
+        order = order + [o for o in range(1, 7) if o not in order]
         for offset in order:
             if len(days) >= n:
                 break
-            if at(offset) not in days:      # a 3-day week has its quality day here
+            if at(offset) not in days and wd(offset) not in off:   # a 3-day week has its quality day here
                 days[at(offset)] = "easy"
         capped = False
         if max_session_min:
@@ -693,12 +711,25 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
         scale_note = re.sub(r"\(~\d+ min across \d+ days\)",
                             f"(~{got} min across {len(plan)} days)", scale_note)
     if reduced and any(k in HARD_KINDS for k in plan.values()):
-        assumptions.append(f"one quality session this week: {', '.join(sorted(avoid))} stay clear "
-                           f"of hard running (another sport that day or the day before), and two "
+        why = []
+        if avoid:
+            why.append(f"{', '.join(sorted(avoid))} stay clear of hard running (another sport "
+                       f"that day or the day before)")
+        if off:
+            why.append(f"{', '.join(d for d in WEEKDAYS if d in off)} "
+                       f"{'is a day' if len(off) == 1 else 'are days'} off")
+        assumptions.append(f"one quality session this week: {' and '.join(why)}, and two "
                            f"sessions 48 hours apart do not fit around them")
-    if blocked:
+    if blocked and not off:
         assumptions.append(f"quality days could not stay clear of {blocked[-1]} (another sport "
                            f"that day or the day before) - placed in the usual rhythm")
+    elif blocked and any(k in HARD_KINDS for k in plan.values()):
+        assumptions.append(f"quality days could not stay clear of {blocked[-1]} (another sport "
+                           f"or a day off) - placed in the usual rhythm, none on a day off")
+    elif blocked and quality:
+        assumptions.append(f"no quality session this week: the days around "
+                           f"{', '.join(d for d in WEEKDAYS if d in off)} (days off) leave no room "
+                           f"48 hours from the long run")
     if capped:
         assumptions.append(f"sessions capped at ~{max_session_min} min")
     if dropped:

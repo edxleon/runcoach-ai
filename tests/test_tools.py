@@ -2266,3 +2266,14 @@ def test_garmins_load_focus_is_one_line_said_as_its_opinion(store, today):
     assert (f"- Garmin's load focus (its 4-week estimate, as of {today.isoformat()}): "
             "low aerobic 115 (target 115-279), high aerobic 0 (target 186-350), anaerobic 0 "
             "(target 0-164) - AEROBIC_HIGH_SHORTAGE. Garmin's opinion, not the app's rule") in out
+
+
+def test_the_athlete_profile_tool_carries_their_note_and_how_to_read_it(store):
+    from runcoach import profile
+
+    assert "note to the coach" not in tools.get_athlete_profile(store)
+    profile.save({"note": "Less time until December - keep weekday runs short."})
+    out = tools.get_athlete_profile(store)
+    assert "Their note to the coach (their own words, from the You tab):" in out
+    assert "Less time until December - keep weekday runs short." in out
+    assert profile.NOTE_RULE in out

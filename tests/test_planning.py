@@ -960,3 +960,57 @@ def test_a_pause_of_more_than_eight_weeks_is_three_short_easy_runs(store, today)
     budget, lines = plan._week_budget(store, today)
     # Half of the one 60-minute week before the pause - never more than that.
     assert budget == 30 and "80 days without running" in lines[0], lines
+
+
+def test_a_return_week_with_days_off_still_gets_the_free_days():
+    """Review finding: with Wednesday and Friday off, a five-day return week came
+    out as three days - Tuesday and Thursday were never tried for an easy run."""
+    from datetime import date
+
+    from runcoach import planning
+
+    sessions, notes = planning.build_week(date(2026, 6, 15), days_per_week=5, long_run_day="sun",
+                                          quality=(), long_run=False,
+                                          off_days=frozenset({"wed", "fri"}))
+    days = {planning.WEEKDAYS[d.weekday()] for d, _ in sessions}
+    assert len(days) == 5 and not days & {"wed", "fri"}, (days, notes)
+
+
+def test_every_week_gets_the_days_asked_for_that_are_free():
+    """The invariant behind two review rounds: without a budget, a week plans
+    min(days asked, 6, free days) - never fewer in silence, with or without
+    days off, with or without quality, in a return week too."""
+    from datetime import date
+    from itertools import combinations
+
+    from runcoach import planning
+
+    offs = [frozenset(c) for k in range(4) for c in combinations(planning.WEEKDAYS, k)]
+    short = []
+    for days in range(2, 8):
+        for long_day in planning.WEEKDAYS:
+            for quality, long_run in ((None, True), (("steady",), True), ((), False)):
+                for off in offs:
+                    if long_day in off:
+                        continue
+                    sessions, _ = planning.build_week(date(2026, 6, 15), days_per_week=days,
+                                                      long_run_day=long_day, quality=quality,
+                                                      long_run=long_run, off_days=off)
+                    want = min(days, planning.MAX_SESSIONS_PER_WEEK, 7 - len(off))
+                    placed = {planning.WEEKDAYS[d.weekday()] for d, _ in sessions}
+                    if len(sessions) != want or placed & off:
+                        short.append((days, long_day, quality, sorted(off), len(sessions)))
+    assert not short, f"{len(short)} weeks short, e.g. {short[:5]}"
+
+
+def test_a_week_without_room_for_quality_says_so_instead_of_the_usual_rhythm():
+    from datetime import date
+
+    from runcoach import planning
+
+    # Long run Saturday, Monday to Thursday off: Friday and Sunday touch the long run.
+    sessions, notes = planning.build_week(date(2026, 6, 15), days_per_week=3, long_run_day="sat",
+                                          off_days=frozenset({"mon", "tue", "wed", "thu"}))
+    assert not any(s.kind in planning.HARD_KINDS for _, s in sessions), sessions
+    assert not any("placed in the usual rhythm" in n for n in notes), notes
+    assert any(n.startswith("no quality session this week") for n in notes), notes

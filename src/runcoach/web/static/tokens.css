@@ -186,12 +186,95 @@ main.app { max-width: 480px; margin: 0 auto; padding: 14px 12px 24px;
 .note { font-size: 12px; color: var(--muted); }
 .empty-note { font-size: 13px; color: var(--muted); padding: 10px 2px; }
 /* The You tab: one fact per row - what, the value, why. */
-.facts { display: grid; gap: 12px; margin-top: 10px; }
-.fact { display: grid; gap: 2px; }
+/* ── Form fields ──────────────────────────────────────────────────────────
+   One look for every field: the card's own surface, a hairline border, and on
+   focus a quiet accent ring - not the browser's white box under the global
+   2 px focus outline, which read as a different element on a dark card. */
+.field {
+  font: inherit; font-size: 14px; line-height: 1.35; color: var(--text);
+  background: var(--surface2); border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 9px 12px; min-height: 38px; min-width: 0;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.field::placeholder { color: var(--muted); opacity: .75; }
+.field:hover:not(:focus):not(:disabled) { border-color: color-mix(in srgb, var(--line) 60%, var(--muted)); }
+.field:focus, .field:focus-visible,
+.fb-text:focus-visible, .fu-text:focus-visible {
+  outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint);
+}
+.field:disabled { opacity: .5; }
+textarea.field { display: block; width: 100%; resize: vertical; min-height: 84px; }
+select.field {
+  appearance: none; -webkit-appearance: none; padding-right: 30px; cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+                    linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 16px) 52%, calc(100% - 11px) 52%;
+  background-size: 5px 5px; background-repeat: no-repeat;
+}
+.btn-row.ask-form { flex-wrap: nowrap; align-items: stretch; }
+.ask-form .field { flex: 1; }
+.form-error { color: var(--down); font-size: 13px; margin-top: 10px; }
+.btn-row.ask-form + .note, .plan-form + .note { margin-top: 6px; }
+.form-actions { margin-top: 12px; }
+.btn-quiet { background: transparent; }
+.linkish { background: none; border: 0; padding: 2px 0; color: var(--accent); font-size: 12px;
+           font-weight: 600; cursor: pointer; }
+.linkish:hover { text-decoration: underline; }
+
+/* ── You tab ─────────────────────────────────────────────────────────────── */
+.you { display: grid; gap: 18px; }
+.you-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.you-head .subhead { margin-bottom: 0; }
+.you-head .btn { padding: 6px 12px; }
+.you-week > .note:first-of-type, .you-week.editing > .note { margin-top: 8px; }
+.week-strip { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin: 14px 0 6px; }
+.day-tile { display: grid; justify-items: center; gap: 3px; padding: 9px 2px 8px;
+            border-radius: var(--r-sm); background: var(--surface2); border: 1px solid transparent; }
+.day-name { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.day-role { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.day-extra { font-size: 10px; color: var(--muted); }
+.day-run { background: var(--accent-tint); }
+.day-run .day-role { color: var(--accent); }
+.day-long { background: var(--accent-tint); border-color: var(--accent); }
+.day-long .day-role { color: var(--accent); }
+.day-sport { background: var(--neutral-tint); }
+.day-sport .day-role { color: var(--text); }
+.day-off { background: var(--down-tint); }
+.day-off .day-role { color: var(--down); }
+.week-rows { display: grid; margin-top: 6px; }
+.week-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 12px; row-gap: 2px;
+            padding: 11px 0; border-top: 1px solid var(--line); align-items: center; }
+.week-row:first-child { border-top: 0; }
+.week-k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.week-v { font-size: 15px; font-weight: 600; grid-column: 1; }
+.week-row .src { grid-column: 2; grid-row: 1 / span 2; }
+.week-ev { grid-column: 1 / -1; }
+.src { font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+       background: var(--neutral-tint); color: var(--muted); }
+.src-you { background: var(--accent-tint); color: var(--accent); }
+.edit-row { display: grid; gap: 8px; padding: 12px 0; border-top: 1px solid var(--line); }
+.edit-row:first-of-type { margin-top: 6px; }
+.edit-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.chip-week { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.seg .chip { min-width: 42px; }
+.chip { font: inherit; font-size: 13px; font-weight: 600; padding: 8px 0; border-radius: var(--r-sm);
+        border: 1px solid var(--line); background: transparent; color: var(--text); cursor: pointer;
+        transition: background-color .15s ease, border-color .15s ease, color .15s ease; }
+.chip:hover:not(:disabled) { border-color: color-mix(in srgb, var(--line) 40%, var(--accent)); }
+.chip[aria-pressed="true"] { background: var(--accent-tint); border-color: var(--accent); color: var(--accent); }
+.chip:disabled { opacity: .3; cursor: not-allowed; }
+.chip:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-tint); border-color: var(--accent); }
+.you-note .field { margin-top: 2px; }
+.note-foot { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; }
+.note-count { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+         gap: 10px; margin-top: 12px; }
+.fact { display: grid; gap: 4px; align-content: start; padding: 12px; border-radius: var(--r-sm);
+        background: var(--surface2); }
 .fact-k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 .fact-v { font-size: 15px; font-weight: 600; }
 .fact-change { color: var(--text); }
-.ask-form input { flex: 1; min-width: 0; }
 /* "Too little data" is a statement, not an error — it gets a shape of its own
    so that it does not look like a malfunction. */
 .thin-data { font-size: 12px; color: var(--muted); border-left: 2px solid var(--line);

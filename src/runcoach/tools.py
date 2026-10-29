@@ -178,12 +178,17 @@ def get_athlete_profile(store: Store) -> str:
     their days, long run, other sport, intensity pattern, VO2max trend - each
     with its evidence and, where it moved, since when. Context for the coach,
     not today's numbers and not a decision."""
-    from . import facts
+    from . import facts, profile
 
     learned = facts.cached(store, paths.today())
-    return ("What the app has learned about this athlete from their own data (context - "
-            "today's numbers and the decision come from the other tools):\n"
-            + facts.render_text(learned, 4000))
+    out = ("What the app has learned about this athlete from their own data (context - "
+           "today's numbers and the decision come from the other tools):\n"
+           + facts.render_text(learned, 4000))
+    note = profile.load().get(profile.NOTE_KEY)
+    if note:
+        out += (f"\n\nTheir note to the coach (their own words, from the You tab):\n{note}\n"
+                f"{profile.NOTE_RULE}")
+    return out
 
 
 def get_training_load(store: Store, period_days: int = 28) -> str:

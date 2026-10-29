@@ -565,3 +565,102 @@ def test_a_week_cut_to_one_quality_session_follows_the_next_stimulus():
                                       quality=("vo2max", "steady"), quality_one="steady",
                                       avoid_hard=frozenset({"tue", "wed"}))
     assert [s.kind for _, s in sessions if s.kind in planning.HARD_KINDS] == ["steady"]
+
+
+# ── the athlete's own settings (the You tab, profile.py) ─────────────────────
+
+def _set_profile(**values):
+    import json
+
+    from runcoach import paths
+
+    paths.profile_path().write_text(json.dumps(values), encoding="utf-8")
+
+
+def _hard(days: dict) -> set:
+    return {d for d, name in days.items() if name.split()[0] in ("VO2max", "Threshold", "Steady")}
+
+
+def test_a_day_the_athlete_cannot_run_on_gets_no_run(store, today):
+    """The history says Thursday; the athlete says Thursday is gone."""
+    _habit_weeks(store, today, 8, {1: 40, 3: 40, 5: 90})
+    _set_profile(off_days=["thu"])
+    out = tools.propose_week(store)
+    days = _week_days(out)
+    assert "Thu" not in days and len(days) == 3, out
+    assert days.get("Sat", "").startswith("Long run"), out
+
+
+def test_a_long_run_day_made_a_day_off_moves_the_long_run(store, today):
+    _habit_weeks(store, today, 8, {1: 40, 3: 40, 5: 90})
+    _set_profile(off_days=["sat"])
+    out = tools.propose_week(store)
+    days = _week_days(out)
+    assert "Sat" not in days and days.get("Sun", "").startswith("Long run"), out
+    assert "your usual sat is a day off now" in out, out
+
+
+def test_the_days_the_athlete_set_beat_the_history(store, today):
+    _habit_weeks(store, today, 8, {1: 40, 3: 40, 5: 90})
+    _set_profile(run_days=["mon", "wed", "fri"], long_run_day="sun", days_per_week=4)
+    out = tools.propose_week(store)
+    days = _week_days(out)
+    assert days.get("Sun", "").startswith("Long run"), out
+    assert set(days) == {"Mon", "Wed", "Fri", "Sun"}, out
+    assert "from your history" not in out and "your longest run fell on" not in out, out
+
+
+def test_a_sport_day_the_athlete_set_keeps_the_quality_off_it(store, today):
+    _habit_weeks(store, today, 8, {1: 45, 3: 45, 4: 45, 6: 90})
+    _set_profile(sport_days=["tue"])
+    days = _week_days(out := tools.propose_week(store))
+    assert _hard(days) and not _hard(days) & {"Tue", "Wed"}, out
+
+
+def test_more_days_than_the_days_off_leave_are_cut_to_the_free_ones(store, today):
+    _habit_weeks(store, today, 8, {1: 40, 3: 40, 5: 90})
+    _set_profile(days_per_week=6, off_days=["mon", "wed", "fri"])
+    out = tools.propose_week(store)
+    days = _week_days(out)
+    assert not {"Mon", "Wed", "Fri"} & set(days), out
+    assert "mon, wed, fri are days off" in out, out
+
+
+def test_several_days_off_still_get_every_free_day_that_was_asked_for(store, today):
+    """Review finding: the easy runs only tried offsets 3, 5, 1, 6 - with the
+    days off on exactly those, Tuesday and Thursday stayed empty, no line said so."""
+    _set_profile(off_days=["mon", "fri", "sat"], days_per_week=3)
+    days = _week_days(out := tools.propose_week(store))
+    assert len(days) == 3 and not {"Mon", "Fri", "Sat"} & set(days), out
+    _set_profile(off_days=["mon", "tue", "fri", "sat"], days_per_week=4)
+    days = _week_days(out := tools.propose_week(store))
+    assert len(days) == 3 and "4 days asked, 3 planned" in out, out
+
+
+def test_the_coach_is_told_the_week_the_planner_goes_by_not_the_raw_history(store, today):
+    """Review finding: with Saturday made a day off, the planner moved the long
+    run to Sunday while get_athlete_profile still said "Long run: sat"."""
+    _habit_weeks(store, today, 8, {1: 40, 3: 40, 5: 90})
+    _set_profile(off_days=["sat", "thu"])
+    profile_text = tools.get_athlete_profile(store)
+    assert "- Long run: sun - your usual sat is a day off now" in profile_text, profile_text
+    assert "- Your days: tue -" in profile_text, profile_text
+    out = tools.propose_week(store)
+    assert "easy runs on your days first - you run on tue" in out, out
+    assert "thu, sat are days off now" in out, out
+
+
+def test_the_runs_a_week_shown_are_the_runs_the_planner_plans(store, today):
+    """Round 2: the history's five days were shown next to three days off,
+    while every week planned four."""
+    from runcoach import facts, habits
+
+    _habit_weeks(store, today, 8, {0: 40, 1: 40, 3: 40, 4: 40, 5: 90})
+    _set_profile(off_days=["mon", "wed", "fri"])
+    week = facts.week_settings(store, today)
+    assert week["effective"]["days_per_week"] == {"value": 4, "source": "history"}
+    assert week["effective"]["off_days"] == {"value": ["mon", "wed", "fri"], "source": "you"}
+    fs = {f.key: f for f in facts.learned(store, today)}
+    assert fs["days"].value == "4 a week" and "mon, wed, fri are days off" in fs["days"].evidence
+    assert len(_week_days(tools.propose_week(store))) == 4
+    assert habits.effective({}, plan.athlete_habits(store, today))["days_per_week"].value == 5
