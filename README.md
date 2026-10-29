@@ -105,7 +105,7 @@ uv tool uninstall runcoach-ai   # removes the program only - delete ~/.runcoach 
 ```
 
 `uv tool install` takes whatever is on `main`; pin a release instead with
-`uv tool install git+https://github.com/edxleon/runcoach-ai@v0.3.0`.
+`uv tool install git+https://github.com/edxleon/runcoach-ai@v0.3.1`.
 
 ## Before you start: the usual worries
 
