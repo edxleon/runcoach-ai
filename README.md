@@ -37,7 +37,8 @@ because the suite proves the code and only an install proves the package.</sub>
 https://github.com/user-attachments/assets/81389835-8d7b-4c97-99d5-e23ac4540549
 
 <sub>The 89-second demo, with voice-over: the synthetic demo athlete, rebuilt from this repo by <code>scripts/video.py</code>
-(<a href="docs/video/runcoach-demo.mp4">file</a>).</sub>
+(<a href="docs/video/runcoach-demo.mp4">file</a>). No player above? The GitHub mobile app does not show videos:
+<a href="https://github.com/user-attachments/assets/81389835-8d7b-4c97-99d5-e23ac4540549">▶ play the demo</a> opens it in the browser.</sub>
 
 <p>
   <img src="docs/screenshots/readme-today.png" alt="Today: readiness verdict, decision, week plan, signals" width="24%">
