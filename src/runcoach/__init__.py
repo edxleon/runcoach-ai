@@ -1,3 +1,3 @@
 """runcoach-ai — local-first AI running coach for Garmin data."""
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
