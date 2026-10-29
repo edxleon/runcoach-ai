@@ -1,7 +1,7 @@
 # runcoach-ai
 
 [![ci](https://github.com/edxleon/runcoach-ai/actions/workflows/ci.yml/badge.svg)](https://github.com/edxleon/runcoach-ai/actions/workflows/ci.yml)
-[![evals 29/29](https://img.shields.io/badge/evals-29%2F29-brightgreen)](evals/RESULTS.md)
+[![evals 32/32](https://img.shields.io/badge/evals-32%2F32-brightgreen)](evals/RESULTS.md)
 [![license MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 **A local-first AI running coach for your Garmin data — powered by the Claude subscription you already have.**
@@ -29,7 +29,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-813 tests, 66 frontend tests and that gate on three operating systems and two Python versions, with every
+864 tests, 68 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -51,7 +51,7 @@ https://github.com/user-attachments/assets/81389835-8d7b-4c97-99d5-e23ac4540549
 <code>python scripts/screenshots.py</code>, and the coach card is an unedited agent run against that same
 demo database, kept in <a href="docs/screenshots/demo-card.json">demo-card.json</a> so the picture cannot
 drift from the app — the numbers it cites (HRV balanced, Body Battery 66, resting HR 48, ACWR 1.17) are the
-ones on the Today tab beside it. <code>docs/screenshots/</code> has each of the four tabs full-length, in both
+ones on the Today tab beside it. <code>docs/screenshots/</code> has each of the five tabs full-length, in both
 themes — e.g. <a href="docs/screenshots/today.png">today.png</a> and
 <a href="docs/screenshots/today-light.png">today-light.png</a>.</sub>
 
@@ -105,7 +105,7 @@ uv tool uninstall runcoach-ai   # removes the program only - delete ~/.runcoach 
 ```
 
 `uv tool install` takes whatever is on `main`; pin a release instead with
-`uv tool install git+https://github.com/edxleon/runcoach-ai@v0.3.1`.
+`uv tool install git+https://github.com/edxleon/runcoach-ai@v0.4.0`.
 
 ## Before you start: the usual worries
 
@@ -137,8 +137,9 @@ uv tool uninstall runcoach-ai   # removes the program only - delete ~/.runcoach 
 |---|---|
 | **Today** | GO / EASY / REST with the signals behind it, *one* decision sentence for today and, on a hard day, *which* hard session (VO2max intervals, threshold reps, or the steady block Garmin measures VO2max from), your VO2max with the days since it last really changed, this week planned vs. done, last night's sleep, your zone bounds with their origin |
 | **Runs** | Every run with its intensity band, real interval structure (`5×4′`, not "5 minutes"), zones, weather, performance condition — and an *Analyze this run* button |
-| **Trend** | VO2max as honest steps (and whether a measurement is due), lactate threshold history, weekly hard-minute share vs. an 80/20 target, aerobic efficiency (pace at a fixed heart rate) with spread and trend, volume, polarisation, ACWR |
-| **Coach** | One-tap analyses by Claude as short cards that remember the previous card of their kind, accept your 👍/👎, take follow-up questions and can be deleted. Two start here (*Why is VO2max moving? · Review my week*); the other two start where their subject is — *Should I train today?* on the Today tab, *Analyze this run* on a run |
+| **Trend** | VO2max as honest steps (and whether a measurement is due), lactate threshold history, weekly hard-minute share vs. an 80/20 target, aerobic efficiency (pace at a fixed heart rate) with spread and trend, volume, polarisation, ACWR, and Garmin's own load focus (its 4-week load per band against its target range) as a second opinion |
+| **Coach** | Ask the coach anything in your own words (*what am I doing wrong?*) - a short card, the biggest lever first. One-tap analyses by Claude as short cards that remember the previous card of their kind, accept your 👍/👎, take follow-up questions and can be deleted. Two start here (*Why is VO2max moving? · Review my week*); the other two start where their subject is — *Should I train today?* on the Today tab, *Analyze this run* on a run |
+| **You** | What the coach has learned about you from your own data, each with its evidence: your running days and long-run day, a weekly other sport, how consistent you are, your intensity pattern, the VO2max trend, Garmin's load focus, resting-HR baseline and zones - and since when, where something changed. Computed at every load, never stored; every card and the MCP tool `get_athlete_profile` read it |
 
 ## How it works
 
@@ -149,7 +150,7 @@ flowchart TD
     DB --> L[logic.py<br/>readiness · decision<br/>intervals · bands]
     L --> SNAP[snapshot.py]
     SNAP --> WEB[web app<br/>127.0.0.1:8765]
-    L --> MCP[MCP server<br/>15 tools<br/>12 read-only · sync · apply · undo]
+    L --> MCP[MCP server<br/>16 tools<br/>13 read-only · sync · apply · undo]
     WEB -- "spawn job" --> A["claude --print<br/>(your subscription)"]
     A -- "only mcp__runcoach__*" --> MCP
     A -- "JSON card" --> WEB
@@ -204,15 +205,26 @@ the frontend, which draws curves, gets points.
   a lie from a degraded source).
 - Garmin's lactate-threshold pace field is off by a factor of ten; it is normalised, range-checked, and
   loudly dropped if the unit ever changes.
+- A planned week lands on the athlete's own days: how many days, which weekdays and the long-run day
+  are read from the last eight weeks with running (looking back half a year, and before a pause while
+  coming back from one), and the quality sessions keep clear of a weekly other sport and the day after
+  it - a gym Tuesday leaves room for one quality session, not two. A rotating every-other-day rhythm
+  has no weekdays of its own and is planned in the default rhythm. Each value says where it came from:
+  "long run on sat - your longest run fell on sat in 8 of 8 weeks".
 - A planned week is sized from the athlete's own running weeks - rolling weeks ending on the day of
   planning, never more than 10 % over the bigger of the last two - and then read against their
   history, in code: the load ratio can hold or unload it, every fourth week is a down week, ten
   days without a run make a return week of easy running only (half the weeks before after more
   than three weeks off), and twenty-eight days without a new VO2max value put a steady block in
   the threshold slot. A budget too small for the planned days plans a shorter week - one quality
-  session at three days, never a lone hard one - instead of inflating the sessions. In the four
-  weeks after a pause the step grows from the last seven days, not from a median that lags the
-  climb. Each rule is a named assumption on the proposal, none of them a prompt's discretion.
+  session at three days, never a lone hard one - instead of inflating the sessions. A week with one
+  quality session takes the one that is due (VO2max until the zone-5 stimulus is set, then
+  threshold, or the measurement). Back from a pause the athlete rebuilds: the step grows from the
+  last seven days, not from a median that lags the climb, and there is no down week until the weeks
+  are back to 80 % of the level before the pause. A step is never smaller than the week planned
+  before it, and a week held or unloaded on the load ratio is never bigger: the median it holds
+  rises with every week run above plan, which is what raised the ratio. Each rule is a named
+  assumption on the proposal, none of them a prompt's discretion.
   On a hard day the decision also says *which* hard session, from what the last seven days did
   and did not contain; after a pause the day is easy instead.
 - Without a measured threshold pace, sessions are sized from Garmin's own 5 km and 10 km predictions
@@ -226,7 +238,7 @@ the frontend, which draws curves, gets points.
 
 **Prompts are tested like code.** The coach's behaviour lives in two Markdown files
 ([`skills/`](src/runcoach/skills)) with an LLM-as-judge regression suite ([`evals/`](evals)):
-29 cases such as *"a run already happened today → no second hard session"*, *"warning signs of low energy
+32 cases such as *"a run already happened today → no second hard session"*, *"warning signs of low energy
 availability are not explained away"*, *"an instruction inside a workout name is not followed"*. They run
 without Garmin data against the real CLI — though only over those two files, not over the other two
 pieces of the shipped prompt (`templates.json` and the JSON-card frame in `web/agent.py`, which
@@ -276,7 +288,9 @@ network you do not control.
 Four more (`RUNCOACH_DB`, `RUNCOACH_DEMO`, `RUNCOACH_CLAUDE_CMD`, `RUNCOACH_PII_EXTRA`) exist for
 internal plumbing and tests; they are not part of the supported surface.
 
-Optional athlete profile: `runcoach profile --max-hr 182 --goal "sub-50 10k"`.
+Optional athlete profile: `runcoach profile --max-hr 182 --goal "sub-50 10k"`. Without
+`--days-per-week` and `--long-run-day` the week planner reads them from your history: the days you
+usually run, and the weekday your longest run falls on.
 
 ## Development
 

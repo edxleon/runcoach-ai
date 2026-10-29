@@ -459,3 +459,29 @@ test("setup: nothing to set up in the demo, and a signed-out Claude stays visibl
                              data_through: "2026-10-28", counts: { runs: 3 } });
   assert.deepEqual(steps.filter(s => !s.done).map(s => s.key), ["claude"]);
 });
+
+test("Garmin's load focus: each band against its own target range", async () => {
+  const { loadFocusRows, loadFocusPhrase } = await import("../src/runcoach/web/static/logic.js");
+  const rows = loadFocusRows({
+    load_aerobic_low: 115.4, load_aerobic_low_min: 115, load_aerobic_low_max: 279,
+    load_aerobic_high: 0, load_aerobic_high_min: 186, load_aerobic_high_max: 350,
+    load_anaerobic: 0, load_anaerobic_min: 0, load_anaerobic_max: 164,
+  });
+  assert.deepEqual(rows.map(r => [r.label, r.state]),
+                   [["Low aerobic", "within"], ["High aerobic", "below"], ["Anaerobic", "within"]]);
+  assert.equal(loadFocusRows({ load_aerobic_low: 900, load_aerobic_low_min: 363,
+                               load_aerobic_low_max: 883 })[0].state, "above");
+  assert.deepEqual(loadFocusRows(null), []);
+  assert.equal(loadFocusPhrase("AEROBIC_HIGH_SHORTAGE"), "aerobic high shortage");
+});
+
+test("the You tab lists each fact with its evidence, escaped, and says when nothing is known", async () => {
+  const { youHtml } = await import("../src/runcoach/web/static/you.js");
+  const html = youHtml([{ label: "Long run", value: "sat", evidence: "8 of 8 weeks",
+                          change: "since about 3 weeks ago; before: sun" },
+                        { label: "<b>x</b>", value: "<script>", evidence: "e", change: null }]);
+  assert.match(html, /Long run/);
+  assert.match(html, /since about 3 weeks ago; before: sun/);
+  assert.ok(!html.includes("<script>") && html.includes("&lt;script&gt;"));
+  assert.match(youHtml([]), /Nothing yet/);
+});

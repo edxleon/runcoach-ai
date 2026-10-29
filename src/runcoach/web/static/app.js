@@ -22,10 +22,11 @@ import {
 } from "./ui.js";
 import { mountApp } from "./chassis.js";
 import {
-  addDays, axisX, bandSplit, barLabel, barScale, carryForward, chartPoints, chartScale, dataAge as ageOf, groupRunsByWeek, hardSessionToday as hardSessionOf, hasNoData, lastHardLabel, setupSteps, intensityHits, intensitySeries, isFirstRun, showSyncFailure, isRunning, isStrength, lightAddendum as lightAddendumOf, NO_DATE, shortTitle, stepMarks, stepPath, todayIso, volumeAverageKm, volumeComparison, weekdayShort, weekIncomplete, weekLabel, weeksBetween, weekStart, zoneTimeParts,
+  addDays, axisX, bandSplit, barLabel, barScale, carryForward, chartPoints, chartScale, dataAge as ageOf, groupRunsByWeek, hardSessionToday as hardSessionOf, hasNoData, lastHardLabel, setupSteps, intensityHits, intensitySeries, isFirstRun, showSyncFailure, isRunning, isStrength, lightAddendum as lightAddendumOf, loadFocusPhrase, loadFocusRows, NO_DATE, shortTitle, stepMarks, stepPath, todayIso, volumeAverageKm, volumeComparison, weekdayShort, weekIncomplete, weekLabel, weeksBetween, weekStart, zoneTimeParts,
 } from "./logic.js";
 import { mountCards, mountJobs, jobPoller, todayCard, handle409,
          setCardContext } from "./cards.js";
+import { youHtml } from "./you.js";
 
 /* The /api/state answer IS the snapshot, plus `templates`, `jobs`, `cards`,
    `demo` and `claude_available` next to the snapshot keys. */
@@ -487,8 +488,20 @@ function renderActions() {
   // "unknown" falls back to the first option. The athlete can still pick.
   const next = (D().next_stimulus || {}).kind;
   const sel = k => (k === next ? " selected" : "");
+  const askLocked = spawnRunning || hasActiveJob() || coachUnavailable() || noData();
+  // This block is rewritten on every poll: what the athlete was typing - or a
+  // question the server refused - must survive it.
+  const typed = document.querySelector(".ask-input")?.value || "";
   document.getElementById("coach-actions").innerHTML = `
-    <div class="subhead">Start an analysis</div>
+    <div class="subhead">Ask the coach</div>
+    <div class="btn-row ask-form">
+      <input class="ask-input" type="text" maxlength="500" aria-label="Your question"
+             placeholder="e.g. What am I doing wrong for my VO2max?">
+      <button class="btn btn-primary" data-ask ${askLocked ? "disabled" : ""}>Ask</button>
+    </div>
+    <div class="note">Answered from your data and what the coach has learned about you (the You
+      tab) — a short card, the biggest lever first.</div>
+    <div class="subhead" style="margin-top:14px">Start an analysis</div>
     <div class="btn-row">${tpls.filter(t => !(t.params || []).length)
       .map(t => tplButton(t)).join("")}</div>
     ${coachUnavailable() || noData() ? "" : `<div class="note">${COACH_REASSURANCE}</div>`}
@@ -508,6 +521,8 @@ function renderActions() {
     </div>
     <div class="note">The coach builds warm-up, reps and cool-down to fit the route from your own
       zones and shows it as a card. Nothing goes on the watch until you tap the card's button.</div>` : ""}`;
+  const input = document.querySelector(".ask-input");
+  if (input && typed) input.value = typed;
 }
 
 /* A spawn in flight locks ALL template buttons until the answer is there.
@@ -517,13 +532,25 @@ function renderActions() {
    paid runs. */
 let spawnRunning = false;
 
-async function spawnTemplate(id, ctx, force = false) {
+function spawnTemplate(id, ctx, force = false) {
+  return spawn({ template_id: id, ...(ctx ? { ctx } : {}), ...(force ? { force: true } : {}) },
+               () => spawnTemplate(id, ctx, true));
+}
+
+/* A question in the athlete's own words: a card of its own (`ask`). */
+function askCoach(question) {
+  return spawn({ question }, () => {}).then(() => {
+    const input = document.querySelector(".ask-input");
+    if (input && !spawnRunning) input.value = "";
+  });
+}
+
+async function spawn(body, recompute) {
   if (spawnRunning) { toast("Already starting — one moment.", { warn: true }); return; }
   spawnRunning = true;
-  document.querySelectorAll("button[data-tpl]").forEach(b => (b.disabled = true));
+  document.querySelectorAll("button[data-tpl], button[data-ask]").forEach(b => (b.disabled = true));
   try {
-    await apiPost("/api/spawn", { template_id: id, ...(ctx ? { ctx } : {}),
-                                  ...(force ? { force: true } : {}) });
+    await apiPost("/api/spawn", body);
     toast("Running — the answer will appear in the Coach tab.",
           { action: "View", onAction: () => showView("coach"), ms: 8000 });
     await refresh();
@@ -532,7 +559,7 @@ async function spawnTemplate(id, ctx, force = false) {
     // The server's dedup: "already running" is only shown; "the card is on the
     // current data" offers »Recompute« — the same request with force:true.
     // The toast action is the confirmation.
-    if (e.status === 409 && handle409(e, () => spawnTemplate(id, ctx, true))) {
+    if (e.status === 409 && handle409(e, recompute)) {
       await refresh().catch(() => {});
       return;
     }
@@ -1213,7 +1240,24 @@ function renderAcwr() {
     ${last.length ? `<div class="note" style="margin-top:8px">Latest: ${
       last.map(p => `${esc(fmtDayShort(p[0]))} ${fmtNum(p[1], 2)}`).join(" · ")}</div>` : ""}
     <div class="thin-data">Below 0.80 the stimulus is missing, above 1.30 the injury
-      risk grows — in between is the range in which adaptation happens.</div>`;
+      risk grows — in between is the range in which adaptation happens.</div>
+    ${loadFocusHtml(load.balance)}`;
+}
+
+/* Garmin's load focus: its 4-week load per band against the range it sets
+   for this athlete. Said as Garmin's opinion - the app's own answer to "what
+   is missing" is the distribution above. */
+function loadFocusHtml(balance) {
+  const rows = loadFocusRows(balance);
+  if (!rows.length) return "";
+  const mark = { below: "below its range", above: "above its range", within: "in range" };
+  return `<div class="subhead" style="margin-top:12px">Garmin's load focus</div>
+    <div class="grid2">${rows.map(r => cell(r.label, fmtNum(r.value, 0),
+      r.lo != null ? `target ${r.lo}–${r.hi}${r.state ? " · " + mark[r.state] : ""}` : ""))
+      .join("")}${rows.length % 2 ? `<div class="cell"></div>` : ""}</div>
+    <div class="note" style="margin-top:6px">Garmin's 4-week estimate${balance.load_balance
+      ? `: <b>${esc(loadFocusPhrase(balance.load_balance))}</b>` : ""} (as of ${
+      esc(fmtDayShort(balance.day))}). Its opinion — the distribution above is the app's.</div>`;
 }
 
 /* ═══ Coach ════════════════════════════════════════════════════════════════
@@ -1338,10 +1382,22 @@ function renderAll() {
   renderRuns();
   renderTrendHead(); renderVo2(); renderThreshold(); renderIntensity(); renderAerobic();
   renderPredictions(); renderFactors(); renderVolume(); renderDistribution(); renderAcwr();
-  renderCoach(); renderHealth();
+  renderCoach(); renderYou(); renderHealth();
+}
+
+function renderYou() {
+  document.getElementById("you-facts").innerHTML = youHtml(D().facts);
 }
 
 document.addEventListener("click", ev => {
+  const ask = ev.target.closest("button[data-ask]");
+  if (ask) {
+    const question = (document.querySelector(".ask-input")?.value || "").trim();
+    if (!question) { toast("Type your question first.", { warn: true }); return; }
+    // An agent run is not free — a second tap confirms.
+    armOrFire(ask, "ask:" + question, () => askCoach(question));
+    return;
+  }
   const tpl = ev.target.closest("button[data-tpl]");
   if (tpl) {
     let ctx = tpl.dataset.ctx ? JSON.parse(tpl.dataset.ctx) : null;
@@ -1441,7 +1497,7 @@ function statusText() {
 
 const app = mountApp({
   marker: "runcoach", api: "/api/state", schema: 1,
-  views: ["today", "runs", "trend", "coach"], initial: "today",
+  views: ["today", "runs", "trend", "coach", "you"], initial: "today",
   head: "#verdict", clear: ["#week", "#signals", "#sleep", "#zones", "#actions-today"],
   skeleton: [{ sel: "#verdict", kind: "title" }, { sel: "#signals", kind: "grid", n: 6 }],
   staleText: d => `Data up to ${fmtDay(d.data_through)} — the Garmin sync is `

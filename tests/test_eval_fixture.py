@@ -115,3 +115,28 @@ def test_a_case_from_a_synthetic_course_matches_what_the_tools_said_that_day(cas
         pytest.fail(f"regenerate with `uv run python evals/fixture_gen.py {case_id}` and "
                     f"paste it into the case.\n\n{diff}")
     assert str(case["today"]) == fixture_gen.SIM_CASES[case_id][1].isoformat()
+
+
+def test_the_load_focus_case_matches_the_live_tool_output():
+    """The grey-zone athlete plus Garmin's load focus: the second hand-seeded case."""
+    import fixture_gen
+
+    data = yaml.safe_load((ROOT / "evals" / "cases.yaml").read_text(encoding="utf-8"))
+    case = next((c for c in data["cases"] if c["id"] == fixture_gen.LOAD_FOCUS_CASE_ID), None)
+    assert case is not None, f"{fixture_gen.LOAD_FOCUS_CASE_ID} is gone from cases.yaml"
+    assert fixture_gen.load_focus_input().strip() == case["input"].strip(), (
+        "regenerate with `uv run python evals/fixture_gen.py load-focus-is-a-second-opinion`")
+    assert "Garmin's load focus" in case["input"], "the case is about that line"
+
+
+def test_the_open_question_case_matches_the_live_tool_output():
+    """The grey-zone athlete asking an open question, with get_athlete_profile."""
+    import fixture_gen
+
+    data = yaml.safe_load((ROOT / "evals" / "cases.yaml").read_text(encoding="utf-8"))
+    case = next((c for c in data["cases"] if c["id"] == fixture_gen.ASK_CASE_ID), None)
+    assert case is not None, f"{fixture_gen.ASK_CASE_ID} is gone from cases.yaml"
+    assert fixture_gen.ask_input().strip() == case["input"].strip(), (
+        "regenerate with `uv run python evals/fixture_gen.py open-question-biggest-lever-first`")
+    assert "=== get_athlete_profile ===" in case["input"]
+

@@ -398,3 +398,170 @@ def test_the_week_after_the_return_week_does_not_shrink_below_it(store):
         _run(store, sunday - timedelta(days=back), 24)
     budget, lines, mode = plan._week_plan(store, sunday)
     assert mode != "return" and budget >= 96, (budget, mode, lines)
+
+
+def test_a_held_week_is_no_bigger_than_the_week_before_it(store, today):
+    """Found by the synthetic `overreacher`: it ran more than planned every
+    week, Garmin's ratio went over 1.3, the line said "hold" - and the plan
+    grew 424 -> 448. "Hold" held the MEDIAN, and the median rose with every
+    week run above plan. Held means no bigger than the week planned before."""
+    from conftest import make_day
+
+    # Rolling weeks ending today: 200, 250, 300, 350, 400 min - each run above
+    # the plan before it - and Garmin's ratio over 1.3 now and a week ago.
+    for k, minutes in enumerate((400, 350, 300, 250, 200)):
+        _run(store, today - timedelta(days=7 * k + 1), minutes)
+    for back in (0, 7):
+        store.upsert_daily(make_day(today - timedelta(days=back), hrv_status="BALANCED",
+                                    sleep_score=80, body_battery_high=80, acwr_ratio=1.35))
+    # Neither this week nor the one before is a down week (every 4th, weeks % 4 == 3).
+    monday = planning.CADENCE_EPOCH + timedelta(weeks=201)
+    budget, lines, mode = plan._week_plan(store, today, monday)
+    before, _, _ = plan._week_plan(store, today - timedelta(days=7), monday - timedelta(days=7))
+    assert mode == "hold" and budget <= before, (budget, before, lines)
+    assert "no bigger than the" in lines[-1], lines
+
+
+# ── the athlete's own days (habits.py) ───────────────────────────────────────
+
+def _habit_weeks(store, today: date, n: int, runs: dict, other: dict | None = None,
+                 end_weeks_ago: int = 1):
+    """`n` Monday-weeks ending `end_weeks_ago` weeks before this one: `runs`
+    maps a weekday (0 = Monday) to minutes, `other` to (type, minutes)."""
+    monday = today - timedelta(days=today.weekday())
+    for back in range(end_weeks_ago, end_weeks_ago + n):
+        week = monday - timedelta(weeks=back)
+        for wd, minutes in runs.items():
+            _run(store, week + timedelta(days=wd), minutes)
+        for wd, (kind, minutes) in (other or {}).items():
+            _AID[0] += 1
+            store.upsert_activity(make_activity(_AID[0], week + timedelta(days=wd), activity_type=kind,
+                                                duration_s=minutes * 60, load=None, aerobic_te=3.0,
+                                                anaerobic_te=0.2))
+
+
+def _week_days(out: str) -> dict:
+    import re
+
+    return {m[0]: m[1] for m in re.findall(r"^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) \S+: (\w[^(]*?)\s+\(",
+                                           out, re.M)}
+
+
+def test_a_saturday_long_runner_gets_the_long_run_on_saturday_without_a_profile(store, today):
+    _habit_weeks(store, today, 8, {1: 40, 3: 40, 5: 90})
+    out = tools.propose_week(store)
+    days = _week_days(out)
+    assert days.get("Sat", "").startswith("Long run"), out
+    assert set(days) <= {"Tue", "Thu", "Sat"}, out
+    assert "your longest run fell on sat in 8 of 8 weeks" in out, out
+
+
+def test_a_runner_who_runs_twice_a_week_is_planned_two_days(store, today):
+    _habit_weeks(store, today, 8, {2: 40, 6: 90})
+    out = tools.propose_week(store)
+    assert len(_week_days(out)) == 2, out
+    assert "2 running days - from your history" in out, out
+
+
+def test_no_quality_run_on_or_right_after_the_weekly_gym_day(store, today):
+    _habit_weeks(store, today, 8, {2: 45, 4: 45, 5: 45, 6: 90}, other={1: ("strength_training", 60)})
+    out = tools.propose_week(store)
+    days = _week_days(out)
+    hard = [d for d, name in days.items() if name.split()[0] in ("VO2max", "Threshold", "Steady")]
+    assert hard and not set(hard) & {"Tue", "Wed"}, out
+
+
+def test_after_a_pause_the_habits_are_the_ones_from_before_it(store, today):
+    # Tuesday, Thursday, Saturday for eight weeks - then three weeks off.
+    _habit_weeks(store, today, 8, {1: 40, 3: 40, 5: 90}, end_weeks_ago=4)
+    out = tools.propose_week(store)
+    assert "return week" in out, out
+    assert set(_week_days(out)) <= {"Tue", "Thu", "Sat"}, out
+
+
+def test_a_step_week_is_never_smaller_than_the_week_planned_before_it():
+    """Found by the synthetic athletes: four weeks after a comeback the base
+    switched from the last seven days back to the median of the climbing
+    weeks, and the next week - labelled a step - came out smaller than the one
+    before it (153 -> 145)."""
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parent.parent / "evals"))
+    import sim
+
+    course = sim.simulate(sim.jittered(sim.PERSONAS["pause_and_return"], 1002), weeks=16)
+    weeks = [r for r in course.days if r.week]
+    for before, now in zip(weeks, weeks[1:], strict=False):
+        if now.week["mode"] == "step" and before.week["mode"] in ("step", "hold"):
+            planned_before = sum(m for _, _, m in before.week["sessions"])
+            planned_now = sum(m for _, _, m in now.week["sessions"])
+            assert planned_now >= planned_before - 5, (now.day, planned_before, planned_now)
+
+
+def test_no_down_week_while_rebuilding_after_a_pause():
+    """Found by the synthetic athletes: after a 25-day pause a down week landed
+    in week six of the way back, at 60 % of the old level, and with the median
+    lagging the climb the runner was at 68 % of their old weeks after eight. A
+    down week relieves a full load; a rebuild has none."""
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parent.parent / "evals"))
+    import sim
+
+    course = sim.simulate(sim.jittered(sim.PERSONAS["pause_and_return"], 1010), weeks=16)
+    (last_before, first_back), = sim._gaps(course)
+    level = max(sim._window(course, last_before - timedelta(days=7 * k)) for k in range(4))
+    weeks = [r for r in course.days if r.week and r.day > first_back]
+    rebuilding = [r for r in weeks if sim._window(course, r.day) < 0.8 * level]
+    assert rebuilding and all(r.week["mode"] != "down" for r in rebuilding), \
+        [(str(r.day), r.week["mode"], sim._window(course, r.day)) for r in rebuilding]
+
+
+def test_three_held_weeks_in_a_row_stay_held(store, today):
+    """Review finding: the cap compared with the week before as recomputed
+    WITHOUT its own cap, so a chain of holds let the third one grow again
+    (275, 275, 325 with the line "no bigger than the 325 planned a week ago")."""
+    from conftest import make_day
+
+    for k, minutes in enumerate((450, 400, 350, 300, 250, 200, 150)):
+        _run(store, today - timedelta(days=7 * k + 1), minutes)
+    for back in (0, 7, 14):
+        store.upsert_daily(make_day(today - timedelta(days=back), hrv_status="BALANCED",
+                                    sleep_score=80, body_battery_high=80, acwr_ratio=1.35))
+    # Weeks 200-202 of the cadence: three in a row without a down week (weeks % 4 == 3).
+    monday = planning.CADENCE_EPOCH + timedelta(weeks=202)
+    now, lines, mode = plan._week_plan(store, today, monday)
+    before, _, before_mode = plan._week_plan(store, today - timedelta(days=7),
+                                             monday - timedelta(days=7))
+    assert mode == before_mode == "hold" and now <= before, (now, before, lines)
+
+
+def test_the_rebuild_ends_once_the_athlete_is_back():
+    """Review finding: the rebuild was re-checked every week, so the down week
+    after it dipped the athlete under 80 % again and the next week was a
+    "rebuild" once more - sized from the down week, down weeks suppressed."""
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).parent.parent / "evals"))
+    import sim
+
+    course = sim.simulate(sim.PERSONAS["pause_and_return"], weeks=20)
+    weeks = [r for r in course.days if r.week]
+    first_down = next(i for i, r in enumerate(weeks)
+                      if r.week["mode"] == "down" and r.day > sim.START + timedelta(weeks=10))
+    after = [r for r in weeks[first_down + 1:]]
+    assert after and not any("rebuilding after a pause" in r.week["lines"][0] for r in after), \
+        [(str(r.day), r.week["lines"][0][:80]) for r in after]
+
+
+def test_a_week_cut_to_one_quality_session_follows_the_next_stimulus():
+    """Review finding: a week reduced to one quality session by a gym day
+    always took VO2max - threshold never, and in a measurement week the steady
+    block was dropped without a word."""
+    sessions, _ = planning.build_week(date(2026, 6, 15), days_per_week=4, long_run_day="sun",
+                                      quality=("vo2max", "steady"), quality_one="steady",
+                                      avoid_hard=frozenset({"tue", "wed"}))
+    assert [s.kind for _, s in sessions if s.kind in planning.HARD_KINDS] == ["steady"]

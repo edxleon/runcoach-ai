@@ -18,7 +18,8 @@ Python half of this again and blocks a push whose coach prompt changed without a
 |---|---|
 | `src/runcoach/skills/*.md` or `evals/cases.yaml` | full eval run (`uv run python evals/run_evals.py`), it rewrites `evals/RESULTS.md`; a new case also once with `--no-skills` - it must FAIL there; a flaky case: narrow the judge question first (`evals/README.md`) |
 | the wording of a tool in `tools.py` | `uv run python evals/fixture_gen.py [case-id]` and paste into `cases.yaml`; `tests/test_eval_fixture.py` says which |
-| a rule in `logic.py`, `planning.py` or `plan.py` | a scenario test in `tests/test_what_comes_next.py`, red against the old code first; then `RUNCOACH_SIM_SEEDS=40 uv run pytest -q tests/test_simulation.py` |
+| `facts.py`, the athlete block in `web/agent.py`, `get_athlete_profile` | the same re-render (`open-question-biggest-lever-first` shows the profile); the athlete block stays before `TASK:` and outside `PROMPT_CAP` (`tests/test_web.py`) |
+| a rule in `logic.py`, `planning.py`, `plan.py` or `habits.py` | a scenario test in `tests/test_what_comes_next.py`, red against the old code first; then `RUNCOACH_SIM_SEEDS=40 uv run pytest -q tests/test_simulation.py`; a week that moves without habits fails `tests/test_build_week_golden.py` - regenerate it only when that is the point |
 | the number of tests or eval cases | README count and badge - pinned by `tests/test_invariants.py` |
 | a Garmin endpoint | `tests/test_api_contract.py` |
 | a migration | `tests/test_migrations.py`; columns in `models.py` |

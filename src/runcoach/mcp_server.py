@@ -33,6 +33,9 @@ only source of numbers; never invent a value.
 FIRST, once per conversation and before any training advice, call
 `get_coaching_reference` and follow it. It is the full rule set the app's own
 coach uses (how to read the data, zones, intensity distribution, the sources).
+Then call `get_athlete_profile` once: what the app has learned about this
+athlete from their data (their days, long run, intensity pattern, VO2max
+trend). It is context; today's numbers and the decision come from the tools.
 
 The floor, which holds even before that:
 - Freshness: `get_training_readiness` first. If its latest data is not from
@@ -99,6 +102,20 @@ def store() -> Store:
     if _store is None:
         _store = Store(os.environ.get("RUNCOACH_DB") or None)
     return _store
+
+
+@mcp.tool()
+def get_athlete_profile() -> str:
+    """What the app has learned about THIS athlete from their own data, each
+    with its evidence: how many days they run and on which weekdays, their
+    long-run day, a weekly other sport, how consistent they are, their
+    intensity pattern over 28 days, the VO2max trend and whether a measurement
+    is due, Garmin's load focus, resting-HR baseline and zones - and, where a
+    value moved and held, since when. Call it once per conversation after
+    `get_coaching_reference`, and use it to make the advice theirs. It is
+    context, not today's numbers: those come from the other tools, and the
+    decision stays the app's. Read-only; no Garmin call."""
+    return tools.get_athlete_profile(store())
 
 
 @mcp.tool()
@@ -266,16 +283,20 @@ def propose_week(
     start_day: Annotated[str | None, Field(pattern=r"^\d{4}-\d{2}-\d{2}$", description=(
         "First day of the week to plan, YYYY-MM-DD, today or up to 8 days ahead. "
         "Default: the coming Monday (today, if today is Monday)."))] = None,
-    days_per_week: Annotated[int | None, Field(ge=3, le=7, description=(
-        "Running days. Default: the athlete's profile, else 4 (listed as an assumption)."))] = None,
+    days_per_week: Annotated[int | None, Field(ge=2, le=7, description=(
+        "Running days. Default: the athlete's profile, else their history (the days they "
+        "usually run), else 4 - the last two listed as an assumption."))] = None,
     long_run_day: Annotated[Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"] | None,
                             Field(description=(
-        "Weekday of the long run. Default: the profile, else sun (listed as an assumption)."))] = None,
+        "Weekday of the long run. Default: the profile, else the weekday of their usual long "
+        "run, else sun - the last two listed as an assumption."))] = None,
 ) -> str:
     """Build a polarised training week and file it as ONE proposal: a VO2max
     session and a threshold session 48 h apart, the long run on its weekday,
     easy runs between, nothing hard the day before or after the long run, at
-    least one rest day. Sized from the athlete's own running weeks and read
+    least one rest day. The sessions go on the days the athlete usually runs,
+    and the quality sessions keep clear of a weekly other sport - read from
+    their history, each an `assumption:` line. Sized from the athlete's own running weeks and read
     against their history, in code: +10 % by default, held or unloaded on the
     load ratio, a down week after three weeks up, a return week after a pause,
     and a measurement week (a steady block in the threshold slot) when VO2max

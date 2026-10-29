@@ -185,6 +185,13 @@ main.app { max-width: 480px; margin: 0 auto; padding: 14px 12px 24px;
            text-transform: uppercase; color: var(--muted); margin: 0 0 10px 2px; }
 .note { font-size: 12px; color: var(--muted); }
 .empty-note { font-size: 13px; color: var(--muted); padding: 10px 2px; }
+/* The You tab: one fact per row - what, the value, why. */
+.facts { display: grid; gap: 12px; margin-top: 10px; }
+.fact { display: grid; gap: 2px; }
+.fact-k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.fact-v { font-size: 15px; font-weight: 600; }
+.fact-change { color: var(--text); }
+.ask-form input { flex: 1; min-width: 0; }
 /* "Too little data" is a statement, not an error — it gets a shape of its own
    so that it does not look like a malfunction. */
 .thin-data { font-size: 12px; color: var(--muted); border-left: 2px solid var(--line);

@@ -643,6 +643,8 @@ def assemble(store: Store, *, today: date | None = None) -> dict:
             "acwr": tl["acwr"], "acwr_status": tl["acwr_status"], "acwr_source": tl["acwr_source"],
             "training_status": tl["training_status"], "acute_7d": tl["acute_load_7d"],
             "chronic_weekly": tl["chronic_load_weekly"], "weekly_load": tl["weekly_load"],
+            # Garmin's load focus: its opinion, drawn beside the app's minutes.
+            "balance": soft(store.latest_load_balance, anchor),
         },
         "series": build_series(series_rows),
         "weeks": weeks,

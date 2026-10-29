@@ -151,6 +151,41 @@ def get_trend(store: Store, metric: str, period_days: int = 28) -> str:
         for b in buckets])
 
 
+def _load_balance_lines(b: dict | None) -> list[str]:
+    """Garmin's load focus as one line - its opinion, said as its opinion: a
+    4-week estimate per band against the range Garmin sets for this athlete.
+    Nothing when Garmin sent none (older watches, a fresh account)."""
+    if not b:
+        return []
+    bands = []
+    for label, key in (("low aerobic", "load_aerobic_low"), ("high aerobic", "load_aerobic_high"),
+                       ("anaerobic", "load_anaerobic")):
+        if b.get(key) is None:
+            continue
+        lo, hi = b.get(f"{key}_min"), b.get(f"{key}_max")
+        target = f" (target {lo}-{hi})" if lo is not None and hi is not None else ""
+        bands.append(f"{label} {round(b[key])}{target}")
+    if not bands and not b.get("load_balance"):
+        return []
+    verdict = f" - {b['load_balance']}" if b.get("load_balance") else ""
+    return [f"- Garmin's load focus (its 4-week estimate, as of {b['day']}): "
+            f"{', '.join(bands)}{verdict}. Garmin's opinion, not the app's rule: check it "
+            f"against the intensity minutes."]
+
+
+def get_athlete_profile(store: Store) -> str:
+    """What the app has learned about the athlete from their data (`facts.py`):
+    their days, long run, other sport, intensity pattern, VO2max trend - each
+    with its evidence and, where it moved, since when. Context for the coach,
+    not today's numbers and not a decision."""
+    from . import facts
+
+    learned = facts.cached(store, paths.today())
+    return ("What the app has learned about this athlete from their own data (context - "
+            "today's numbers and the decision come from the other tools):\n"
+            + facts.render_text(learned, 4000))
+
+
 def get_training_load(store: Store, period_days: int = 28) -> str:
     period_days = max(14, min(period_days, 90))
     t = store.get_training_load(store.analysis_anchor(), period_days)
@@ -167,6 +202,7 @@ def get_training_load(store: Store, period_days: int = 28) -> str:
         lines.append(f"- ACWR (acute:chronic): {t['acwr']} [{t['acwr_source']}]{status} - "
                      f"acute 7d {t['acute_load_7d']}, chronic ~{t['chronic_load_weekly']}/week, "
                      f"{t['workouts_7d']} workouts/7d")
+    lines += _load_balance_lines(store.latest_load_balance(store.analysis_anchor()))
     lt = store.latest_lactate_threshold()
     if lt:
         pace = round(1000 / lt["lt_speed_mps"]) if lt.get("lt_speed_mps") else None

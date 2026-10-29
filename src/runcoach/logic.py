@@ -239,13 +239,15 @@ def _decide_today(
             sentence = "Easy only today - the light says take it easy."
         return {"decision": "easy", "sentence": sentence, "reason": "verdict EASY", "week": week}
 
-    # GO from here on. 48 h between hard stimuli, regardless of the weekly state.
-    if days_since_hard is not None and days_since_hard <= 1:
+    # GO from here on. Hard stimuli sit HARD_SPACING_DAYS apart, regardless of
+    # the weekly state.
+    if days_since_hard is not None and days_since_hard < HARD_SPACING_DAYS:
         when = "today" if days_since_hard == 0 else "yesterday"
+        hours = HARD_SPACING_DAYS * 24
         return {"decision": "easy",
                 "sentence": f"Easy today - the last hard session was {when}; "
-                            "hard stimuli are 48 hours apart.",
-                "reason": "48-hour rule", "week": week}
+                            f"hard stimuli are {hours} hours apart.",
+                "reason": f"{hours}-hour rule", "week": week}
 
     if target_min <= 0:
         return {"decision": "hard",
@@ -543,6 +545,9 @@ def interval_facts(splits: list[dict]) -> dict:
 #: byte-identical. A minute is also the unit every surface displays.
 QUALITY_FLOOR_SECONDS = 60
 
+#: Days between two hard stimuli: 48 hours. One constant for the day's
+#: decision, the week planner and the calendar fit (zones.md: a convention).
+HARD_SPACING_DAYS = 2
 HARD_AEROBIC_TE = 3.0           # Garmin: "improving" and above
 QUALITY_ANAEROBIC_TE = 2.0      # real interval/tempo stimulus from here
 LONG_RUN_MIN_SECONDS = 70 * 60  # a 70+ min run is a key session whatever its TE

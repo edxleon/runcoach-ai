@@ -491,7 +491,7 @@ def test_doctor_reports_the_write_path_instead_of_falling_silent(today, capsys, 
     half["status"] = "applied"
     half["items"].append(dict(half["items"][0], workout_id=None, schedule_id=None))
     half["days"] = 2
-    plan._write_json(plan._path(half["id"]), half)
+    paths.write_json_atomic(plan._path(half["id"]), half)
     store.claim_proposal_item("p-20260101-000000-abcd", 0)
     store.mark_proposal_item_unknown("p-20260101-000000-abcd", 0)
     store.record_workout(900_123, name="Easy run 45 min", kind="easy", spec_json="{}")
@@ -934,7 +934,7 @@ def test_an_exhausted_quota_waits_and_retries_instead_of_failing(tmp_path, monke
     calls = []
     notes = []
 
-    def fake_run_once(job, db):
+    def fake_run_once(job, db, athlete=""):
         calls.append(job["id"])
         notes.append(jobs.read_job(job["id"]).get("note"))
         if len(calls) < 3:
@@ -964,7 +964,7 @@ def test_the_quota_wait_gives_up_eventually(tmp_path, monkeypatch):
 
     calls = []
     monkeypatch.setattr(agent, "_run_once",
-                        lambda job, db: (calls.append(1), (1, "", "usage limit reached"))[1])
+                        lambda job, db, athlete="": (calls.append(1), (1, "", "usage limit reached"))[1])
     job = jobs.new_job("prompt", title="t", kind="train-today")
     out = agent.run(job, db=str(tmp_path / "x.db"))
 
@@ -981,7 +981,7 @@ def test_a_cancel_during_the_quota_wait_is_noticed_without_another_spawn(tmp_pat
 
     calls = []
 
-    def fake_run_once(job, db):
+    def fake_run_once(job, db, athlete=""):
         calls.append(1)
         jobs.request_cancel(job["id"])                  # the user hits cancel meanwhile
         return 1, "", "usage limit reached"
@@ -1374,7 +1374,7 @@ def test_two_writers_of_one_job_do_not_share_a_temp_file(tmp_path, monkeypatch):
 
     # A target held open long enough is an ERROR with the real cause, not a
     # traceback from an unguarded last line — and it leaves no temp file behind.
-    monkeypatch.setattr(jobs, "_REPLACE_ATTEMPTS", 2)
+    monkeypatch.setattr(paths, "_REPLACE_ATTEMPTS", 2)
     monkeypatch.setattr(time, "sleep", lambda _s: None)
     monkeypatch.setattr(os, "replace", lambda *_a: (_ for _ in ()).throw(PermissionError(13, "busy")))
     with pytest.raises(PermissionError):

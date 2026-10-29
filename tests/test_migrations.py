@@ -12,7 +12,8 @@ from conftest import make_activity, make_day
 from runcoach import paths
 from runcoach.store import Store
 
-SCHEMA_VERSION = 3   # 0001 init, 0002 runcoach_workouts (provenance), 0003 proposal_items (claims)
+SCHEMA_VERSION = 4   # 0001 init, 0002 runcoach_workouts (provenance), 0003 proposal_items (claims),
+#                      0004 load balance
 
 
 def test_fresh_database_is_at_the_current_version(tmp_path):

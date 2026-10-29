@@ -38,6 +38,8 @@ READ_ONLY_TOOLS = {
     "analyze_workout", "get_vo2max_history", "sync_garmin",
     # the coach's rules for a chat client, which cannot be handed them in full
     "get_coaching_reference",
+    # what the app has learned about the athlete (facts.py)
+    "get_athlete_profile",
     "propose_workout", "propose_week"}
 
 EXPECTED_MCP_TOOLS = {
@@ -46,6 +48,8 @@ EXPECTED_MCP_TOOLS = {
     "analyze_workout", "get_vo2max_history", "sync_garmin",
     # the coach's rules for a chat client, which cannot be handed them in full
     "get_coaching_reference",
+    # what the app has learned about the athlete (facts.py)
+    "get_athlete_profile",
     # the write path: propose (local) and, after a human's yes, apply (Garmin)
     "propose_workout", "propose_week", "apply_workout", "undo_workout"}
 
@@ -2244,3 +2248,21 @@ def test_propose_week_alternates_the_structure_by_week(store, today):
                            days_per_week=4, long_run_day="sun")
     name = lambda out: out.split("VO2max ")[1].split("  (")[0]   # noqa: E731
     assert name(a) != name(b), (name(a), name(b))
+
+
+def test_garmins_load_focus_is_one_line_said_as_its_opinion(store, today):
+    from runcoach.models import DailyMetrics
+
+    store.upsert_activity(make_activity(9_100_000_001, today - timedelta(days=2)))
+    before = tools.get_training_load(store)
+    assert "load focus" not in before                     # nothing sent, nothing said
+    store.upsert_daily(DailyMetrics(day=today, steps=100, load_aerobic_low=115.4,
+                                    load_aerobic_high=0.0, load_anaerobic=0.0,
+                                    load_aerobic_low_min=115, load_aerobic_low_max=279,
+                                    load_aerobic_high_min=186, load_aerobic_high_max=350,
+                                    load_anaerobic_min=0, load_anaerobic_max=164,
+                                    load_balance="AEROBIC_HIGH_SHORTAGE"))
+    out = tools.get_training_load(store)
+    assert (f"- Garmin's load focus (its 4-week estimate, as of {today.isoformat()}): "
+            "low aerobic 115 (target 115-279), high aerobic 0 (target 186-350), anaerobic 0 "
+            "(target 0-164) - AEROBIC_HIGH_SHORTAGE. Garmin's opinion, not the app's rule") in out

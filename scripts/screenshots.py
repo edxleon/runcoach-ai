@@ -29,7 +29,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 OUT = ROOT / "docs" / "screenshots"
-TABS = ("today", "runs", "trend", "coach")
+TABS = ("today", "runs", "trend", "coach", "you")
 #: Phone-ish width — the app is used on a phone in the kitchen, and a
 #: desktop-width screenshot of a mobile-first layout advertises the wrong thing.
 #: `main.app` is `max-width: 480px; margin: 0 auto`, so the WINDOW has to be a

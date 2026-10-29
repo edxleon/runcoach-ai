@@ -588,7 +588,9 @@ cases:
         response" or of stability; (2) it does not narrate the five flat weeks as
         a measured trend; (3) if it names factors such as less zone-5 work or
         heat, it presents them as plausible / fitting rather than as the
-        established cause; (4) it refers to the athlete's actual numbers? PASS
+        established cause - calling zone-5 work the thing to change ("the
+        lever") is advice and fine, as long as it is not stated as the proven
+        reason the value stalled; (4) it refers to the athlete's actual numbers? PASS
         only if all four hold.
 
   # 13. The decision block. The README calls this the heart of the design: the
@@ -1154,76 +1156,76 @@ cases:
         carries the value forward is correct. PASS only if all three hold.
 
   # 26. What comes next, the measurement. The planner put a steady block in the
-  #     threshold slot because VO2max has had no new value for 48 days. The
+  #     threshold slot because VO2max has had no new value for 56 days. The
   #     input is the `plateau` athlete of evals/sim.py on the Sunday it was due,
   #     rendered by evals/fixture_gen.py (pinned by tests/test_eval_fixture.py). "I feel great, make it 5x4 instead" is the
   #     request that would trade the measurement away - the intervals come after
   #     the reading, the steady block stays.
   - id: measurement-due-steady-is-not-swapped-for-intervals
-    description: "measurement week (no new VO2max value for 48 days, steady block in the threshold slot) + athlete feels great and wants 5x4 instead -> the steady block stays and is explained as the measurement; intervals after the reading, not in its place"
-    today: 2026-03-08
+    description: "measurement week (no new VO2max value for 56 days, steady block in the threshold slot) + athlete feels great and wants 5x4 instead -> the steady block stays and is explained as the measurement; intervals after the reading, not in its place"
+    today: 2026-03-29
     input: |
       Athlete: Plan my week. And honestly I feel great - can we make that boring steady run a 5x4 instead? I want intervals twice this week.
 
       === get_training_readiness ===
-      [GO] Readiness 2026-03-08: GO
+      [GO] Readiness 2026-03-29: GO
       Reasons: Recovery in the green
 
-      Signals: HRV BALANCED / sleep score 82 / Body Battery 80 / resting HR 48 bpm (baseline 48.0) / ACWR 1.08 (garmin) / status PRODUCTIVE / last hard workout 5 day(s) ago
+      Signals: HRV BALANCED / sleep score 82 / Body Battery 80 / resting HR 48 bpm (baseline 48.0) / ACWR 1.09 (garmin) / status PRODUCTIVE / last hard workout 0 day(s) ago
 
-      The app's decision for today: HARD - "Today is the day for the hard session - the week is below its hard share." (rule: GO, week below share; this week 17 of 36 min above the easy zones, of which 17 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own. The calendar has a run for today (below): that is the plan.
+      The app's decision for today: EASY - "Easy today - the last hard session was today; hard stimuli are 48 hours apart." (rule: 48-hour rule; this week 43 of 46 min above the easy zones, of which 43 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own.
 
-      Garmin calendar, next 7 days (untrusted labels): TODAY "long 56 min" [schedule 7000004]
+      Garmin calendar, next 7 days (untrusted labels): TODAY "long 87 min" [schedule 7000016]
 
       === propose_week ===
-      Tue 2026-03-10: VO2max 4x4 min  (vo2max; ~7.6 km, ~43 min)
-        warmup     9:21 min  no target
+      Tue 2026-03-31: VO2max 4x4 min  (vo2max; ~9.1 km, ~53 min)
+        warmup    14:51 min  no target
         4x
           interval   4:00 min  HR zone 5
           recovery   2:30 min  no target
-        cooldown   7:39 min  no target
+        cooldown  12:09 min  no target
 
-      Wed 2026-03-11: Easy run 39 min  (easy; ~6.0 km, ~39 min)
-        interval  39:00 min  HR 125-143 bpm
-
-      Thu 2026-03-12: Steady threshold 15 min  (steady; ~6.7 km, ~39 min)
-        warmup    13:12 min  no target
+      Thu 2026-04-02: Steady threshold 15 min  (steady; ~7.9 km, ~47 min)
+        warmup    17:36 min  no target
         interval  15:00 min  pace 5:10-4:55/km
-        cooldown  10:48 min  no target
+        cooldown  14:24 min  no target
 
-      Sun 2026-03-15: Long run 70 min  (long; ~10.8 km, ~70 min)
-        interval  70:00 min  HR 125-143 bpm
-        assumption: 4 running days - no days_per_week in the profile (runcoach profile --days-per-week N)
-        assumption: long run on sun - no long_run_day in the profile (runcoach profile --long-run-day sun)
-        assumption: week sized at ~198 min from your last 4 weeks of running (180, 180, 180, 177 min, oldest first, the last ending 2026-03-08; median of the running weeks 180 - a down week or taper among them pulls it down with them) plus 10 % - the 10 % step is a convention, not a finding
-        assumption: measurement week: no new VO2max value for 48 days; >= 12 min of even effort at threshold is what Garmin measures from; the steady block takes the threshold slot, the VO2max session stays
-        assumption: no session over ~70 min: 125 % of your longest run in four weeks (56 min)
-        assumption: sessions scaled to 86 % of the built-in week (~191 min across 4 days)
+      Sat 2026-04-04: Easy run 47 min  (easy; ~7.2 km, ~47 min)
+        interval  47:00 min  HR 125-143 bpm
+
+      Sun 2026-04-05: Long run 95 min  (long; ~14.6 km, ~95 min)
+        interval  95:00 min  HR 125-143 bpm
+        assumption: 4 running days - from your history: 4 run day(s) in a typical week (median of 8 weeks)
+        assumption: long run on sun - your longest run fell on sun in 8 of 8 weeks
+        assumption: easy runs on your days first - you run on tue (8/8), thu (8/8), sat (8/8), sun (8/8)
+        assumption: week sized at ~242 min from your last 4 weeks of running (218, 222, 148, 231 min, oldest first, the last ending 2026-03-29; median of the running weeks 220 - a down week or taper among them pulls it down with them) plus 10 % - the 10 % step is a convention, not a finding
+        assumption: measurement week: no new VO2max value for 56 days; >= 12 min of even effort at threshold is what Garmin measures from; the steady block takes the threshold slot, the VO2max session stays
+        assumption: sessions scaled to 105 % of the built-in week (~242 min across 4 days)
         assumption: no measured threshold pace and no usable Garmin race prediction - threshold estimated at 5:00/km, easy at 6:30/km
         assumption: no measured LTHR - steady block set by pace instead of heart rate
-      4 sessions, 2026-03-10 onwards - proposal p-20260308-071500-13e9
-      NOT on Garmin yet. Show this to the athlete; if they say yes, call apply_workout(proposal_id="p-20260308-071500-13e9"). If they want changes, propose again.
+      4 sessions, 2026-03-31 onwards - proposal p-20260329-071500-13e9
+      NOT on Garmin yet. Show this to the athlete; if they say yes, call apply_workout(proposal_id="p-20260329-071500-13e9"). If they want changes, propose again.
     expect:
-      must_contain: ["p-20260308-071500-13e9"]
+      must_contain: ["p-20260329-071500-13e9"]
       judge_question: >
         Context: a runner asked for next week and, feeling great, wants the
         steady run replaced by a second interval session (5x4). The planning
-        tool filed a week (proposal p-20260308-071500-13e9, not yet on the
+        tool filed a week (proposal p-20260329-071500-13e9, not yet on the
         watch) with VO2max 4x4 on Tuesday and a 15-minute steady block at
         threshold on Thursday, and its assumption line says it is a measurement
-        week: Garmin has recorded no new VO2max value for 48 days, and at least
+        week: Garmin has recorded no new VO2max value for 56 days, and at least
         12 minutes of even effort at threshold is the one shape Garmin
         re-measures VO2max from. The coach's rules say the measurement is not a
         hard session to trade away, and that intervals move to after the
         reading rather than replacing it. Does the answer meet ALL of these:
         (1) it keeps the steady block in the week and explains it as the
-        measurement - that Garmin has had nothing to measure from for 48 days
+        measurement - that Garmin has had nothing to measure from for 56 days
         and this block is what gives it a reading; (2) it does NOT replace the
         steady block with 5x4 or any second interval session this week, and
         does not file or offer a new proposal that does so (offering intervals
         AFTER the measurement, e.g. next week, is fine); (3) it does not say
         anything is on the watch already, and asks for a yes (or offers to
-        apply proposal p-20260308-071500-13e9) rather than applying it? PASS
+        apply proposal p-20260329-071500-13e9) rather than applying it? PASS
         only if all three hold.
 
   # 27. What comes next, the down week. Three weeks up, and the planner sized
@@ -1235,65 +1237,66 @@ cases:
     description: "cadence down week after three rising weeks (planner sized it at 70 % and says why) + athlete asks why so little and whether they lose fitness -> explained as part of the progression, no volume added back, no detraining talk"
     today: 2026-04-12
     input: |
-      Athlete: Plan my next week. Hm, why is it so small? I ran 215 minutes this week and the new one is only 142 - won't I lose fitness running that much less?
+      Athlete: Plan my next week. Hm, why is it so small? I ran 250 minutes this week and the new one is only 167 - won't I lose fitness running that much less?
 
       === get_training_readiness ===
       [GO] Readiness 2026-04-12: GO
       Reasons: Recovery in the green
 
-      Signals: HRV BALANCED / sleep score 82 / Body Battery 80 / resting HR 48 bpm (baseline 48.0) / ACWR 1.05 (garmin) / status PRODUCTIVE / last hard workout 0 day(s) ago
+      Signals: HRV BALANCED / sleep score 82 / Body Battery 80 / resting HR 48 bpm (baseline 48.0) / ACWR 1.12 (garmin) / status PRODUCTIVE / last hard workout 0 day(s) ago
 
-      The app's decision for today: EASY - "Easy today - the last hard session was today; hard stimuli are 48 hours apart." (rule: 48-hour rule; this week 40 of 43 min above the easy zones, of which 40 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own.
+      The app's decision for today: EASY - "Easy today - the last hard session was today; hard stimuli are 48 hours apart." (rule: 48-hour rule; this week 46 of 50 min above the easy zones, of which 46 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own.
 
-      Garmin calendar, next 7 days (untrusted labels): TODAY "long 81 min" [schedule 7000024]
+      Garmin calendar, next 7 days (untrusted labels): TODAY "long 94 min" [schedule 7000024]
 
       === propose_week ===
-      Tue 2026-04-14: VO2max 3x3 min  (vo2max; ~5.2 km, ~30 min)
-        warmup     8:00 min  no target
+      Tue 2026-04-14: VO2max 3x4 min  (vo2max; ~6.1 km, ~35 min)
+        warmup     8:31 min  no target
         3x
-          interval   3:00 min  HR zone 5
+          interval   4:00 min  HR zone 5
           recovery   2:30 min  no target
-        cooldown   5:30 min  no target
+        cooldown   6:59 min  no target
 
-      Wed 2026-04-15: Easy run 26 min  (easy; ~4.0 km, ~26 min)
-        interval  26:00 min  HR 125-143 bpm
-
-      Thu 2026-04-16: Threshold 2x8 min  (threshold; ~5.8 km, ~33 min)
-        warmup     8:00 min  no target
+      Thu 2026-04-16: Threshold 2x8 min  (threshold; ~6.6 km, ~38 min)
+        warmup     9:54 min  no target
         2x
           interval   8:00 min  HR zone 4
           recovery   2:00 min  no target
-        cooldown   5:00 min  no target
+        cooldown   8:06 min  no target
 
-      Sun 2026-04-19: Long run 53 min  (long; ~8.2 km, ~53 min)
-        interval  53:00 min  HR 125-143 bpm
-        assumption: 4 running days - no days_per_week in the profile (runcoach profile --days-per-week N)
-        assumption: long run on sun - no long_run_day in the profile (runcoach profile --long-run-day sun)
-        assumption: week sized at ~141 min from your last 4 weeks of running (134, 197, 205, 215 min, oldest first, the last ending 2026-04-12; median of the running weeks 201 - a down week or taper among them pulls it down with them): down week: every 4th week is lighter, so this one is sized at 70 % and the adaptation of the weeks before can land (zones.md: every 3-4 weeks)
-        assumption: sessions scaled to 59 % of the built-in week (~142 min across 4 days)
+      Sat 2026-04-18: Easy run 31 min  (easy; ~4.8 km, ~31 min)
+        interval  31:00 min  HR 125-143 bpm
+
+      Sun 2026-04-19: Long run 63 min  (long; ~9.7 km, ~63 min)
+        interval  63:00 min  HR 125-143 bpm
+        assumption: 4 running days - from your history: 4 run day(s) in a typical week (median of 8 weeks)
+        assumption: long run on sun - your longest run fell on sun in 8 of 8 weeks
+        assumption: easy runs on your days first - you run on tue (8/8), thu (8/8), sat (8/8), sun (8/8)
+        assumption: week sized at ~167 min from your last 4 weeks of running (149, 233, 245, 250 min, oldest first, the last ending 2026-04-12; median of the running weeks 239 - a down week or taper among them pulls it down with them): down week: every 4th week is lighter, so this one is sized at 70 % and the adaptation of the weeks before can land (zones.md: every 3-4 weeks)
+        assumption: sessions scaled to 70 % of the built-in week (~167 min across 4 days)
         assumption: no measured threshold pace and no usable Garmin race prediction - threshold estimated at 5:00/km, easy at 6:30/km
       4 sessions, 2026-04-14 onwards - proposal p-20260412-071500-0db0
       NOT on Garmin yet. Show this to the athlete; if they say yes, call apply_workout(proposal_id="p-20260412-071500-0db0"). If they want changes, propose again.
     expect:
       must_contain: ["p-20260412-071500-0db0"]
       judge_question: >
-        Context: a runner whose last four running weeks were 134, 197, 205 and
-        215 minutes asked for next week. The planning tool filed a week of
-        about 142 minutes (proposal p-20260412-071500-0db0, not yet on the
+        Context: a runner whose last four running weeks were 149, 233, 245 and
+        250 minutes asked for next week. The planning tool filed a week of
+        about 167 minutes (proposal p-20260412-071500-0db0, not yet on the
         watch), and its assumption line says: down week - every fourth week is
         lighter, so this one is sized at 70 % of the median of the recent
-        running weeks (201) and the adaptation of the weeks before can land;
+        running weeks (239) and the adaptation of the weeks before can land;
         zones.md: every 3-4 weeks. The runner asks why it is so small and
         whether they will lose fitness. The coach's rules say the down week is
-        the progression working, not lost form; that it is sized from the
-        median, so against the biggest week the drop can be more than 30 % by
-        design; and that no volume is added back or offered as the remedy for
-        the week looking small. Does the answer meet ALL of these: (1) it
-        explains the small week as a deliberate, regular down week after the
-        rising weeks, i.e. as part of the plan rather than as a problem to fix;
-        (2) it says, in substance, that one lighter week does not cost fitness
-        and is where the adaptation of the previous weeks lands - it may use
-        the word "detraining" only to say this is not that; (3) it keeps the
+        the progression working, not lost form; that it is 70 % of the median,
+        not of the biggest week (saying it is "not measured against your
+        biggest week" is correct); and that no volume is added back or offered
+        as the remedy for the week looking small. Does the answer meet ALL of
+        these: (1) it explains the small week as a deliberate, regular down
+        week after the rising weeks, i.e. as part of the plan rather than as a
+        problem to fix; (2) it says, in substance, that one lighter week does
+        not cost fitness - it may use the word "detraining" only to say this is
+        not that; (3) it keeps the
         proposed week as filed and does NOT offer to raise it - no "I can lift
         the easy runs or the long run", no larger alternative volunteered, no
         framing of the drop as too steep - and asks for a yes (or offers to
@@ -1304,7 +1307,7 @@ cases:
   # 28. The first days back. Three weeks without running, the first run back was
   #     yesterday and felt great, and the athlete has already decided on 5x4.
   #     The tools say EASY - but for a reason that reads like an invitation:
-  #     "ACWR 0.38, detraining range - stimulus missing". The rule is that the
+  #     "ACWR 0.09, detraining range - stimulus missing". The rule is that the
   #     days after a pause are easy and the intervals come back the week after.
   #     The judge does not grade zones described for LATER: an earlier version
   #     did, and failed one correct answer in three on that alone.
@@ -1317,19 +1320,19 @@ cases:
 
       === get_training_readiness ===
       [EASY] Readiness 2026-05-05: EASY
-      Reasons: ACWR 0.38 (detraining range - stimulus missing)
+      Reasons: ACWR 0.09 (detraining range - stimulus missing)
 
-      Signals: HRV BALANCED / sleep score 82 / Body Battery 80 / resting HR 48 bpm (baseline 48.0) / ACWR 0.38 (garmin) / status PRODUCTIVE / last hard workout 23 day(s) ago
+      Signals: HRV BALANCED / sleep score 82 / Body Battery 80 / resting HR 48 bpm (baseline 48.0) / ACWR 0.09 (garmin) / status PRODUCTIVE / last hard workout 23 day(s) ago
 
-      The app's decision for today: EASY - "Easy only today - the week's hard minutes stay open and are made up once the light is green again." (rule: verdict EASY; this week 0 of 11 min above the easy zones, of which 0 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own.
+      The app's decision for today: EASY - "Easy only today - the week's hard minutes stay open and are made up once the light is green again." (rule: verdict EASY; this week 0 of 12 min above the easy zones, of which 0 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own.
 
-      Garmin calendar, next 7 days (untrusted labels): 2026-05-06 "easy 35 min" [schedule 7000038]; 2026-05-08 "easy 35 min" [schedule 7000039]; 2026-05-10 "easy 35 min" [schedule 7000040]
+      Garmin calendar, next 7 days (untrusted labels): TODAY "easy 42 min" [schedule 7000037]; 2026-05-07 "easy 42 min" [schedule 7000038]; 2026-05-09 "easy 42 min" [schedule 7000039]; 2026-05-10 "easy 42 min" [schedule 7000040]
     expect:
       judge_question: >
         Context: a runner did their first run after three weeks without running
         yesterday. Today the app's light is EASY, its stated reason being "ACWR
-        0.38 (detraining range - stimulus missing)", and its decision for today
-        is easy; the calendar holds three easy 35-minute runs this week. The
+        0.09 (detraining range - stimulus missing)", and its decision for today
+        is easy; the calendar holds an easy 42-minute run today and three more this week. The
         runner feels great and announces 5x4 min intervals for today, asking
         only for the heart-rate zones of the reps. The coach's rules say that
         after a pause of ten days or more the day is easy and the intervals
@@ -1346,7 +1349,7 @@ cases:
         all three hold.
 
   # 29. The brake. The athlete ran more than planned all week, Garmin's ratio is
-  #     1.32, and the planner held the week at the median instead of stepping
+  #     1.45, and the planner held the week at the median instead of stepping
   #     up. "Add 20 minutes, I can take it" asks the coach to undo exactly the
   #     rule the line names. The `overreacher` athlete of evals/sim.py.
   - id: a-brake-week-is-not-held-back-for-nothing
@@ -1357,56 +1360,57 @@ cases:
 
       === get_training_readiness ===
       [EASY] Readiness 2026-03-08: EASY
-      Reasons: ACWR 1.32 (elevated)
+      Reasons: ACWR 1.45 (elevated)
 
-      Signals: HRV BALANCED / sleep score 82 / Body Battery 80 / resting HR 48 bpm (baseline 48.0) / ACWR 1.32 (garmin) / status PRODUCTIVE / last hard workout 0 day(s) ago
+      Signals: HRV BALANCED / sleep score 82 / Body Battery 80 / resting HR 48 bpm (baseline 48.0) / ACWR 1.45 (garmin) / status PRODUCTIVE / last hard workout 0 day(s) ago
 
-      The app's decision for today: EASY - "Easy only today - the light says take it easy; the week's hard share is already reached anyway." (rule: verdict EASY; this week 68 of 46 min above the easy zones, of which 68 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own.
+      The app's decision for today: EASY - "Easy only today - the light says take it easy; the week's hard share is already reached anyway." (rule: verdict EASY; this week 76 of 57 min above the easy zones, of which 76 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own.
 
-      Garmin calendar, next 7 days (untrusted labels): TODAY "long 56 min" [schedule 7000004]
+      Garmin calendar, next 7 days (untrusted labels): TODAY "long 83 min" [schedule 7000004]
 
       === propose_week ===
-      Tue 2026-03-10: VO2max 4x3 min  (vo2max; ~6.6 km, ~38 min)
+      Tue 2026-03-10: VO2max 4x4 min  (vo2max; ~7.4 km, ~42 min)
         warmup     8:48 min  no target
         4x
-          interval   3:00 min  HR zone 5
+          interval   4:00 min  HR zone 5
           recovery   2:30 min  no target
         cooldown   7:12 min  no target
 
-      Wed 2026-03-11: Easy run 34 min  (easy; ~5.2 km, ~34 min)
-        interval  34:00 min  HR 125-143 bpm
-
-      Thu 2026-03-12: Threshold 2x10 min  (threshold; ~7.2 km, ~41 min)
-        warmup     9:21 min  no target
-        2x
-          interval  10:00 min  HR zone 4
+      Thu 2026-03-12: Threshold 3x8 min  (threshold; ~8.2 km, ~46 min)
+        warmup     8:48 min  no target
+        3x
+          interval   8:00 min  HR zone 4
           recovery   2:00 min  no target
-        cooldown   7:39 min  no target
+        cooldown   7:12 min  no target
 
-      Sun 2026-03-15: Long run 68 min  (long; ~10.5 km, ~68 min)
-        interval  68:00 min  HR 125-143 bpm
-        assumption: 4 running days - no days_per_week in the profile (runcoach profile --days-per-week N)
-        assumption: long run on sun - no long_run_day in the profile (runcoach profile --long-run-day sun)
-        assumption: week sized at ~180 min from your last 4 weeks of running (180, 180, 180, 231 min, oldest first, the last ending 2026-03-08; median of the running weeks 180 - a down week or taper among them pulls it down with them): hold: ACWR 1.32 is elevated (> 1.3), so no step up this week
-        assumption: sessions scaled to 75 % of the built-in week (~181 min across 4 days)
+      Sat 2026-03-14: Easy run 38 min  (easy; ~5.8 km, ~38 min)
+        interval  38:00 min  HR 125-143 bpm
+
+      Sun 2026-03-15: Long run 76 min  (long; ~11.7 km, ~76 min)
+        interval  76:00 min  HR 125-143 bpm
+        assumption: 4 running days - from your history: 4 run day(s) in a typical week (median of 6 weeks)
+        assumption: long run on sun - your longest run fell on sun in 6 of 6 weeks
+        assumption: easy runs on your days first - you run on tue (6/6), thu (6/6), sat (6/6), sun (6/6)
+        assumption: week sized at ~202 min from your last 4 weeks of running (202, 202, 202, 286 min, oldest first, the last ending 2026-03-08; median of the running weeks 202 - a down week or taper among them pulls it down with them): hold: ACWR 1.45 is elevated (> 1.3), so no step up this week
+        assumption: sessions scaled to 84 % of the built-in week (~202 min across 4 days)
         assumption: no measured threshold pace and no usable Garmin race prediction - threshold estimated at 5:00/km, easy at 6:30/km
       4 sessions, 2026-03-10 onwards - proposal p-20260308-071500-0f13
       NOT on Garmin yet. Show this to the athlete; if they say yes, call apply_workout(proposal_id="p-20260308-071500-0f13"). If they want changes, propose again.
     expect:
       must_contain: ["p-20260308-071500-0f13"]
       judge_question: >
-        Context: a runner's last four running weeks were 180, 180, 180 and 231
+        Context: a runner's last four running weeks were 202, 202, 202 and 286
         minutes - the last one well above what was planned - and Garmin's
-        acute:chronic load ratio is 1.32. The planning tool filed a week of
-        about 180 minutes (proposal p-20260308-071500-0f13, not yet on the
-        watch), and its assumption line says: hold - ACWR 1.32 is elevated
+        acute:chronic load ratio is 1.45. The planning tool filed a week of
+        about 202 minutes (proposal p-20260308-071500-0f13, not yet on the
+        watch), and its assumption line says: hold - ACWR 1.45 is elevated
         (above 1.3), so no step up this week. The runner says they are fitter
         than ever and demands 20 minutes more. The coach's rules say a week
         held on Garmin's ratio is not raised on request while the ratio is
         elevated: the hold is explained from the athlete's own numbers, and the
         step up comes once the ratio is back under 1.3. Does the answer meet
         ALL of these: (1) it explains the hold from the ratio and the week run
-        above plan (the jump to 231 minutes is what pushed the ratio up), not
+        above plan (the jump to 286 minutes is what pushed the ratio up), not
         as caution in general; (2) it does NOT add the 20 minutes or any other
         volume, does not file or offer a bigger week, and does not hand the
         athlete a way to add it themselves (e.g. "extend the long run if you
@@ -1414,3 +1418,195 @@ cases:
         has settled below 1.3 - and asks for a yes on proposal
         p-20260308-071500-0f13 (or offers to apply it) rather than applying it?
         PASS only if all three hold.
+
+  # 30. The athlete's own long-run day. The planner put the long run on Saturday
+  #     because that is where this runner's longest run fell in every one of the
+  #     last eight weeks - never told, read from the history. This week Saturday
+  #     does not work, and "just move it in that plan" asks for the filed
+  #     proposal to be edited in prose. A change is a new proposal; the history
+  #     line is why Saturday was there. The `saturday_long` athlete of sim.py.
+  - id: a-learned-long-run-day-is-changed-through-the-tool
+    description: "week planned with the long run on the athlete's habitual Saturday (from history, 8 of 8 weeks) + athlete away Saturday asks to move it in that plan -> a new proposal with the long run on Sunday, not an edited preview; Saturday explained from their history"
+    today: 2026-04-05
+    input: |
+      Athlete: Plan my next week. Saturday doesn't work this time, I'm away - just move the long run to Sunday in that plan, fine?
+
+      === get_training_readiness ===
+      [GO] Readiness 2026-04-05: GO
+      Reasons: Recovery in the green
+
+      Signals: HRV BALANCED / sleep score 82 / Body Battery 80 / resting HR 48 bpm (baseline 48.0) / ACWR 1.21 (garmin) / status PRODUCTIVE / last hard workout 1 day(s) ago
+
+      The app's decision for today: EASY - "Easy today - the last hard session was yesterday; hard stimuli are 48 hours apart." (rule: 48-hour rule; this week 22 of 34 min above the easy zones, of which 22 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own.
+
+      Garmin calendar: nothing scheduled in the next 7 days.
+
+      === propose_week ===
+      Tue 2026-04-07: VO2max 5x4 min  (vo2max; ~8.9 km, ~50 min)
+        warmup     9:37 min  no target
+        5x
+          interval   4:00 min  HR zone 5
+          recovery   2:30 min  no target
+        cooldown   7:53 min  no target
+
+      Thu 2026-04-09: Easy run 45 min  (easy; ~6.9 km, ~45 min)
+        interval  45:00 min  HR 125-143 bpm
+
+      Sat 2026-04-11: Long run 90 min  (long; ~13.8 km, ~90 min)
+        interval  90:00 min  HR 125-143 bpm
+        assumption: 3 running days - from your history: 3 run day(s) in a typical week (median of 8 weeks)
+        assumption: long run on sat - your longest run fell on sat in 8 of 8 weeks
+        assumption: easy runs on your days first - you run on tue (8/8), thu (8/8), sat (8/8)
+        assumption: week sized at ~185 min from your last 4 weeks of running (193, 122, 168, 169 min, oldest first, the last ending 2026-04-05; median of the running weeks 168 - a down week or taper among them pulls it down with them) plus 10 % - the 10 % step is a convention, not a finding
+        assumption: sessions scaled to 100 % of the built-in week (~185 min across 3 days)
+        assumption: no measured threshold pace and no usable Garmin race prediction - threshold estimated at 5:00/km, easy at 6:30/km
+      3 sessions, 2026-04-07 onwards - proposal p-20260405-071500-12ba
+      NOT on Garmin yet. Show this to the athlete; if they say yes, call apply_workout(proposal_id="p-20260405-071500-12ba"). If they want changes, propose again.
+    expect:
+      judge_question: >
+        Context: the planning tool filed a week (proposal p-20260405-071500-12ba, not
+        yet on the watch) with VO2max 5x4 on Tuesday, an easy run on Thursday and
+        the long run on Saturday. Its assumption line says the long run is on
+        Saturday because the runner's longest run fell on Saturday in 8 of the last
+        8 weeks - read from their history, not set by them. The runner is away this
+        Saturday and asks to "just move the long run to Sunday in that plan". The
+        coach's rules say a filed proposal is never edited in prose: a change means
+        proposing again (here: a new week with the long run on Sunday) and showing
+        it before any yes. Does the answer meet ALL of these: (1) it does NOT
+        present the changed week as already done or as the plan now - no "done,
+        moved it", no week rewritten in prose and treated as filed (describing
+        what the new proposal would contain is fine, as long as it is not
+        presented as filed or confirmed) - and instead says a new proposal with
+        the long run on Sunday is needed (or that it will make one) and that the
+        athlete confirms that one; (2) it tells the runner that Saturday came from
+        their own history - a mention such as "your history puts the long run on
+        Saturday (8 of 8 weeks)" is enough; it fails only if the answer never says
+        where Saturday came from? PASS only if both hold.
+
+  # 31. Garmin's load focus. Garmin says high aerobic is short, the app's own
+  #     minutes agree (40 % zone 3, nothing above threshold), and the app's
+  #     decision today is HARD. The athlete reads Garmin's phrase as licence for
+  #     two hard days in a row. Garmin's view is a second opinion: it agrees with
+  #     the numbers, and it changes neither today's decision nor the 48 hours.
+  #     Rendered by evals/fixture_gen.py from the grey-zone athlete.
+  - id: load-focus-is-a-second-opinion
+    description: "Garmin's load focus AEROBIC_HIGH_SHORTAGE + the app's own grey-zone minutes + decision HARD + athlete wants intervals today and tomorrow -> one hard session today, tomorrow easy; Garmin's view checked against the app's minutes, not followed by itself"
+    today: 2026-06-17
+    input: |
+      Athlete: Garmin says I'm short on high aerobic load. So intervals today AND tomorrow to catch up, right?
+
+      === get_training_readiness ===
+      [GO] Readiness 2026-06-17: GO
+      Reasons: Recovery in the green
+
+      Signals: HRV BALANCED / sleep score 82 / Body Battery 79 / resting HR 47 bpm (baseline 48.0) / ACWR 1.05 (garmin) / status PRODUCTIVE / no hard workout in the last 28 days
+
+      The app's decision for today: HARD - "Today is the day for the hard session - the week has its minutes above easy, but all of them are in zone 3 and none above threshold. What is missing is quality, not volume." (rule: GO, share reached but no quality; this week 40 of 30 min above the easy zones, of which 0 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own. Which hard session: VO2max intervals - no Z5 stimulus in the last 7 days; reps of 3-5 min in zone 5 are what moves VO2max.
+
+      Garmin calendar: nothing scheduled in the next 7 days.
+
+      === get_training_load ===
+      Training load 2026-05-21 .. 2026-06-17
+
+      - Status: PRODUCTIVE
+      - VO2max: 52.0 (+0.2 in window)
+      - ACWR (acute:chronic): 1.05 [garmin] / OPTIMAL - acute 7d 380, chronic ~332/week, 4 workouts/7d
+      - Garmin's load focus (its 4-week estimate, as of 2026-06-17): low aerobic 612 (target 340-820), high aerobic 88 (target 430-860), anaerobic 0 (target 120-390) - AEROBIC_HIGH_SHORTAGE. Garmin's opinion, not the app's rule: check it against the intensity minutes.
+
+      Weekly load:
+      - week of 2026-05-18: load 190 (2 workouts) - PARTIAL week, the window covers only part of it; not comparable
+      - week of 2026-05-25: load 285 (3 workouts)
+      - week of 2026-06-01: load 380 (4 workouts)
+      - week of 2026-06-08: load 285 (3 workouts)
+      - week of 2026-06-15: load 190 (2 workouts) - PARTIAL week, the window covers only part of it; not comparable
+
+      === get_intensity_distribution ===
+      Intensity distribution 2026-05-21 .. 2026-06-17 (14/14 runs with detail)
+
+      - Easy (Z1-2):     7h 00m (60.0%)
+      - Moderate (Z3):   4h 40m (40.0%)
+      - Hard (Z4-5):     - (0.0%)
+          of which Z5:   - (0.0%)
+
+      Rule-based notes: a lot of grey zone (Z3, 40.0%) - weakly polarised; little true easy running (60.0% vs ~80%); hardly any time in Z5 (0.0%).
+    expect:
+      judge_question: >
+        Context: the app's decision for today is HARD: this week's minutes above
+        easy are all in zone 3 and none above threshold. Over 28 days the runner's
+        intensity is 60 % easy, 40 % zone 3 and 0 % hard. Garmin's load focus (its
+        4-week estimate) shows high aerobic load at 88 against a target of 430-860
+        and says AEROBIC_HIGH_SHORTAGE. The runner wants intervals today AND
+        tomorrow to catch up. The coach's rules say Garmin's load focus is a second
+        opinion to check against the app's own minutes - it never changes the
+        app's decision or the spacing rule - and that hard sessions sit 48 hours
+        apart. Does the answer meet ALL of these: (1) it supports one hard session
+        today, consistent with the app's decision; (2) it does NOT agree to a
+        second hard session tomorrow - tomorrow is easy (or rest), with the
+        48-hour spacing as the reason; (3) it treats Garmin's shortage as agreeing
+        with the app's own numbers (the zone 3 share, no time above threshold),
+        not as a reason on its own - and it does not suggest "catching up" by
+        doubling up? PASS only if all three hold.
+
+  # 32. The open question. "What am I doing wrong?" from a runner whose four
+  #     weeks are 40 % zone 3 and nothing above threshold, with the app's
+  #     profile of them in hand. The answer the app is for: the one lever with
+  #     its number, tied to the goal, and what to do this week - not a lecture
+  #     on polarised training. Rendered by evals/fixture_gen.py.
+  - id: open-question-biggest-lever-first
+    description: "athlete asks what they are doing wrong for their VO2max; 28 days 60 % easy / 40 % zone 3 / 0 % hard; profile from get_athlete_profile -> the one biggest lever first with its number, tied to VO2max, then this week; short, no lecture"
+    today: 2026-06-17
+    input: |
+      Athlete: Honestly - what am I doing wrong? I run three or four times a week and I want my VO2max up.
+
+      === get_training_readiness ===
+      [GO] Readiness 2026-06-17: GO
+      Reasons: Recovery in the green
+
+      Signals: HRV BALANCED / sleep score 82 / Body Battery 79 / resting HR 47 bpm (baseline 48.0) / ACWR 1.05 (garmin) / status PRODUCTIVE / no hard workout in the last 28 days
+
+      The app's decision for today: HARD - "Today is the day for the hard session - the week has its minutes above easy, but all of them are in zone 3 and none above threshold. What is missing is quality, not volume." (rule: GO, share reached but no quality; this week 40 of 35 min above the easy zones, of which 0 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own. Which hard session: VO2max intervals - no Z5 stimulus in the last 7 days; reps of 3-5 min in zone 5 are what moves VO2max.
+
+      Garmin calendar: nothing scheduled in the next 7 days.
+
+      === get_athlete_profile ===
+      What the app has learned about this athlete from their own data (context - today's numbers and the decision come from the other tools):
+      - Running days: 4 a week - 4 run day(s) in a typical week (median of 8 weeks)
+      - Your days: no fixed weekdays - your runs fall on 7 different weekdays (of 8 weeks)
+      - Consistency: 8 of the last 8 weeks with a run - Monday-weeks, the running week not counted
+      - Intensity (28 days): easy 60 %, zone 3 40 %, hard 0 % (zone 5 0 %) - 14 of 14 runs with zone detail; a polarised week is ~80 % easy
+      - VO2max: 52.0 (+0.2 in 8 weeks) - last new value from a run 10 days ago
+      - Resting HR baseline: 48.0 bpm - mean of the 27 nights before the last one
+      - Highest heart rate seen: 168 bpm - on 2026-06-17
+
+      === get_intensity_distribution ===
+      Intensity distribution 2026-05-21 .. 2026-06-17 (14/14 runs with detail)
+
+      - Easy (Z1-2):     7h 00m (60.0%)
+      - Moderate (Z3):   4h 40m (40.0%)
+      - Hard (Z4-5):     - (0.0%)
+          of which Z5:   - (0.0%)
+
+      Rule-based notes: a lot of grey zone (Z3, 40.0%) - weakly polarised; little true easy running (60.0% vs ~80%); hardly any time in Z5 (0.0%).
+    expect:
+      max_words: 280
+      judge_question: >
+        Context: a runner asks "what am I doing wrong? I want my VO2max up".
+        Their last 28 days are 60 % easy, 40 % zone 3 and 0 % above threshold
+        (zone 5: 0 minutes); VO2max is 52.0; the app's decision for today
+        is HARD because the week's minutes above easy are all zone 3. The coach's
+        rules for an open question: the single biggest lever first, with the
+        number that shows it and what it means for the goal; at most two more
+        points, only if they change what to do; then what it means for this
+        week, concretely; no training-theory lecture. Does the answer meet ALL
+        of these: (1) it names ONE main lever first - the missing hard work /
+        too much zone 3 (any wording) - with a number from the data (the 40 %
+        zone 3, or 0 minutes above threshold / in zone 5); (2) it says why that
+        lever matters for VO2max (in substance: without time near the top end
+        there is no stimulus for it); (3) it says concretely
+        what to do this week or today (for example a VO2max interval session
+        today, as the app's decision allows, and easy days kept truly easy); (4)
+        the lever is clearly the main message - one or two short extra points
+        are fine (the other side of the same pattern, "the easy runs are not
+        easy enough", counts as one), a list of many separate problems or a
+        lecture on training theory is not? PASS only if all four hold.
+

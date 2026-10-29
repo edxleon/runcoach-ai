@@ -20,6 +20,7 @@ because the reasoning behind the order is the point of this file.
 | 8 | Body weight in the sync | medium | small |
 | 9 | Garmin's own readiness beside the app's | medium (trust) | small |
 | 10 | Race preparation: base, build and taper towards a date | medium (those with a date) | high |
+| 11 | Session sizes from the athlete's own time per weekday and usual run lengths | medium | small |
 
 ## 2. A way back from the athlete
 
@@ -101,3 +102,16 @@ without the calendar - which is why this sits last, not first.
   is full of "VO2max 4x4 min".
 - No return-to-run after a symptom - deliberate, but the athlete is on their own afterwards.
 - The evals run on a different model and in `--safe-mode`; a green suite is not the shipped coach.
+
+## 11. Session sizes from the athlete's own time
+
+v0.4 reads the athlete's days from their history - how many, which weekdays,
+the long-run day, a weekly other sport (`habits.py`). It does not yet read how
+long they have on each of those days: a runner whose Tuesday runs never go past
+40 minutes can still be planned 55 there, and the easy runs and the long run
+keep the proportions of the built-in week, scaled to the budget. The data is
+there (durations per weekday); the reason it waited is that it would be a
+second sizing rule beside `_week_sizes` and `_session_cap`, and every rendered
+eval fixture would move with it. Done right it replaces the built-in
+proportions with the athlete's own, under the same budget and the same cap.
+

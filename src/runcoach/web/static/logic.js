@@ -430,3 +430,24 @@ export function carryForward(days, hist, key) {
   }
   return out;
 }
+
+/** Garmin's load focus as rows: each band's 4-week load against the target
+ *  range Garmin sets for this athlete, and where it sits - `below`, `within`
+ *  or `above` (null without a range). Garmin's opinion, drawn beside the
+ *  app's own minutes; nothing on the page acts on it. */
+export function loadFocusRows(balance) {
+  if (!balance) return [];
+  const bands = [["Low aerobic", "load_aerobic_low"], ["High aerobic", "load_aerobic_high"],
+                 ["Anaerobic", "load_anaerobic"]];
+  return bands.filter(([, key]) => balance[key] != null).map(([label, key]) => {
+    const value = balance[key], lo = balance[`${key}_min`], hi = balance[`${key}_max`];
+    const state = lo == null || hi == null ? null
+      : value < lo ? "below" : value > hi ? "above" : "within";
+    return { label, value, lo, hi, state };
+  });
+}
+
+/** `AEROBIC_HIGH_SHORTAGE` → "aerobic high shortage": Garmin's phrase, readable. */
+export function loadFocusPhrase(phrase) {
+  return phrase ? String(phrase).toLowerCase().replace(/_/g, " ") : "";
+}

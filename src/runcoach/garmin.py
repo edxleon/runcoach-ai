@@ -20,7 +20,7 @@ from datetime import date, datetime, timezone
 from typing import Any
 
 from . import paths
-from .models import Activity, ActivitySplit, DailyMetrics, ScheduledWorkout
+from .models import LOAD_BALANCE_FIELDS, Activity, ActivitySplit, DailyMetrics, ScheduledWorkout
 
 log = logging.getLogger(__name__)
 
@@ -185,6 +185,59 @@ def login(tokenstore: str | None = None):
     client = Garmin()
     client.login(tokenstore=tokenstore or str(paths.garmin_dir()))
     return client
+
+
+#: Garmin's balance verdicts are SCREAMING_SNAKE phrases (`AEROBIC_HIGH_SHORTAGE`,
+#: `BALANCED`, ...). Anything else is not one, and it would reach a prompt.
+_BALANCE_PHRASE = re.compile(r"[A-Z][A-Z_]{2,40}")
+_LOAD_KEYS = (("load_aerobic_low", "monthlyLoadAerobicLow"),
+              ("load_aerobic_high", "monthlyLoadAerobicHigh"),
+              ("load_anaerobic", "monthlyLoadAnaerobic"))
+
+
+def _load_balance(ts: dict) -> dict:
+    """Garmin's training load balance from the training-status payload, as of
+    the requested day: `mostRecentTrainingLoadBalance` →
+    `metricsTrainingLoadBalanceDTOMap` → one section per device (the first
+    non-empty one, as for the status). Keys pinned from a recorded payload."""
+    bal = (ts.get("mostRecentTrainingLoadBalance") or {}) if isinstance(ts, dict) else {}
+    per_device = bal.get("metricsTrainingLoadBalanceDTOMap") or {}
+    dev = next((v for v in per_device.values() if isinstance(v, dict) and v), {}) \
+        if isinstance(per_device, dict) else {}
+    out: dict = {}
+    for field, key in _LOAD_KEYS:
+        out[field] = _coerce_float(dev.get(key), 0, 100000, ndigits=1)
+        out[f"{field}_min"] = _coerce(dev.get(f"{key}TargetMin"), 0, 100000)
+        out[f"{field}_max"] = _coerce(dev.get(f"{key}TargetMax"), 0, 100000)
+    phrase = dev.get("trainingBalanceFeedbackPhrase")
+    out["load_balance"] = (phrase.strip().upper() if isinstance(phrase, str)
+                           and _BALANCE_PHRASE.fullmatch(phrase.strip().upper()) else None)
+    return out
+
+
+_MEASUREMENT_SYSTEMS = ("metric", "statute_us", "statute_uk")
+_LOCALE = re.compile(r"[a-z]{2}(?:[-_][A-Za-z]{2})?")
+_WEEKDAY_NAMES = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday")
+
+
+def fetch_account(client) -> dict:
+    """The few account settings the app uses, from Garmin's user settings:
+    the measurement system, the preferred language, the first day of the
+    week. Nothing else is kept - not the display name, not the time zone.
+    Each value is checked against what it can be; anything else is dropped.
+    Garmin's language is a DEFAULT: an account set to English says little
+    about the language its owner reads best."""
+    s = _safe("user settings", client.get_userprofile_settings) or {}
+    units = s.get("measurementSystem")
+    locale = s.get("preferredLocale")
+    first = (s.get("firstDayOfWeek") or {}).get("dayName") if isinstance(
+        s.get("firstDayOfWeek"), dict) else None
+    out = {
+        "units": units if units in _MEASUREMENT_SYSTEMS else None,
+        "locale": locale.lower()[:2] if isinstance(locale, str) and _LOCALE.fullmatch(locale) else None,
+        "first_weekday": first if first in _WEEKDAY_NAMES else None,
+    }
+    return {k: v for k, v in out.items() if v is not None}
 
 
 def _coerce(value: Any, lo: int, hi: int) -> int | None:
@@ -472,7 +525,8 @@ def fetch_day(client, day: date) -> DailyMetrics:
         m.hrv_status = status if status in _ALLOWED_HRV_STATUS else None
 
     ts = _safe(f"training_status {iso}", lambda: client.get_training_status(iso), unknown,
-               ("training_status", "acute_load", "chronic_load", "acwr_ratio", "acwr_status"))
+               ("training_status", "acute_load", "chronic_load", "acwr_ratio", "acwr_status",
+                *LOAD_BALANCE_FIELDS))
     mr = ts.get("mostRecentTrainingStatus") or {}
     latest = mr.get("latestTrainingStatusData") or {}
     # Keyed by device → first non-empty section (skip the empty {} of an old or
@@ -486,6 +540,9 @@ def fetch_day(client, day: date) -> DailyMetrics:
     m.acwr_ratio = _coerce_float(atl.get("dailyAcuteChronicWorkloadRatio"), 0, 3, ndigits=2)
     st = atl.get("acwrStatus")
     m.acwr_status = st.upper() if isinstance(st, str) and st.strip() else None
+
+    for k, v in _load_balance(ts).items():
+        setattr(m, k, v)
 
     # Per-day, precise VO2max comes from get_max_metrics; the training-status
     # endpoint only has the "most recent valid" value (not per day) → fallback.

@@ -85,9 +85,14 @@ def validate(spec: dict) -> list[str]:
         if not (exp.get("judge_question") or exp.get("must_contain")
                 or exp.get("must_not_contain")):
             problems.append(f"{cid}: `expect` checks nothing")
-        unknown = set(exp) - {"must_contain", "must_not_contain", "judge_question"}
+        unknown = set(exp) - {"must_contain", "must_not_contain", "judge_question", "max_words"}
         if unknown:
             problems.append(f"{cid}: unknown expect keys {sorted(unknown)}")
+        # An unknown case key used to be ignored in silence - a check that
+        # never ran, reported as passing.
+        stray = set(c) - {"id", "description", "today", "input", "expect"}
+        if stray:
+            problems.append(f"{cid}: unknown case keys {sorted(stray)}")
     return problems
 
 
@@ -151,6 +156,11 @@ def run_case(case: dict, defaults: dict, model: str | None, judge_model: str | N
                             if str(n).lower() not in low]
         out["failures"] += [f"forbidden {n!r}" for n in exp.get("must_not_contain") or []
                             if str(n).lower() in low]
+        # Length is code, not the judge's arithmetic: "short" was the one
+        # criterion a judge kept counting differently from run to run.
+        words = len(answer.split())
+        if exp.get("max_words") and words > int(exp["max_words"]):
+            out["failures"].append(f"{words} words, more than {exp['max_words']}")
         if exp.get("judge_question"):
             judge_prompt = JUDGE.format(question=" ".join(exp["judge_question"].split()),
                                         answer=neutralise(answer))

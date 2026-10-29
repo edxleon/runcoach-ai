@@ -212,6 +212,7 @@ def run(store: Store, client, days: int = DEFAULT_DAYS, *, say=print) -> SyncRep
         _side_channel(rep, say, "lactate threshold", lambda: _sync_threshold(store, client, today))
         _side_channel(rep, say, "race predictions", lambda: _sync_predictions(store, client, today))
         _side_channel(rep, say, "calendar", lambda: _sync_calendar(store, client, today, rep, say))
+        _side_channel(rep, say, "account settings", lambda: _sync_account(client, today))
     except _StoppedError:
         pass
 
@@ -247,6 +248,17 @@ def _sync_predictions(store: Store, client, today) -> None:
     rp = garmin.fetch_race_predictions(client)
     if rp:
         store.update_daily_fields(store.latest_day() or today, rp)
+
+
+def _sync_account(client, today) -> None:
+    """Units, language and first weekday from the Garmin account, at most once a
+    day: they change when the athlete changes a setting, not between syncs."""
+    known = paths.read_json(paths.account_path()) or {}
+    if known.get("synced") == today.isoformat():
+        return
+    account = garmin.fetch_account(client)
+    if account:
+        paths.write_json_atomic(paths.account_path(), {**account, "synced": today.isoformat()})
 
 
 def _sync_calendar(store: Store, client, today, rep: SyncReport, say) -> None:

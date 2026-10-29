@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-TABS = ("today", "runs", "trend", "coach")
+TABS = ("today", "runs", "trend", "coach", "you")
 
 
 def _chrome() -> str | None:

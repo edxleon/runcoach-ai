@@ -72,7 +72,12 @@ def test_profile_fields_are_exactly_the_coalesced_columns(store):
     day = date(2026, 7, 13)
     store.upsert_daily(DailyMetrics(day=day, steps=1, lthr_bpm=170, lt_speed_mps=3.4,
                                     lt_measured_on=day, race_5k_s=1400, race_10k_s=2900,
-                                    race_hm_s=6500, race_m_s=14000))
+                                    race_hm_s=6500, race_m_s=14000,
+                                    load_aerobic_low=115.4, load_aerobic_high=0.0, load_anaerobic=0.0,
+                                    load_aerobic_low_min=115, load_aerobic_low_max=279,
+                                    load_aerobic_high_min=186, load_aerobic_high_max=350,
+                                    load_anaerobic_min=0, load_anaerobic_max=164,
+                                    load_balance="AEROBIC_HIGH_SHORTAGE"))
     store.upsert_daily(make_day(day, steps=2))
     row = store.get_day(day)
     assert all(row[f] is not None for f in DailyMetrics.PROFILE_FIELDS)

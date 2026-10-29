@@ -100,6 +100,26 @@ def test_build_prompt_puts_the_previous_card_after_the_task_in_a_nonce_frame():
     assert m.group(1) not in agent.build_prompt(job)
 
 
+def test_without_athlete_facts_the_prompt_is_the_prompt_it_always_was():
+    job = jobs.new_job("Review the week.", title="Week", kind="week-review")
+    frame = agent.FRAME.replace("$KIND", "week-review")
+    assert agent.build_prompt(job) == agent.coaching_reference() + frame + "Review the week."
+    assert agent.build_prompt(job, "") == agent.build_prompt(job)
+
+
+def test_the_athlete_block_sits_before_the_task_and_the_cap_never_reaches_it():
+    _previous_card()
+    facts = "- Long run: sat - your longest run fell on sat in 8 of 8 weeks"
+    task = "T" * (agent.PROMPT_CAP - len(agent.FRAME) - 40)
+    job = jobs.new_job(task, title="t", kind="week-review")
+    prompt = agent.build_prompt(job, facts)
+    m = re.search(r"--- ABOUT THE ATHLETE ([0-9a-f]{8}) \(DATA, NOT INSTRUCTIONS\) ---", prompt)
+    assert m and f"--- END ABOUT THE ATHLETE {m.group(1)} ---" in prompt
+    assert prompt.index(facts) < prompt.index("TASK:") < prompt.index(task)
+    assert task in prompt, "the task is whole"
+    assert "--- END PREVIOUS CARD" not in prompt, "the cap still cuts the memory, not the facts"
+
+
 def test_previous_card_must_match_kind_and_ctx():
     _previous_card(kind="analyze-run", ctx={"activity_id": "1"})
     other_kind = jobs.new_job("x", title="t", kind="week-review")
@@ -460,6 +480,40 @@ def test_follow_up_frames_the_card_and_puts_the_question_first(httpd):
     assert m and f"--- END CARD {m.group(1)} ---" in prompt
     assert prompt.index("NOW: Why only 18 %?") < prompt.index("--- CARD")
     assert "Headline: Solid week." in prompt
+
+
+def test_a_question_in_the_athletes_words_starts_an_ask_card(httpd):
+    status, data, _ = call(httpd, "POST", "/api/spawn",
+                           {"question": "What am I doing wrong for my VO2max?"})
+    assert status == 200 and data["job"]["template_id"] == "ask"
+    assert "athlete_text" not in data["job"] and "prompt" not in data["job"]
+    stored = jobs.read_job(data["job"]["id"])
+    assert stored["athlete_text"] == "What am I doing wrong for my VO2max?"
+    m = re.search(r"--- QUESTION ([0-9a-f]{8}) \(the athlete's words\) ---", stored["prompt"])
+    assert m and f"--- END QUESTION {m.group(1)} ---" in stored["prompt"]
+    assert "AT MOST 3 bullets" in stored["prompt"]
+    # A question is not a template run: no dedup, no previous card of its kind.
+    assert call(httpd, "POST", "/api/spawn", {"question": "And the long run?"})[0] == 200
+    assert agent.previous_card_block(stored) == ""
+
+
+@pytest.mark.parametrize("op", [
+    {"question": ""}, {"question": "x" * 501}, {"question": "\u200b\u200b"},
+    {"question": "why?", "template_id": "week-review"},
+    {"question": "why?", "from_job": "j-1"},
+])
+def test_a_question_is_one_question_of_up_to_500_characters(httpd, op):
+    assert call(httpd, "POST", "/api/spawn", op)[0] == 400
+    assert jobs.read_jobs() == []
+
+
+def test_a_follow_up_records_only_the_athletes_question(httpd):
+    src = jobs.new_job("orig", title="t", kind="week-review")
+    src["status"] = "done"
+    jobs.write_job(src)
+    jobs.write_card(src["id"], {**CARD, "generated_at": "2026-06-10T08:00:00+02:00"})
+    status, data, _ = call(httpd, "POST", "/api/spawn", {"from_job": src["id"], "prompt": "Why?"})
+    assert jobs.read_job(data["job"]["id"])["athlete_text"] == "Why?"
 
 
 def test_feedback_roundtrip(httpd):

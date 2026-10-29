@@ -39,9 +39,8 @@ import secrets
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from . import garmin, logic, paths, planning
+from . import garmin, habits, logic, paths, planning
 from .store import Store
-from .web.jobs import _read_json, _write_json
 
 log = logging.getLogger(__name__)
 
@@ -171,7 +170,7 @@ def read(proposal_id: str, store: Store | None = None) -> dict | None:
     only in part" about exactly the state it exists to find."""
     if not PROPOSAL_ID_RE.fullmatch(proposal_id):
         return None
-    d = _read_json(_path(proposal_id))
+    d = paths.read_json(_path(proposal_id))
     # A file that parses but is not a proposal is not a proposal. `_finish`
     # used to be able to write a stub, and one of those reaching the page made
     # every `/api/state` a 500 - the whole dashboard, not just that card.
@@ -199,7 +198,7 @@ def cleanup() -> int:
     cutoff = (_now() - timedelta(days=TTL_DAYS)).isoformat(timespec="seconds")
     n = 0
     for f in paths.proposals_dir().glob("p-*.json"):
-        d = _read_json(f)
+        d = paths.read_json(f)
         if isinstance(d, dict) and d.get("created", "") < cutoff:
             f.unlink(missing_ok=True)
             n += 1
@@ -249,7 +248,7 @@ def _file(items: list[dict], *, replaces: list[dict], assumptions: list[str], zo
         "status": "open", "applied_at": None, "warnings": [],
     }
     cleanup()
-    _write_json(_path(proposal["id"]), proposal)
+    paths.write_json_atomic(_path(proposal["id"]), proposal)
     return proposal
 
 
@@ -333,7 +332,7 @@ def _finish(store: Store, proposal_id: str, local: dict, warnings: list[str]) ->
     fresh["warnings"] = merged[-MAX_WARNINGS:]
     if fresh.get("status") == "applied" and not fresh.get("applied_at"):
         fresh["applied_at"] = _now().isoformat(timespec="seconds")
-    _write_json(_path(proposal_id), fresh)
+    paths.write_json_atomic(_path(proposal_id), fresh)
     return fresh
 
 
@@ -398,9 +397,9 @@ def spacing_notes(store: Store, day: date, kind: str, *, today: date) -> list[st
             notes.append(f"the app's decision for today is {decision['decision'].upper()} - "
                          f"\"{decision.get('sentence', '')}\"")
     last_hard = store.last_hard_day(today)
-    if last_hard is not None and (day - last_hard).days < 2:
+    if last_hard is not None and (day - last_hard).days < logic.HARD_SPACING_DAYS:
         notes.append(f"only {(day - last_hard).days} day(s) after your last hard session "
-                     f"({last_hard}) - hard stimuli sit 48 hours apart")
+                     f"({last_hard}) - hard stimuli sit {logic.HARD_SPACING_DAYS * 24} hours apart")
     own = {w["workout_id"]: w["kind"] for w in store.own_workouts() if w["workout_id"]}
     for e in store.get_scheduled_workouts(day + timedelta(days=1), day + timedelta(days=1)):
         recorded = own.get(e.get("workout_id"))
@@ -448,8 +447,9 @@ def propose(store: Store, kind: str, *, distance_km: float | None = None,
 def propose_week(store: Store, *, start: date | None = None, days_per_week: int | None = None,
                  long_run_day: str | None = None, today: date | None = None) -> dict:
     """A week as ONE proposal: up to six sessions under one id, applied after
-    one yes. Profile values fill what the caller leaves out; what neither
-    gives is a default and is listed as an assumption."""
+    one yes. Profile values fill what the caller leaves out, the athlete's
+    history what the profile leaves out (`habits`), and only then a default;
+    the last two are listed as assumptions with their evidence."""
     from . import snapshot
 
     anchor = today or paths.today()
@@ -458,23 +458,18 @@ def propose_week(store: Store, *, start: date | None = None, days_per_week: int 
     _check_day(start, today=anchor)
     _check_day(start + timedelta(days=6), today=anchor)
     profile = snapshot.load_profile()
-    assumptions: list[str] = []
-    if days_per_week is None:
-        days_per_week = profile.get("days_per_week")
-        if days_per_week is None:
-            days_per_week = planning.DEFAULT_DAYS_PER_WEEK
-            assumptions.append(f"{days_per_week} running days - no days_per_week in the profile "
-                               f"(runcoach profile --days-per-week N)")
-    if long_run_day is None:
-        long_run_day = profile.get("long_run_day")
-        if long_run_day is None:
-            long_run_day = planning.DEFAULT_LONG_RUN_DAY
-            assumptions.append(f"long run on {long_run_day} - no long_run_day in the profile "
-                               f"(runcoach profile --long-run-day sun)")
+    known = athlete_habits(store, anchor)
+    days_per_week, long_run_day, assumptions = habits.resolve(
+        days_per_week=days_per_week, long_run_day=long_run_day, profile=profile, habits=known)
+    if known.known and known.preferred:
+        assumptions.append(f"easy runs on your days first - {known.evidence['preferred']}")
     snap = snapshot.assemble(store, today=anchor)
     zones = snap.get("zones") or {}
     budget, basis, mode = _week_plan(store, anchor, start)
     assumptions += basis
+    if known.known and known.avoid_hard and mode != "return":
+        assumptions.append(f"no quality run on {', '.join(sorted(known.avoid_hard))} - "
+                           f"{known.evidence['other']}, that day and the day after")
     cap, cap_line = _session_cap(store, anchor)
     # A measurement week puts the steady block in the threshold slot; a
     # three-day week has only one slot, and that week it is the measurement -
@@ -489,7 +484,7 @@ def propose_week(store: Store, *, start: date | None = None, days_per_week: int 
     elif measurement.get("due"):
         # Three days have one quality slot: the measurement takes it only once
         # the Z5 stimulus is set - the same order the day's stimulus follows.
-        if int(days_per_week) == 3:
+        if int(days_per_week) <= 3:
             if (snap.get("next_stimulus") or {}).get("kind") == "steady":
                 measuring, quality = True, ("steady",)
         else:
@@ -497,12 +492,25 @@ def propose_week(store: Store, *, start: date | None = None, days_per_week: int 
     # Alternate the rep structure week by week (5x4, then 4x4): no state, the
     # week count decides, and the same session every week is how a planner
     # gets switched off.
+    # When the week holds ONE quality session - three days or fewer, or a gym
+    # day leaving room for only one - it is the one the history says is due:
+    # VO2max until the Z5 stimulus is set, then threshold, or in a measurement
+    # week the steady block. Without this a gym runner got VO2max every week,
+    # and a measurement week cut to one slot dropped its steady block in silence.
+    stim = (snap.get("next_stimulus") or {}).get("kind")
+    if measurement.get("due"):
+        quality_one = "steady" if stim == "steady" else "vo2max"
+    else:
+        quality_one = stim if stim in ("vo2max", "threshold") else "vo2max"
     variant = planning.week_variant(start - timedelta(days=start.weekday()))
     sessions, notes = planning.build_week(start, days_per_week=int(days_per_week),
                                           long_run_day=str(long_run_day), zones=zones,
                                           total_minutes=budget, quality=quality,
                                           variant=variant, long_run=mode != "return",
-                                          today=anchor, max_session_min=cap)
+                                          today=anchor, max_session_min=cap,
+                                          quality_one=quality_one if quality else None,
+                                          preferred=known.preferred if known.known else (),
+                                          avoid_hard=known.avoid_hard if known.known else frozenset())
     if cap_line and any(n.startswith("sessions capped") for n in notes):
         notes = [cap_line if n.startswith("sessions capped") else n for n in notes]
     # Fitted to the calendar, never stacked on it: the athlete's plan wins.
@@ -512,7 +520,7 @@ def propose_week(store: Store, *, start: date | None = None, days_per_week: int 
     # Said only if a steady block survived the calendar: a measurement week
     # whose steady block became an easy run is not one.
     if measuring and any(s.kind == "steady" for _, s in sessions):
-        if int(days_per_week) == 3:
+        if int(days_per_week) <= 3:
             what = "it takes the week's one quality slot"
         elif any(s.kind == "vo2max" for _, s in sessions):
             what = "the steady block takes the threshold slot, the VO2max session stays"
@@ -527,11 +535,33 @@ def propose_week(store: Store, *, start: date | None = None, days_per_week: int 
                  assumptions=assumptions + notes, zones=zones, calendar=fitted)
 
 
+def athlete_habits(store: Store, today: date) -> habits.Habits:
+    """The athlete's habits as of `today`. In a pause, and in the four weeks
+    after one, they are read from the weeks BEFORE it: the return weeks are
+    the planner's easy weeks, not the athlete's rhythm, and a pause has none."""
+    from . import snapshot
+
+    cb = snapshot.comeback_state(store, today)
+    until = None
+    if cb and (cb["phase"] == "pause" or (cb.get("first_back") is not None and (
+            today - cb["first_back"]).days < planning.DOWN_WEEK_EVERY * 7)):
+        until = cb["last_before"]
+    acts = store.activity_days(today - timedelta(weeks=habits.LOOKBACK_WEEKS + 1), today)
+    return habits.derive(acts, today=today, until=until)
+
+
 #: How far back the budget looks: eight rolling weeks. The base is the median
 #: of the running weeks among the last four; the four before are only the
 #: base of a return week, when the last ones are empty.
 BUDGET_LOOKBACK_WEEKS = 8
 BUDGET_MEDIAN_WEEKS = 4
+#: How many weeks back a held or stepped week is checked against the plan
+#: before it (each recomputed with its own floor and cap).
+LOOKBACK_WEEKS = 4
+#: Back from a pause, the athlete is rebuilding until the last seven days are
+#: back to this share of the level before it - for at most this many weeks.
+REBUILT_SHARE = 0.8
+REBUILD_MAX_WEEKS = 12
 #: A step never goes more than this over the bigger of the last two weeks: a
 #: median of four can be dominated by big weeks the athlete no longer runs.
 RECENT_CAP = 1.10
@@ -564,8 +594,8 @@ def _week_budget(store: Store, today: date, start: date | None = None
     return budget, lines
 
 
-def _week_plan(store: Store, today: date, start: date | None = None
-               ) -> tuple[int | None, list[str], str]:
+def _week_plan(store: Store, today: date, start: date | None = None, *,
+               _depth: int = 0) -> tuple[int | None, list[str], str]:
     """The week's size from the athlete's own running, read against the
     history - and its mode: `step`, `hold`, `unload`, `down`, `return` or
     `default`. A return week holds no hard session (the caller builds it).
@@ -622,17 +652,36 @@ def _week_plan(store: Store, today: date, start: date | None = None
     if len(ran) < 2:
         return None, ["week sized from the built-in defaults - fewer than two weeks of running "
                       "on record to scale to"], "default"
-    recently_back = bool(cb) and cb.get("first_back") is not None and \
-        (start - cb["first_back"]).days < planning.DOWN_WEEK_EVERY * 7
-    if recently_back and weeks[-1] > 0:
-        # Back from a pause the weeks climb, and a median of climbing weeks -
-        # one of them holding the single first run back - lags behind the
-        # week just run: the week after a full return week came out smaller
-        # than it. So the step grows from the last seven days.
+    # Back from a pause the athlete REBUILDS: at least the first four weeks,
+    # and on until the last seven days are back to most of the level before
+    # the pause (at most twelve weeks). While rebuilding the step grows from
+    # the last seven days, because a median of climbing weeks lags behind the
+    # week just run (96 -> 72 after a full return week; later ~5 % a week
+    # instead of 10), and there is no down week: a down week relieves a full
+    # load, and a rebuild has none (synthetic athletes, a 25-day pause: 68 %
+    # of the old weeks after eight with both lags in place).
+    first_back = cb.get("first_back") if cb else None
+    recently_back = first_back is not None and \
+        (start - first_back).days < planning.DOWN_WEEK_EVERY * 7
+    level = 0
+    if first_back is not None and (start - first_back).days < REBUILD_MAX_WEEKS * 7:
+        before = [m for m in _rolling_weeks(store, cb["last_before"], BUDGET_MEDIAN_WEEKS) if m > 0]
+        level = _median(before) if before else 0
+    # Once a week since the return reached most of the old level, the rebuild
+    # is over for good: the down week that follows dips under it again, and
+    # re-checking each week made that dip a "rebuild" once more.
+    since_back = [m for i, m in enumerate(reversed(weeks))
+                  if today - timedelta(days=7 * i) >= first_back + timedelta(days=6)] \
+        if first_back is not None else []
+    rebuilt = bool(level) and any(m >= REBUILT_SHARE * level for m in since_back)
+    rebuilding = recently_back or bool(level and not rebuilt)
+    if rebuilding and weeks[-1] > 0:
         base = weeks[-1]
-        basis = (f"from your last 7 days ({base} min): back from a pause since "
-                 f"{cb['first_back'].isoformat()}, the weeks are climbing and a median of "
-                 f"them would lag behind the one just run")
+        basis = (f"from your last 7 days ({base} min): rebuilding after a pause since "
+                 f"{first_back.isoformat()}"
+                 + (f" toward the ~{level} min a week before it" if level else "")
+                 + " - the weeks are climbing and a median of them would lag behind the one "
+                   "just run")
     else:
         base = _median(ran)
         basis = (f"from your last {len(span)} weeks of running "
@@ -643,7 +692,7 @@ def _week_plan(store: Store, today: date, start: date | None = None
     if brake_line:
         rules.append((f_brake, brake_line, "unload" if f_brake < planning.WEEK_HOLD else "hold"))
     due, line = planning.down_week_due(monday)
-    if due and not recently_back:
+    if due and not rebuilding:
         rules.append((planning.WEEK_DOWN, line, "down"))
     rules.sort(key=lambda r: r[0])
     step, mode = (rules[0][0], rules[0][2]) if rules else (planning.WEEK_STEP, "step")
@@ -661,6 +710,38 @@ def _week_plan(store: Store, today: date, start: date | None = None
     if capped:
         lines.append(f"capped at 10 % over the bigger of your last two weeks "
                      f"({weeks[-2]}, {weeks[-1]} min): the median holds weeks you no longer run")
+    if due and rebuilding:
+        lines.append("no down week while rebuilding after the pause - a down week relieves a full "
+                     "load, and this is not one yet")
+    # A step is a step UP: never smaller than the week planned before it. When
+    # the base switches - four weeks after a comeback, from the last seven days
+    # back to the median of the climbing weeks - the median lags, and a week
+    # labelled a step came out smaller than the one before (153 -> 145 for a
+    # synthetic athlete). Still within the cap: what was planned and not run
+    # does not lift the floor.
+    # The week before is recomputed WITH its own floor and cap - down to
+    # LOOKBACK_WEEKS weeks - or a chain of held weeks lets the third one grow
+    # again (275, 275, 325 in review).
+    if mode == "step" and _depth < LOOKBACK_WEEKS:
+        before, _, _ = _week_plan(store, today - timedelta(days=7), start - timedelta(days=7),
+                                  _depth=_depth + 1)
+        floor = min(before or 0, cap) if cap > 0 else 0
+        if floor > budget:
+            budget = floor
+            lines.append(f"no smaller than the ~{floor} min planned a week ago: a step does not "
+                         f"go down")
+    # Held or unloaded means no bigger than the week planned before it. The
+    # median it holds rises with every week run ABOVE plan - which is exactly
+    # what raised the ratio - so holding the median grew the plan (424 -> 448
+    # for the synthetic overreacher). The week before is recomputed, not
+    # stored: the same rules on the history as it stood a week ago.
+    if mode in ("hold", "unload") and _depth < LOOKBACK_WEEKS:
+        before, _, before_mode = _week_plan(store, today - timedelta(days=7),
+                                            start - timedelta(days=7), _depth=_depth + 1)
+        if before and before_mode not in ("down", "return", "default") and budget > before:
+            budget = before
+            lines.append(f"no bigger than the ~{before} min planned a week ago: the weeks run "
+                         f"above plan raised the median, and they are what raised the ratio")
     return budget, lines, mode
 
 

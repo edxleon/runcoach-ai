@@ -241,11 +241,19 @@ def test_the_long_run_lands_on_the_named_weekday_whatever_the_start():
     assert all(_gap(a, long_day) >= 2 for a in hard)
 
 
-@pytest.mark.parametrize("bad", [{"days_per_week": 2}, {"days_per_week": 8},
+@pytest.mark.parametrize("bad", [{"days_per_week": 1}, {"days_per_week": 8},
                                  {"long_run_day": "sunday"}])
 def test_week_inputs_are_checked(bad):
     with pytest.raises(ValueError):
         build_week(MONDAY, **{"days_per_week": 4, "long_run_day": "sun", **bad}, zones=ZONES)
+
+
+def test_a_two_day_week_is_a_long_run_and_one_quality_session():
+    """Two days was refused until the planner read habits: a runner who runs
+    twice a week was planned a third day nobody asked for. Two days are the
+    long run and one quality session - never two hard ones."""
+    sessions, _ = build_week(MONDAY, days_per_week=2, long_run_day="sun", zones=ZONES)
+    assert sorted(s.kind for _, s in sessions) == ["long", "vo2max"]
 
 
 def test_zone_assumptions_are_said_once_for_the_week_not_per_session():

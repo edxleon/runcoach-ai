@@ -474,6 +474,10 @@ WEEK_MINUTES = {"vo2max": 50, "threshold": 55, "easy": 45, "long": 90, "steady":
 #: rest days end up next to the long run where the body wants them.
 _QUALITY_SLOTS = {1: (3,), 2: (2, 4)}
 _EASY_OFFSETS = (3, 5, 1, 6)
+#: Where the quality sessions may go instead, when the athlete's own days (or
+#: another sport) argue against the default - the default first, so it wins
+#: every tie. Still 48 h apart, never the day after or before the long run.
+_QUALITY_ALTERNATIVES = {1: ((3,), (2,), (4,), (5,)), 2: ((2, 4), (2, 5), (3, 5))}
 #: How a calendar entry the app did NOT create is guessed to be hard. Titles
 #: are the athlete's free text (or a plan's): a guess, flagged as one.
 _HARD_TITLE_RE = re.compile(r"vo2|interval|threshold|tempo|schwelle|repeat|\d+\s*[x×]\s*\d+", re.I)
@@ -541,7 +545,10 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
                total_minutes: int | None = None,
                quality: tuple[str, ...] | None = None,
                variant: int = 0, long_run: bool = True,
-               today=None, max_session_min: int | None = None) -> tuple[list[tuple], list[str]]:
+               today=None, max_session_min: int | None = None,
+               preferred: tuple[str, ...] = (),
+               avoid_hard: frozenset = frozenset(),
+               quality_one: str | None = None) -> tuple[list[tuple], list[str]]:
     """Seven days from `start`: a polarised week as `[(date, SessionSpec), …]`
     sorted by day, plus the assumptions that shaped it.
 
@@ -559,11 +566,20 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
     composed like a shorter week (one quality session at three days, never a
     lone hard one) and scaled to the budget. `max_session_min` caps every
     session, so fewer days never pour into one long one; a kind whose
-    shortest useful form is longer than the cap becomes an easy run."""
+    shortest useful form is longer than the cap becomes an easy run.
+
+    `preferred` (weekdays, most frequent first) and `avoid_hard` (weekdays a
+    quality run should not land on) come from the athlete's history
+    (`habits.derive`): the easy runs go to their days first, and the quality
+    sessions to the slot that covers most of their days and none of the
+    avoided ones. Without them the week is the one it always was
+    (`tests/test_build_week_golden.py`). `quality_one` is the kind a week with
+    ONE quality slot takes (three days or fewer, or a slot lost to another
+    sport); without it, `quality[0]`."""
     from datetime import timedelta
 
-    if not 3 <= int(days_per_week) <= 7:
-        raise ValueError("days_per_week must be between 3 and 7")
+    if not 2 <= int(days_per_week) <= 7:
+        raise ValueError("days_per_week must be between 2 and 7")
     if long_run_day not in WEEKDAYS:
         raise ValueError(f"long_run_day must be one of {', '.join(WEEKDAYS)}")
     quality = DEFAULT_QUALITY if quality is None else tuple(quality)
@@ -582,17 +598,59 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
         d = long_date + timedelta(days=offset)
         return d if d <= window[-1] else d - timedelta(days=7)
 
+    def wd(offset: int) -> str:
+        return WEEKDAYS[at(offset).weekday()]
+
+    preferred = tuple(preferred or ())
+    avoid = frozenset(avoid_hard or ())
+    blocked: list[str] = []
+    reduced: list[int] = []
+
+    def quality_slots(k: int) -> tuple[int, ...]:
+        """The `k` quality offsets: clear of the avoided weekdays, then on as
+        many of the athlete's days as possible; `max` keeps the first of equals,
+        and the default comes first. When no pair is clear, ONE quality
+        session that is - a gym day is not moved for the plan, the plan makes
+        room for it. When not even one is, the default rhythm and a line."""
+        for size in range(k, 0, -1):
+            clear = [c for c in _QUALITY_ALTERNATIVES[size] if not any(wd(o) in avoid for o in c)]
+            if clear:
+                if size < k:
+                    reduced.append(size)
+                return max(clear, key=lambda c: sum(wd(o) in preferred for o in c))
+        blocked.append(", ".join(sorted({wd(o) for c in _QUALITY_ALTERNATIVES[k]
+                                         for o in c if wd(o) in avoid})))
+        return _QUALITY_SLOTS[k]
+
+    # The athlete's days first (most frequent first), then the default order.
+    # Without `preferred` this is exactly `_EASY_OFFSETS`.
+    mine = sorted((o for o in range(1, 7) if wd(o) in preferred),
+                  key=lambda o: preferred.index(wd(o)))
+    easy_order = mine + [o for o in _EASY_OFFSETS if o not in mine]
+
     def compose(n: int) -> tuple[dict, bool]:
         """The week's days for `n` running days. Three days hold one quality
         session, four and more two; two days a long run and one quality
         session; one day only the long run - never a lone hard session.
         Also whether the session cap turned a kind into an easy run."""
+        blocked.clear()        # a smaller retry is a new week: only its own notes
+        reduced.clear()
         days: dict = {long_date: "long" if long_run else "easy"}
+        order = easy_order
         if n >= 2 and quality:
-            slots = _QUALITY_SLOTS[1 if n <= 3 else 2]
-            for offset, kind in zip(slots, (quality * 2)[:len(slots)], strict=False):
+            k = 1 if n <= 3 else 2
+            slots = quality_slots(k)
+            # One slot takes `quality_one` (the caller's "what is due"), else
+            # the first of `quality`.
+            kinds = (quality_one,) if len(slots) == 1 and quality_one in HARD_KINDS \
+                else (quality * 2)[:len(slots)]
+            for offset, kind in zip(slots, kinds, strict=False):
                 days[at(offset)] = kind
-        for offset in _EASY_OFFSETS:
+            # Quality moved off its default days: those days are free for an
+            # easy run now, or a six-day week would come out one day short -
+            # unless the day is one the other sport keeps clear.
+            order = easy_order + [o for o in _QUALITY_SLOTS[k] if o not in slots]
+        for offset in order:
             if len(days) >= n:
                 break
             if at(offset) not in days:      # a 3-day week has its quality day here
@@ -634,6 +692,13 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
         got = sum(sizes[k] for k in plan.values())
         scale_note = re.sub(r"\(~\d+ min across \d+ days\)",
                             f"(~{got} min across {len(plan)} days)", scale_note)
+    if reduced and any(k in HARD_KINDS for k in plan.values()):
+        assumptions.append(f"one quality session this week: {', '.join(sorted(avoid))} stay clear "
+                           f"of hard running (another sport that day or the day before), and two "
+                           f"sessions 48 hours apart do not fit around them")
+    if blocked:
+        assumptions.append(f"quality days could not stay clear of {blocked[-1]} (another sport "
+                           f"that day or the day before) - placed in the usual rhythm")
     if capped:
         assumptions.append(f"sessions capped at ~{max_session_min} min")
     if dropped:
@@ -725,13 +790,14 @@ def fit_week_to_calendar(sessions: list[tuple], calendar: list[dict], *, own_kin
     for i, (day, spec) in enumerate(kept):
         if spec.kind in HARD_KINDS:
             others = hard_days(exclude=day)
-            too_close = [d for d in others if abs((d - day).days) < 2]
+            too_close = [d for d in others if abs((d - day).days) < logic.HARD_SPACING_DAYS]
             before_long = [d for d, k in others.items() if k == "long" and (d - day).days == 1]
             reason = None
             if quality_left <= 0:
                 reason = "the calendar already holds the week's quality sessions"
             elif too_close:
-                reason = f"less than 48 hours from the hard day on {min(too_close)}"
+                reason = (f"less than {logic.HARD_SPACING_DAYS * 24} hours from the hard day "
+                          f"on {min(too_close)}")
             elif before_long:
                 reason = "it is the day before the long run"
             if reason:

@@ -349,3 +349,37 @@ def test_env_int(monkeypatch, raw, expected):
 def test_today_fixture_is_what_sync_uses(store, today):
     _run(store, SyncClient(), days=1)
     assert store.latest_day() == TODAY
+
+
+# ── account settings ─────────────────────────────────────────────────────────
+
+#: The settings fields as recorded from a real account (2026-10-29), plus the
+#: ones the app must not keep.
+_SETTINGS = {"displayName": "someone", "preferredLocale": "en", "measurementSystem": "metric",
+             "firstDayOfWeek": {"dayId": 3, "dayName": "monday"}, "timeZone": "Europe/Paris",
+             "availableTrainingDays": None, "preferredLongTrainingDays": None}
+
+
+def test_the_account_settings_keep_three_fields_and_nothing_else():
+    assert garmin.fetch_account(FakeGarmin(userprofile_settings=_SETTINGS)) == {
+        "units": "metric", "locale": "en", "first_weekday": "monday"}
+    odd = {"preferredLocale": "<script>", "measurementSystem": "furlongs",
+           "firstDayOfWeek": {"dayName": "someday"}}
+    assert garmin.fetch_account(FakeGarmin(userprofile_settings=odd)) == {}
+
+
+def test_the_sync_writes_the_account_settings_at_most_once_a_day(store, today):
+    from runcoach import paths
+
+    calls = []
+
+    class Counting(SyncClient):
+        def get_userprofile_settings(self):
+            calls.append(1)
+            return _SETTINGS
+
+    _run(store, Counting())
+    _run(store, Counting())
+    assert paths.read_json(paths.account_path()) == {
+        "units": "metric", "locale": "en", "first_weekday": "monday", "synced": today.isoformat()}
+    assert len(calls) == 1, "the second sync of the day reads the file, not Garmin"

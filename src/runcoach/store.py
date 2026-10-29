@@ -27,7 +27,7 @@ from .logic import (
     interval_facts,
     readiness_verdict,
 )
-from .models import Activity, ActivitySplit, DailyMetrics, ScheduledWorkout
+from .models import LOAD_BALANCE_FIELDS, Activity, ActivitySplit, DailyMetrics, ScheduledWorkout
 
 #: Measured nights required before an average resting HR counts as a baseline.
 RHR_BASELINE_MIN_DAYS = 7
@@ -884,6 +884,33 @@ class Store:
                 f"SELECT DISTINCT local_day FROM activities WHERE {_RUNNING} "
                 f"AND local_day BETWEEN ? AND ? ORDER BY local_day", (_v(start), _v(end))).fetchall()
         return [_d(r["local_day"]) for r in rows]
+
+    def latest_load_balance(self, end: date, *, max_age_days: int = 14) -> dict | None:
+        """Garmin's training load balance as of the newest day up to `end` that
+        has one - at most `max_age_days` old: a 4-week estimate from a month
+        ago is not Garmin's opinion of now."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT day, " + ", ".join(LOAD_BALANCE_FIELDS) + " FROM daily_metrics "
+                "WHERE day BETWEEN ? AND ? AND (load_balance IS NOT NULL OR load_aerobic_low "
+                "IS NOT NULL) ORDER BY day DESC LIMIT 1",
+                (_v(end - timedelta(days=max_age_days)), _v(end))).fetchone()
+        if row is None:
+            return None
+        return {"day": row["day"], **{k: row[k] for k in LOAD_BALANCE_FIELDS}}
+
+    def activity_days(self, start: date, end: date) -> list[dict]:
+        """Every workout between the two local days, all sports, as
+        `{day, type, duration_s, hard}` - the input of `habits.derive`, which
+        reads the athlete's weekdays and their other sports from it. `hard` is
+        `_HARD_SQL`, the same definition the spacing rule uses."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                f"SELECT local_day, activity_type, duration_s, {_HARD_SQL} AS hard "
+                f"FROM activities WHERE local_day BETWEEN ? AND ? ORDER BY local_day",
+                (_v(start), _v(end))).fetchall()
+        return [{"day": _d(r["local_day"]), "type": r["activity_type"] or "",
+                 "duration_s": int(r["duration_s"] or 0), "hard": bool(r["hard"])} for r in rows]
 
     def longest_run_s(self, start: date, end: date) -> int | None:
         """The longest single run between the two days, in seconds - what a

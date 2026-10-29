@@ -103,6 +103,14 @@ def seed(path: Path | None = None) -> Store:
             acwr_status="LOW" if deload else "OPTIMAL",
             intensity_moderate_min=20 if kind == "easy" else 0,
             intensity_vigorous_min=45 if kind in ("intervals", "long", "tempo") else 0,
+            # Garmin's load focus for a polarised week: every band in its range.
+            load_aerobic_low=round(640 + 40 * fitness + rng.uniform(-20, 20), 1),
+            load_aerobic_high=round(560 + 60 * fitness + rng.uniform(-20, 20), 1),
+            load_anaerobic=round(210 + rng.uniform(-15, 15), 1),
+            load_aerobic_low_min=360, load_aerobic_low_max=880,
+            load_aerobic_high_min=460, load_aerobic_high_max=920,
+            load_anaerobic_min=140, load_anaerobic_max=430,
+            load_balance="BALANCED",
         )
         store.upsert_daily(m)
 

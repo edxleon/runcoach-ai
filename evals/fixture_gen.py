@@ -29,7 +29,7 @@ TODAY = date(2026, 6, 17)
 CASE_ID = "decision-block-explained-not-replaced"
 
 
-def build_store(tmp_db: str):
+def build_store(tmp_db: str, today_extra: dict | None = None, days: int = 30):
     """A green athlete whose week is full of zone 3 and empty above threshold.
 
     The point of the case: the app's rule says GO *and* names the grey zone, and
@@ -41,7 +41,7 @@ def build_store(tmp_db: str):
     from runcoach.store import Store
 
     store = Store(tmp_db)
-    for i in range(30):
+    for i in range(days):
         day = TODAY - timedelta(days=i)
         m = DailyMetrics(day=day)
         m.hrv_status = "BALANCED"
@@ -60,11 +60,14 @@ def build_store(tmp_db: str):
         # The step lands on day 10, a run day (runs are every second day):
         # only a change on a run day is a measurement.
         m.vo2max = 52.0 if i <= 10 else 51.8
+        if i == 0:
+            for k, v in (today_extra or {}).items():
+                setattr(m, k, v)
         store.upsert_daily(m)
 
     # Four weeks of steady running, every session in the grey middle.
     aid = 9000
-    for i in range(0, 28, 2):
+    for i in range(0, days - 2, 2):
         day = TODAY - timedelta(days=i)
         aid += 1
         store.upsert_activity(Activity(
@@ -97,7 +100,51 @@ def render(store) -> str:
     return "\n".join(parts).rstrip() + "\n"
 
 
-def fixture_input() -> str:
+#: The grey-zone athlete again, with Garmin's load focus agreeing with the
+#: app's minutes: the case that Garmin's opinion is a second opinion.
+LOAD_FOCUS_CASE_ID = "load-focus-is-a-second-opinion"
+
+
+#: Garmin's verdict on the grey-zone weeks: high aerobic short.
+_LOAD_FOCUS = dict(load_aerobic_low=612.4, load_aerobic_high=88.0, load_anaerobic=0.0,
+                   load_aerobic_low_min=340, load_aerobic_low_max=820, load_aerobic_high_min=430,
+                   load_aerobic_high_max=860, load_anaerobic_min=120, load_anaerobic_max=390,
+                   load_balance="AEROBIC_HIGH_SHORTAGE")
+
+
+#: A question in the athlete's own words, answered from the grey-zone weeks and
+#: what the app has learned about them (`get_athlete_profile`).
+ASK_CASE_ID = "open-question-biggest-lever-first"
+
+
+def render_ask(store) -> str:
+    from runcoach import tools
+
+    parts = [
+        "Athlete: Honestly - what am I doing wrong? I run three or four times a week and I want "
+        "my VO2max up.",
+        "",
+        "=== get_training_readiness ===", tools.get_training_readiness(store), "",
+        "=== get_athlete_profile ===", tools.get_athlete_profile(store), "",
+        "=== get_intensity_distribution ===", tools.get_intensity_distribution(store, 28),
+    ]
+    return "\n".join(parts).rstrip() + "\n"
+
+
+def ask_input() -> str:
+    # Nine weeks of the same running: "4 of the last 8 weeks" from a 30-day
+    # store is an artefact, and a coach rightly names it as a second lever.
+    return fixture_input(renderer=render_ask, days=63)
+
+
+def load_focus_input() -> str:
+    text = fixture_input(today_extra=_LOAD_FOCUS)
+    return text.replace("Athlete: Should I train today?",
+                        "Athlete: Garmin says I'm short on high aerobic load. So intervals today "
+                        "AND tomorrow to catch up, right?", 1)
+
+
+def fixture_input(today_extra: dict | None = None, renderer=None, days: int = 30) -> str:
     import os
     import tempfile
 
@@ -113,7 +160,7 @@ def fixture_input() -> str:
         real_today = paths.today
         paths.today = lambda: TODAY
         try:
-            return render(build_store(str(Path(tmp) / "fixture.db")))
+            return (renderer or render)(build_store(str(Path(tmp) / "fixture.db"), today_extra, days))
         finally:
             paths.today = real_today
             if old_home is None:
@@ -140,7 +187,7 @@ SIM_CASES = {
         "one is only {planned} - won't I lose fitness running that much less?",
         True, "down week: every 4th week is lighter"),
     "measurement-due-steady-is-not-swapped-for-intervals": (
-        "plateau", date(2026, 3, 8),
+        "plateau", date(2026, 3, 29),
         "Plan my week. And honestly I feel great - can we make that boring steady run a 5x4 "
         "instead? I want intervals twice this week.",
         True, "measurement week"),
@@ -149,6 +196,11 @@ SIM_CASES = {
         "Yesterday was my first run after three weeks off and it felt amazing, legs fresh as "
         "never. I'll do 5x4 min intervals today - just give me the zones for the reps.",
         False, "[EASY]"),
+    "a-learned-long-run-day-is-changed-through-the-tool": (
+        "saturday_long", date(2026, 4, 5),
+        "Plan my next week. Saturday doesn't work this time, I'm away - just move the long run "
+        "to Sunday in that plan, fine?",
+        True, "your longest run fell on sat"),
     "a-brake-week-is-not-held-back-for-nothing": (
         "overreacher", date(2026, 3, 8),
         "Plan my next week. Why is it not growing? I'm fitter than ever and ran more than "
@@ -193,6 +245,12 @@ def sim_input(case_id: str) -> str:
 
 
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] == ASK_CASE_ID:
+        print(ask_input())
+        return 0
+    if len(sys.argv) > 1 and sys.argv[1] == LOAD_FOCUS_CASE_ID:
+        print(load_focus_input())
+        return 0
     if len(sys.argv) > 1 and sys.argv[1] in SIM_CASES:
         print(sim_input(sys.argv[1]))
         return 0

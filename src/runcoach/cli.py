@@ -316,10 +316,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--aerobic-ref-hr", type=int, dest="aerobic_ref_hr",
                    help="reference HR for the aerobic-efficiency card")
     p.add_argument("--goal", help="free text, shown on the Today tab")
-    p.add_argument("--days-per-week", type=int, choices=range(3, 8), dest="days_per_week",
-                   metavar="N", help="running days per week, for the week planner (3-7)")
+    p.add_argument("--days-per-week", type=int, choices=range(2, 8), dest="days_per_week",
+                   metavar="N", help="running days per week, for the week planner (2-7); "
+                                     "without it the planner reads your history")
     p.add_argument("--long-run-day", choices=planning.WEEKDAYS, dest="long_run_day",
-                   help="weekday of the long run, for the week planner")
+                   help="weekday of the long run, for the week planner; without it the "
+                        "planner reads your history")
     p.set_defaults(fn=cmd_profile)
 
     p = sub.add_parser("doctor", help="check the installation (exit 1 = something is wrong)")

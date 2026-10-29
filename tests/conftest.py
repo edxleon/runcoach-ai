@@ -136,6 +136,9 @@ class FakeGarmin:
     def get_training_status(self, iso):
         return self.data.get("training_status", {})
 
+    def get_userprofile_settings(self):
+        return self.data.get("userprofile_settings", {})
+
     def get_max_metrics(self, iso):
         return self.data.get("max_metrics", [])
 

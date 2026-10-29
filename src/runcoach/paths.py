@@ -3,9 +3,15 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import os
+import threading
+import time
 from datetime import date, datetime, tzinfo
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 
 def home() -> Path:
@@ -74,6 +80,12 @@ def profile_path() -> Path:
     return home() / "profile.json"
 
 
+def account_path() -> Path:
+    """What the athlete's Garmin account says about them (units, language,
+    first weekday) - written by the sync, read as defaults the profile beats."""
+    return home() / "account.json"
+
+
 def local_tz() -> tzinfo | None:
     """The athlete's timezone: `RUNCOACH_TZ` (IANA name) or the system zone (None).
 
@@ -115,3 +127,67 @@ def display_path(p: Path) -> str:
         return "~/" + Path(p).resolve().relative_to(Path.home().resolve()).as_posix()
     except ValueError:
         return str(p)
+
+
+# ── atomic JSON files (jobs, cards, proposals, account settings) ─────────────
+
+_REPLACE_ATTEMPTS = 6
+
+
+def write_json_atomic(path: Path, data: dict) -> None:
+    """Write atomically, via a temp file in the same directory. Shared by the
+    job and card files, the proposals and the Garmin account settings.
+
+    The temp name carries the PROCESS and the THREAD. Deriving it from the
+    target (`path.with_suffix(".tmp")`) meant two writers of the same job - the
+    worker finishing a run and an HTTP thread recording feedback - used one temp
+    file, so one could unlink the other's half-written content out from under
+    it. The process id alone did not fix that: those two writers are threads of
+    one process, and the second swap left the first one a FileNotFoundError.
+
+    The final attempt is INSIDE the loop. It used to sit after it, unguarded, so
+    a busy moment surfaced as a raw `PermissionError` out of a background
+    thread; one test caught it once in three runs, which on a Windows CI runner
+    is a flake in every sense except the one that matters."""
+    tmp = path.with_name(f"{path.stem}.{os.getpid()}-{threading.get_ident()}.tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    for attempt in range(_REPLACE_ATTEMPTS):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if attempt == _REPLACE_ATTEMPTS - 1:
+                tmp.unlink(missing_ok=True)
+                raise
+            time.sleep(0.1 * (attempt + 1))
+
+
+def read_json(path: Path) -> dict | None:
+    """Read one job or card, or `None` if it is genuinely not there.
+
+    RETRIES a sharing violation, which is the reader's half of the rule
+    `write_json_atomic` already follows. On Windows, opening a file at the instant
+    `os.replace` swaps it raises `PermissionError` - and the callers here treat
+    `None` as "this job does not exist", so a single unlucky read made a queued
+    job INVISIBLE: `count_active()` undercounted, the queue cap let a fourth job
+    through, and the job strip lost a row. It surfaced as an unreproducible
+    flake in `test_spawn_queues_a_job_and_dedups`, three times, always under
+    load - which is exactly when it matters in production too.
+
+    A MISSING file returns immediately: waiting 200 ms for every deleted card
+    would make `cleanup()` crawl."""
+    for attempt in range(_REPLACE_ATTEMPTS):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return None
+        except OSError:
+            if attempt == _REPLACE_ATTEMPTS - 1:
+                log.warning("could not read %s after %d attempts", path.name, _REPLACE_ATTEMPTS)
+                return None
+            time.sleep(0.05 * (attempt + 1))
+            continue
+        except ValueError:
+            return None
+        return data if isinstance(data, dict) else None
+    return None

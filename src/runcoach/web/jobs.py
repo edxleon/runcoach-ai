@@ -11,13 +11,9 @@ read while the worker thread writes.
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 import re
 import secrets
-import threading
-import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -72,74 +68,21 @@ def card_path(card_id: str) -> Path:
 #: holding the target makes `os.replace` raise, and every page load reads these
 #: files while the worker writes them. Six attempts with a linear backoff is
 #: ~2 s, far longer than a JSON read of a few kilobytes.
-_REPLACE_ATTEMPTS = 6
-
-
-def _write_json(path: Path, data: dict) -> None:
-    """Write atomically, via a temp file in the same directory.
-
-    The temp name carries the PROCESS and the THREAD. Deriving it from the
-    target (`path.with_suffix(".tmp")`) meant two writers of the same job - the
-    worker finishing a run and an HTTP thread recording feedback - used one temp
-    file, so one could unlink the other's half-written content out from under
-    it. The process id alone did not fix that: those two writers are threads of
-    one process, and the second swap left the first one a FileNotFoundError.
-
-    The final attempt is INSIDE the loop. It used to sit after it, unguarded, so
-    a busy moment surfaced as a raw `PermissionError` out of a background
-    thread; one test caught it once in three runs, which on a Windows CI runner
-    is a flake in every sense except the one that matters."""
-    tmp = path.with_name(f"{path.stem}.{os.getpid()}-{threading.get_ident()}.tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
-    for attempt in range(_REPLACE_ATTEMPTS):
-        try:
-            os.replace(tmp, path)
-            return
-        except PermissionError:
-            if attempt == _REPLACE_ATTEMPTS - 1:
-                tmp.unlink(missing_ok=True)
-                raise
-            time.sleep(0.1 * (attempt + 1))
-
-
-def _read_json(path: Path) -> dict | None:
-    """Read one job or card, or `None` if it is genuinely not there.
-
-    RETRIES a sharing violation, which is the reader's half of the rule
-    `_write_json` already follows. On Windows, opening a file at the instant
-    `os.replace` swaps it raises `PermissionError` - and the callers here treat
-    `None` as "this job does not exist", so a single unlucky read made a queued
-    job INVISIBLE: `count_active()` undercounted, the queue cap let a fourth job
-    through, and the job strip lost a row. It surfaced as an unreproducible
-    flake in `test_spawn_queues_a_job_and_dedups`, three times, always under
-    load - which is exactly when it matters in production too.
-
-    A MISSING file returns immediately: waiting 200 ms for every deleted card
-    would make `cleanup()` crawl."""
-    for attempt in range(_REPLACE_ATTEMPTS):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            return None
-        except OSError:
-            if attempt == _REPLACE_ATTEMPTS - 1:
-                log.warning("could not read %s after %d attempts", path.name, _REPLACE_ATTEMPTS)
-                return None
-            time.sleep(0.05 * (attempt + 1))
-            continue
-        except ValueError:
-            return None
-        return data if isinstance(data, dict) else None
-    return None
+_write_json = paths.write_json_atomic
+_read_json = paths.read_json
 
 
 # ── Jobs ─────────────────────────────────────────────────────────────────────
 
 def new_job(prompt: str, *, title: str, kind: str, ctx: dict | None = None,
-            parent: str | None = None) -> dict:
+            parent: str | None = None, athlete_text: str | None = None) -> dict:
+    """`athlete_text` is what the ATHLETE wrote for this job (a question, a
+    follow-up) and nothing else - the one text a card may later propose to
+    remember from. The prompt mixes it with model text and cannot serve."""
     job = {
         "id": new_id(), "title": title[:80], "prompt": prompt,
         "template_id": kind, "ctx": ctx or None, "parent": parent, "from_job": parent,
+        "athlete_text": athlete_text,
         "created": _now().isoformat(timespec="seconds"), "started": None, "finished": None,
         "status": "queued", "exit": None, "cost_usd": None, "result_summary": None, "note": None,
     }
@@ -180,8 +123,8 @@ def clear_cancel(job_id: str) -> None:
 
 
 def public(job: dict) -> dict:
-    """What the UI gets: never the prompt."""
-    return {k: v for k, v in job.items() if k != "prompt"}
+    """What the UI gets: never the prompt, never the raw athlete text."""
+    return {k: v for k, v in job.items() if k not in ("prompt", "athlete_text")}
 
 
 def count_active() -> int:

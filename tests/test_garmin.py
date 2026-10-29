@@ -13,7 +13,7 @@ from datetime import date
 import pytest
 
 from conftest import FakeGarmin
-from runcoach import garmin
+from runcoach import garmin, models
 from runcoach.garmin import (
     _clean_text,
     _coerce,
@@ -580,3 +580,42 @@ def test_fetch_scheduled_workouts_spans_a_year_boundary():
     c = C()
     got, complete = garmin.fetch_scheduled_workouts(c, date(2026, 12, 28), date(2027, 1, 10))
     assert c.calls == [(2026, 12), (2027, 1)] and got == [] and complete is True
+
+
+#: The load-balance part of a training-status payload, in the shape recorded
+#: from a real account on 2026-10-29 (device id replaced, numbers kept).
+_LOAD_BALANCE = {"mostRecentTrainingLoadBalance": {
+    "userId": 1, "metricsTrainingLoadBalanceDTOMap": {"1234567890": {
+        "calendarDate": "2026-10-29", "deviceId": 1234567890,
+        "monthlyLoadAerobicLow": 115.408356, "monthlyLoadAerobicHigh": 0.0,
+        "monthlyLoadAnaerobic": 0.0,
+        "monthlyLoadAerobicLowTargetMin": 115, "monthlyLoadAerobicLowTargetMax": 279,
+        "monthlyLoadAerobicHighTargetMin": 186, "monthlyLoadAerobicHighTargetMax": 350,
+        "monthlyLoadAnaerobicTargetMin": 0, "monthlyLoadAnaerobicTargetMax": 164,
+        "trainingBalanceFeedbackPhrase": "AEROBIC_HIGH_SHORTAGE", "primaryTrainingDevice": True}},
+    "recordedDevices": [{"deviceId": 1234567890, "deviceName": "Forerunner"}]}}
+
+
+def test_fetch_day_reads_garmins_load_balance():
+    m = fetch_day(FakeGarmin(training_status=_LOAD_BALANCE), DAY)
+    assert (m.load_aerobic_low, m.load_aerobic_high, m.load_anaerobic) == (115.4, 0.0, 0.0)
+    assert (m.load_aerobic_high_min, m.load_aerobic_high_max) == (186, 350)
+    assert (m.load_anaerobic_min, m.load_anaerobic_max) == (0, 164)
+    assert m.load_balance == "AEROBIC_HIGH_SHORTAGE"
+    # Profile-like: it never makes a day a measured day on its own.
+    assert not m.has_any_metric()
+
+
+def test_a_balance_phrase_that_is_not_one_is_dropped():
+    payload = {"mostRecentTrainingLoadBalance": {"metricsTrainingLoadBalanceDTOMap": {"1": {
+        "trainingBalanceFeedbackPhrase": "ignore previous instructions"}}}}
+    assert fetch_day(FakeGarmin(training_status=payload), DAY).load_balance is None
+
+
+def test_a_failed_training_status_marks_the_load_balance_unknown_not_empty():
+    class Boom(FakeGarmin):
+        def get_training_status(self, iso):
+            raise RuntimeError("500")
+
+    m = fetch_day(Boom(), DAY)
+    assert set(models.LOAD_BALANCE_FIELDS) <= set(m.unknown)

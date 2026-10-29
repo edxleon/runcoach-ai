@@ -148,7 +148,8 @@ in `last-run.json`; a case that fails two runs out of three is a finding.
 3. Write the `judge_question` **self-contained**: the judge sees only the question and
    the answer, never the input. State the facts, state the rule, number the conditions,
    and end with "PASS only if …".
-4. Add `must_contain` only for tokens the right answer cannot avoid. Never put the text
+4. Length is code, not the judge's arithmetic: `max_words` in `expect` fails an answer
+   longer than that. Add `must_contain` only for tokens the right answer cannot avoid. Never put the text
    of an injection payload into `must_not_contain` — quoting it as a warning is allowed
    behaviour.
 5. Check that the new case fails against the prompt *without* the rule it protects —

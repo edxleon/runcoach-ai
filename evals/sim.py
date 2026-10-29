@@ -65,6 +65,16 @@ class Persona:
     #: (week, kind, days): kind `ill` or `pause`; week counts from START.
     events: tuple = ()
     seed: int = 1
+    #: The weekdays this runner runs on (Monday = 0); empty = a default rhythm
+    #: for `days_per_week`. The history before START is run on them.
+    weekdays: tuple = ()
+    #: The weekday of the long run.
+    long_day: int = 6
+    #: Other sports: (weekday, activity type, minutes, aerobic TE).
+    other: tuple = ()
+    #: True: the athlete filled in a profile, so the week is planned with their
+    #: days and long-run day. False (most people): the planner reads the history.
+    profile: bool = False
 
 
 PERSONAS = {p.name: p for p in (
@@ -76,6 +86,12 @@ PERSONAS = {p.name: p for p in (
     Persona("plateau", vo2_response="plateau", seed=6),
     Persona("no_zone_detail", zone_detail=False, seed=7),
     Persona("free_runner", plans_week=False, seed=8),
+    # Runs Tuesday, Thursday and Saturday, long run Saturday - never told the app.
+    Persona("saturday_long", days_per_week=3, base_week_min=150, weekdays=(1, 3, 5),
+            long_day=5, seed=9),
+    # Lifts on Tuesday evenings; runs Wednesday, Friday, Saturday, Sunday.
+    Persona("gym_tuesday", weekdays=(2, 4, 5, 6), other=((1, "strength_training", 60, 3.0),),
+            seed=10),
 )}
 
 
@@ -186,10 +202,27 @@ class _Sim:
             for i in range(days):
                 self.events[first + timedelta(days=i)] = kind
 
-    # The weekdays a runner without a plan runs on, Monday = 0.
+    # The weekdays this runner runs on without a plan, Monday = 0.
     def _free_days(self) -> tuple[int, ...]:
+        if self.p.weekdays:
+            return tuple(self.p.weekdays)
         return {3: (1, 3, 6), 4: (1, 3, 5, 6), 5: (0, 1, 3, 5, 6)}.get(self.p.days_per_week,
                                                                        (1, 3, 5, 6))
+
+    def other_sport(self, day: date) -> None:
+        """The other sports of this weekday, as Garmin would record them."""
+        from runcoach.models import Activity
+
+        for weekday, kind, minutes, te in self.p.other:
+            if day.weekday() != weekday:
+                continue
+            self.aid += 1
+            self.store.upsert_activity(Activity(
+                activity_id=self.aid,
+                start_time=datetime(day.year, day.month, day.day, 17, 0, tzinfo=timezone.utc),
+                activity_type=kind, name=kind, duration_s=minutes * 60, avg_hr=120,
+                training_load=int(minutes * 0.8), aerobic_te=te, anaerobic_te=0.2))
+            self.loads[day] = self.loads.get(day, 0) + minutes * 0.8
 
     def acwr(self, day: date) -> float | None:
         """Acute over chronic load the way Firstbeat weights it: exponentially,
@@ -280,11 +313,15 @@ class _Sim:
         for w in range(HISTORY_WEEKS, 0, -1):
             monday = START - timedelta(weeks=w)
             run_days = self._free_days()[: self.p.days_per_week]
+            quality_day = next((d for d in run_days if d != self.p.long_day), run_days[0])
             for wd in range(7):
                 d = monday + timedelta(days=wd)
                 self.morning(d)
-                if wd in run_days:
-                    first = wd == run_days[0]
+                self.other_sport(d)
+                if wd == self.p.long_day and wd in run_days:
+                    self.run(d, "long", int(per * 1.5))
+                elif wd in run_days:
+                    first = wd == quality_day
                     kind = "vo2max" if first and w % 2 else "threshold" if first else "easy"
                     self.run(d, kind, per)
 
@@ -293,8 +330,11 @@ class _Sim:
         from runcoach.models import ScheduledWorkout
 
         budget, lines, mode = plan._week_plan(self.store, sunday)
-        p = plan.propose_week(self.store, days_per_week=self.p.days_per_week,
-                              long_run_day="sun", today=sunday)
+        from runcoach import planning
+
+        given = ({"days_per_week": self.p.days_per_week,
+                  "long_run_day": planning.WEEKDAYS[self.p.long_day]} if self.p.profile else {})
+        p = plan.propose_week(self.store, today=sunday, **given)
         sessions = []
         for it in p["items"]:
             d = date.fromisoformat(it["day"])
@@ -314,7 +354,9 @@ class _Sim:
         monday = sunday + timedelta(days=1)
         self.store.replace_scheduled_workouts(items, monday, monday + timedelta(days=6))
         return {"budget": budget, "lines": lines, "mode": mode, "sessions": sessions,
-                "assumptions": list(p.get("assumptions") or [])}
+                "assumptions": [ln.split("assumption: ", 1)[1]
+                                for ln in str(p.get("preview") or "").splitlines()
+                                if "assumption: " in ln]}
 
     def athlete(self, day: date, decision: str, stimulus: str | None, ill: bool) -> Run | None:
         """What this runner does today, given what the app said."""
@@ -330,7 +372,7 @@ class _Sim:
                 return None
             mins = self.p.base_week_min // self.p.days_per_week
             kind = stimulus if decision == "hard" and stimulus in HARD else "easy"
-            if day.weekday() == 6:
+            if day.weekday() == self.p.long_day:
                 kind, mins = "long", int(mins * 1.5)
         if self.p.effort == "harder":
             return self.run(day, "tempo" if kind == "easy" else kind, int(mins * 1.3))
@@ -375,6 +417,8 @@ def simulate(persona: Persona, weeks: int = 16, probe=None) -> Course:
                                 readiness=tools.get_training_readiness(sim.store),
                                 ill=ill, planned=sim.calendar.get(day), acwr=acwr)
                 rec.ran = sim.athlete(day, rec.decision, stim, ill)
+                if not ill and sim.events.get(day) != "pause":
+                    sim.other_sport(day)
                 if probe is not None:
                     probe(day, sim.store)
                 if day.weekday() == 6 and persona.plans_week:
@@ -497,6 +541,15 @@ def check(course: Course) -> list[str]:
         n_hard = sum(k in HARD for k in kinds)
         if n_hard > len(kinds) - n_hard:
             out.append(f"{r.day}: a week of {kinds} - more hard sessions than easy ones")
+        # A step up is up: a week the line calls a step is never smaller than
+        # the week planned before it.
+        if j and w["mode"] == "step" and weeks[j - 1].week["mode"] in ("step", "hold"):
+            before = sum(m for _, _, m in weeks[j - 1].week["sessions"])
+            # ...when that week was run: a plan skipped does not lift the next one;
+            # and not when the session cap bites (a long run skipped shrinks it).
+            capped = any(a.startswith("no session over") for a in w["assumptions"])
+            if total < before - 5 and _window(course, r.day) >= 0.9 * before and not capped:
+                out.append(f"{r.day}: a 'step' week of {total} min after a planned {before}")
         # Running harder than planned slows the plan down.
         if p.effort == "harder" and r.acwr and r.acwr > 1.3 and j:
             before = sum(m for _, _, m in weeks[j - 1].week["sessions"])
@@ -537,6 +590,35 @@ def check(course: Course) -> list[str]:
             # Only a course that ran all eight weeks after the return can tell.
             if before and len(later) >= 8 and max(later) < 0.7 * before:
                 out.append(f"back from {first}: weeks {later} never reach 70 % of {before} min")
+
+    # The week lands on the runner's own days, though they never said which:
+    # the long run on their long-run day, most sessions on days they run.
+    if p.plans_week and not p.profile and p.weekdays and p.compliance == 1.0 and not p.events:
+        from runcoach import planning
+
+        theirs = {planning.WEEKDAYS[w] for w in p.weekdays}
+        for r in weeks:
+            if r.day < START + timedelta(weeks=4):
+                continue
+            ses = r.week["sessions"]
+            longs = [d for d, k, _ in ses if k == "long"]
+            if longs and longs[0].weekday() != p.long_day:
+                out.append(f"{r.day}: long run on {longs[0]:%a}, the runner's is "
+                           f"{planning.WEEKDAYS[p.long_day]}")
+            on_theirs = sum(planning.WEEKDAYS[d.weekday()] in theirs for d, _, _ in ses)
+            if len(ses) <= len(theirs) and on_theirs < 0.75 * len(ses):
+                out.append(f"{r.day}: {on_theirs} of {len(ses)} sessions on the runner's days "
+                           f"{sorted(theirs)}: {[(f'{d:%a}', k) for d, k, _ in ses]}")
+    # A regular other sport keeps the quality runs off its day and the next.
+    if p.other and p.plans_week and not p.events:
+        blocked = {w for w, *_ in p.other} | {(w + 1) % 7 for w, *_ in p.other}
+        for r in weeks:
+            if r.day < START + timedelta(weeks=4):
+                continue
+            clash = [(f"{d:%a}", k) for d, k, _ in r.week["sessions"]
+                     if k in HARD and d.weekday() in blocked]
+            if clash:
+                out.append(f"{r.day}: quality on or right after the other sport: {clash}")
 
     # A plateau gets measured: a steady block within six weeks of the course.
     if p.vo2_response == "plateau":
