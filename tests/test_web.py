@@ -721,3 +721,22 @@ def test_a_path_helper_refuses_what_is_not_an_id():
             plan._path(bad)
         assert plan.read(bad) is None
     assert jobs.job_path("j-20260101-000000-ab12").name == "j-20260101-000000-ab12.json"
+
+
+def test_the_limit_messages_claude_really_prints_mean_wait():
+    """The quota wait only ever saw a message nobody prints ("usage limit
+    reached; resets at 4pm"). What the CLI says - recorded in personal-ai's
+    _quota_wait.py, and since 2.1.312 "5-hour limit" instead of "session
+    limit" - matched nothing, so a card run out of quota FAILED instead of
+    waiting, against the README's promise."""
+    from runcoach.web import agent
+
+    for text in ("You've hit your session limit · resets 1pm (Europe/Berlin)",
+                 "You've hit your 5-hour limit · resets 1pm (Europe/Berlin)",
+                 "You've reached your Fable 5 limit. Switch to another model, or manage usage credits",
+                 '{"type":"result","is_error":true,"result":"You\'ve hit your 5-hour limit · resets 3:10pm"}',
+                 "Claude usage limit reached; resets at 4pm"):
+        assert agent._QUOTA_RE.search(text), text
+    for text in ("The 5-hour limit on easy runs is a rule of thumb.",
+                 "error: unknown option --tools"):
+        assert not agent._QUOTA_RE.search(text), text

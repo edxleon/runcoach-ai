@@ -38,7 +38,11 @@ PROMPT_CAP = 8000
 TIMEOUT_S = int(os.environ.get("RUNCOACH_JOB_TIMEOUT_S", "600"))
 QUOTA_WAIT_S = int(os.environ.get("RUNCOACH_QUOTA_WAIT_S", "3600"))
 QUOTA_SLICE_S = 300   # how long to wait between retries while quota is exhausted
-_QUOTA_RE = re.compile(r"usage limit|rate limit|quota|limit reached|resets? at", re.I)
+#: An exhausted subscription. The CLI's own words come first: "You've hit your
+#: 5-hour limit · resets 1pm" (before 2.1.312: "session limit"), "You've
+#: reached your <model> limit" - neither matched the older alternatives.
+_QUOTA_RE = re.compile(r"you'?ve\s+(?:hit|reached)\s+your\s+.{0,40}?limit"
+                       r"|usage limit|rate limit|quota|limit reached|resets? at", re.I)
 
 FRAME = """You are running HEADLESS as the analysis step of the runcoach app. Your only
 tools are the runcoach MCP tools (the athlete's own Garmin data, read-only plus
