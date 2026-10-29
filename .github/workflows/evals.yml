@@ -1,0 +1,140 @@
+name: evals
+
+# The coach-prompt evals (evals/run_evals.py) with a real model, once a week -
+# but only in a week in which main moved: an unchanged prompt on an unchanged
+# model measures the weather and spends the subscription for it. By hand
+# (workflow_dispatch) it always runs.
+#
+# The model calls go through the maintainer's Claude subscription: the secret
+# CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`, valid one year) lives in
+# the environment `evals`, which only `main` may use. Forks and pull requests
+# never see it, and the job that decides whether to run does not touch it, so
+# a quiet week spends nothing. The result is the job summary and an artifact;
+# evals/RESULTS.md and the README badge stay a local, committed record.
+#
+# Renew the token:
+#   claude setup-token
+#   gh secret set CLAUDE_CODE_OAUTH_TOKEN --env evals -R edxleon/runcoach-ai
+#   gh variable set CLAUDE_TOKEN_CREATED --body YYYY-MM-DD -R edxleon/runcoach-ai
+
+on:
+  schedule:
+    - cron: "41 5 * * 1"     # Mondays, 05:41 UTC - after the sweep
+  workflow_dispatch:
+
+concurrency:
+  group: evals
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  changed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # nothing here pushes; no token left in .git/config
+          fetch-depth: 0               # the last week of history, not one commit
+      - name: Did main move in the last 7 days?
+        id: check
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          commits=$(git log --since="7 days ago" --format='%h %s' HEAD)
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "started by hand - the evals run"
+          elif [ -n "$commits" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "commits on main in the last 7 days:"; echo "$commits"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "no commit on main in the last 7 days - no evals, nothing spent" | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+  evals:
+    needs: changed
+    if: needs.changed.outputs.run == 'true'
+    runs-on: ubuntu-latest
+    environment: evals
+    # 29 cases at ~20 s for the answer and ~10 s for the judge: about 15 min.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # nothing here pushes; no token left in .git/config
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          python-version: "3.12"
+          # No cache in the one job that holds the token: a cache any workflow
+          # run can write must not feed a step that sees it.
+          enable-cache: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          package-manager-cache: false   # same reason as above
+      # Pinned: the version the committed evals/RESULTS.md was produced with.
+      # A new CLI is a deliberate bump here, not a surprise in a red run.
+      - name: Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code@2.1.312
+
+      - name: How long the token has left
+        env:
+          CREATED: ${{ vars.CLAUDE_TOKEN_CREATED }}
+        run: |
+          python3 - <<'EOF'
+          import datetime as dt, os
+          created = os.environ.get("CREATED", "").strip()
+          if not created:
+              print("::notice::set CLAUDE_TOKEN_CREATED (gh variable set ...) to be warned before the token expires")
+              raise SystemExit(0)
+          expires = dt.date.fromisoformat(created) + dt.timedelta(days=365)
+          left = (expires - dt.date.today()).days
+          print(f"Claude token created {created}, expires {expires} ({left} days)")
+          if left <= 30:
+              print(f"::warning::the Claude token expires on {expires} ({left} days) - renew it, see the head of evals.yml")
+          EOF
+
+      # One call before the suite: an expired or revoked token is one clear line, not
+      # every case red with the same auth error.
+      - name: The token works
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            echo "::error::no CLAUDE_CODE_OAUTH_TOKEN in the environment 'evals'"; exit 1
+          fi
+          if ! out=$(echo "Reply with the single word OK." |
+                     claude --print --safe-mode --tools "" --model sonnet 2>&1); then
+            echo "::error::Claude refused the token (expired, revoked or out of quota) - renew: claude setup-token, then gh secret set CLAUDE_CODE_OAUTH_TOKEN --env evals -R edxleon/runcoach-ai"
+            echo "$out" | tail -n 3
+            exit 1
+          fi
+          echo "token ok"
+
+      - name: Evals
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: uv run --python 3.12 --with pyyaml python evals/run_evals.py
+
+      - name: Result as the job summary
+        if: always()
+        run: |
+          if [ -f evals/RESULTS.md ]; then cat evals/RESULTS.md >> "$GITHUB_STEP_SUMMARY"; fi
+
+      # The answers and the judge's reasons of every case: what a red case is
+      # read from. Synthetic athletes only - nothing personal is in them.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: evals-${{ github.run_number }}
+          path: |
+            evals/RESULTS.md
+            evals/last-run.json
+          retention-days: 30
+          if-no-files-found: ignore
