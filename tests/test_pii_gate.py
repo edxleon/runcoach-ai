@@ -218,3 +218,12 @@ def test_commit_identities_are_checked_not_only_files(tree, email, leaks):
     _git(tree, "commit", "-qm", "x", email=email)
     rc, out = run_gate(tree)
     assert (rc == 1 and "commit identity" in out) is leaks, out
+
+
+def test_a_linked_worktrees_git_file_is_not_content(tree):
+    """In a linked worktree `.git` is a FILE pointing at the main repository -
+    with the home path in it. It is never committed; flagged, it refused every
+    push made from a worktree."""
+    (tree / ".git").write_text("gitdir: /Users/someone/repo/.git/worktrees/x\n", encoding="utf-8")
+    rc, out = run_gate(tree)
+    assert rc == 0, out

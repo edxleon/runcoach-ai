@@ -116,7 +116,9 @@ def main() -> int:
     for path in sorted(ROOT.rglob("*")):
         if not path.is_file() or path.name in SKIP_FILES:
             continue
-        if SKIP_DIRS & set(p.name for p in path.parents):
+        # `.git` as a FILE too: a linked worktree's pointer to the main repository,
+        # never committed, and it holds a home path.
+        if path.name == ".git" or SKIP_DIRS & set(p.name for p in path.parents):
             continue
         binary = path.suffix in BINARY_SUFFIXES
         if not binary:
