@@ -452,11 +452,13 @@ calendar entry. One athlete, one account, one watch.
 ### Roadmap
 
 [docs/roadmap.md](docs/roadmap.md) is the backlog, ordered by what it would do for the runner: an
-athlete's own check-in (ill, sore, how it felt), sessions with your own structure, the proposed
-session matched against the run that followed, a `runspector today` for the morning, deeper history,
-body weight and Garmin's own readiness alongside the app's, and race preparation for those with a
-date. v0.3 made the planner read the history for what comes next; the rest is there with the
-reasoning and the order.
+athlete's own check-in (ill, sore, how it felt) that lasts until it is over, an easier option for
+every hard session, rep targets by pace, sessions with your own structure, the proposed session
+matched against the run that followed, session sizes from your own time per weekday, monotony as a
+second load signal, a `runspector today` for the morning, where each statement on a card comes
+from, Garmin's own readiness, body weight, deeper history, and race preparation towards a goal race.
+v0.3 made the planner read the history for what comes next; the rest is there with the reasoning
+and the order.
 
 ## License
 
