@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Runspector — free AI running coach for Garmin (open source)</title>
+<meta name="description" content="AI running coach for Garmin: reads your HRV, sleep, Body Battery and training load, decides today's run and explains why. Free, open source, local.">
+<link rel="canonical" href="https://edxleon.github.io/runspector/">
+<!-- Search Console: the verification meta tag goes here, e.g.
+     <meta name="google-site-verification" content="…"> -->
+<meta property="og:type" content="website">
+<meta property="og:title" content="Runspector — free AI running coach for Garmin">
+<meta property="og:description" content="AI running coach for Garmin: reads your HRV, sleep, Body Battery and training load, decides today's run and explains why. Free, open source, local.">
+<meta property="og:url" content="https://edxleon.github.io/runspector/">
+<meta property="og:image" content="https://edxleon.github.io/runspector/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Runspector",
+  "description": "AI running coach for Garmin: reads your HRV, sleep, Body Battery and training load, decides today's run and explains why. Free, open source, local.",
+  "applicationCategory": "HealthApplication",
+  "operatingSystem": "Windows, macOS, Linux",
+  "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"},
+  "license": "https://opensource.org/licenses/MIT",
+  "downloadUrl": "https://pypi.org/project/runspector/",
+  "url": "https://edxleon.github.io/runspector/",
+  "screenshot": "https://edxleon.github.io/runspector/screenshots/readme-today.png"
+}
+</script>
+<style>
+  :root {
+    --bg: #12151c; --surface: #1a1e27; --line: #2a3040;
+    --text: #e8eaf0; --muted: #8b92a5; --accent: #64d2a3; --accent-tint: rgba(100,210,163,.14);
+    color-scheme: dark;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #f4f5f8; --surface: #ffffff; --line: #dcdfe6;
+      --text: #1c1f26; --muted: #5b6170; --accent: #12795a; --accent-tint: rgba(18,121,90,.10);
+      color-scheme: light;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  a { color: var(--accent); }
+  main, header, footer { max-width: 920px; margin: 0 auto; padding: 0 16px; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 18px; }
+  .wordmark { font: 700 20px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace; color: var(--text);
+              text-decoration: none; }
+  nav a { margin-left: 16px; color: var(--muted); text-decoration: none; font-size: 15px; }
+  nav a:hover { color: var(--text); }
+  h1 { font-size: clamp(28px, 5vw, 42px); line-height: 1.15; margin: 44px 0 14px; }
+  h2 { font-size: 24px; margin: 52px 0 12px; }
+  h3 { font-size: 18px; margin: 28px 0 6px; }
+  .pitch { font-size: 18px; color: var(--text); max-width: 760px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 24px 0 8px; }
+  .button { display: inline-block; padding: 10px 18px; border-radius: 8px; font-weight: 600;
+            text-decoration: none; border: 1px solid var(--line); color: var(--text); }
+  .button.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+  video { width: 100%; border-radius: 12px; border: 1px solid var(--line); margin-top: 28px;
+          background: var(--surface); }
+  .shots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
+  .shots img { width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--line); }
+  pre { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px;
+        overflow-x: auto; font: 14px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: .92em; }
+  .note { color: var(--muted); font-size: 15px; }
+  .different { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; }
+  .card h3 { margin-top: 0; }
+  .card p { margin: 0; color: var(--muted); font-size: 15px; }
+  .faq p { margin-top: 4px; }
+  footer { border-top: 1px solid var(--line); margin-top: 64px; padding-top: 20px; padding-bottom: 40px;
+           color: var(--muted); font-size: 14px; }
+  footer a { color: var(--muted); }
+  @media (max-width: 680px) {
+    .shots { grid-template-columns: 1fr; }
+    .different { grid-template-columns: 1fr; }
+    nav a { margin-left: 12px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <a class="wordmark" href="./">runspector</a>
+  <nav>
+    <a href="https://github.com/edxleon/runspector">GitHub</a>
+    <a href="https://pypi.org/project/runspector/">PyPI</a>
+  </nav>
+</header>
+
+<main>
+  <h1>Runspector — free AI running coach for Garmin</h1>
+  <p class="pitch"><strong>A free, open-source AI running coach for Garmin watches.</strong> Runspector syncs
+  your Garmin Connect data - HRV, sleep, Body Battery, resting heart rate, training load and every run - into a
+  file on your own computer, decides each day whether to go hard, keep it easy or rest, and lets Claude explain
+  why and plan your week: in a small local web app, or as a Garmin MCP server in Claude Code and Claude Desktop.
+  No cloud, no API key needed - your own Claude Code sign-in is enough.</p>
+  <div class="actions">
+    <a class="button primary" href="#install">Install</a>
+    <a class="button" href="https://github.com/edxleon/runspector">Source on GitHub</a>
+  </div>
+
+  <video controls preload="metadata" poster="video/poster.png" src="video/runspector-demo.mp4">
+    The 90-second demo: <a href="video/runspector-demo.mp4">runspector-demo.mp4</a>
+  </video>
+  <div class="shots">
+    <img src="screenshots/readme-today.png" alt="Runspector Today tab: training readiness verdict from Garmin data, the decision for today, the week plan, HRV, sleep and Body Battery" width="520" height="940" loading="lazy">
+    <img src="screenshots/readme-coach.png" alt="Runspector Coach tab: a coaching card Claude wrote from the Garmin data" width="520" height="940" loading="lazy">
+    <img src="screenshots/readme-runs.png" alt="Runspector Runs tab: each run's intensity bands and its detected interval structure" width="520" height="940" loading="lazy">
+  </div>
+  <p class="note">Everything shown is the built-in synthetic athlete: <code>runspector serve --demo</code> needs no account.</p>
+
+  <h2 id="install">Install</h2>
+<pre><code>uv tool install runspector
+runspector serve</code></pre>
+  <p class="note">Without uv: <code>pipx install runspector</code>. <code>runspector serve</code> opens
+  <code>http://127.0.0.1:8765</code>; sign in to Garmin there (Setup → Sign in to Garmin), and the first sync
+  starts right after. The coach cards run on Claude Code with your own Claude account:
+  <a href="https://github.com/edxleon/runspector#connecting-claude">Connecting Claude</a>.</p>
+
+  <h2>In Claude Code or Claude Desktop</h2>
+<pre><code>claude mcp add runspector -- runspector mcp</code></pre>
+  <p class="note">Then ask: "should I train today?" In Claude Desktop, add it to the MCP configuration
+  (Settings → Developer → Edit Config):</p>
+<pre><code>{ "mcpServers": { "runspector": { "command": "uvx", "args": ["runspector", "mcp"] } } }</code></pre>
+
+  <h2>What is different</h2>
+  <div class="different">
+    <div class="card"><h3>The verdict is code</h3><p>Go hard, keep it easy or rest comes from written rules
+    over your HRV, sleep, Body Battery, resting heart rate and load. Claude explains that decision; it does not
+    invent it.</p></div>
+    <div class="card"><h3>Local-first and free</h3><p>Your data sits in a file on your own computer. No cloud
+    backend, no account beyond Garmin's, no fee. Open source under MIT.</p></div>
+    <div class="card"><h3>Nothing on the watch without a yes</h3><p>A session goes onto your Garmin watch only
+    after you say yes to exactly that session, and "take it back off" undoes it.</p></div>
+  </div>
+
+  <section class="faq">
+    <h2>Questions people ask</h2>
+
+    <h3>Does Garmin have an AI coach?</h3>
+    <p>Garmin offers three kinds of coaching of its own. Garmin Coach is a set of free adaptive training plans in
+    Garmin Connect for a 5K, 10K or half marathon, which adapt to the runs you log. Many watches show daily
+    suggested workouts, built from your activities once the watch has a training status and a VO2max estimate.
+    Garmin Connect+, a paid subscription since March 2025, adds Active Intelligence: AI-powered insights and
+    suggestions through the day, launched in beta; everything that was in Garmin Connect before stays free.
+    Runspector reads the same Garmin data and is a different kind of tool: it decides today with every reason
+    written out by rules you can read, lets you ask a coach in your own words, and plans sessions that go on your
+    watch only after your yes - on your own computer.</p>
+
+    <h3>Is there a free AI running coach for Garmin?</h3>
+    <p>Runspector is free and open source (MIT). It installs from PyPI and keeps your data on your own computer.
+    Today's verdict, your runs, the trends and the sync need nothing but your Garmin account. The coach itself runs
+    on Claude, through Claude Code or Claude Desktop with your own Claude account; <a
+    href="https://github.com/edxleon/runspector#connecting-claude">Connecting Claude</a> says which plan that needs.
+    Garmin's own Garmin Coach plans are free as well.</p>
+
+    <h3>Which Garmin watches work?</h3>
+    <p>Any Garmin watch that syncs to Garmin Connect gives runspector your runs. Today's verdict reads four recovery
+    signals - HRV status, sleep score, Body Battery and your resting heart rate against your own baseline - plus
+    your training load. A watch that records no HRV status overnight still gets a verdict from the others, but a GO
+    that rests on fewer than two signals becomes EASY: thin data is no green light. To put sessions on the watch,
+    it has to run structured workouts from Garmin Connect, with heart-rate or pace targets. Current Forerunner,
+    fenix, epix, Venu and Instinct models are examples; whether a model records HRV status or Body Battery, its
+    specifications on Garmin's site say.</p>
+  </section>
+</main>
+
+<footer>
+  <p><a href="https://github.com/edxleon/runspector">GitHub</a> ·
+  <a href="https://pypi.org/project/runspector/">PyPI</a> ·
+  <a href="https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.edxleon/runspector">MCP registry</a> ·
+  MIT licence</p>
+  <p>Not affiliated with Garmin. A training tool, not medical advice.</p>
+</footer>
+</body>
+</html>
