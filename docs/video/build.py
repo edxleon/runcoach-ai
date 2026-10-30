@@ -16,6 +16,12 @@ import re
 import subprocess
 from pathlib import Path
 
+ROOT_DIR = Path(__file__).resolve().parents[2]
+#: The version the frames show, read from the package: a number typed in here
+#: said "v0.2" three releases later.
+VERSION = re.search(r'__version__ = "([^"]+)"',
+                    (ROOT_DIR / "src" / "runspector" / "__init__.py").read_text(encoding="utf-8"))[1]
+
 HERE = Path(__file__).resolve().parent
 LEAD, TAIL, CLOSE_TAIL = 0.45, 0.55, 2.0
 #: The title card before the first spoken scene. Its first frame is also the
@@ -93,7 +99,7 @@ def render(*, captions_on: bool = False) -> str:
              '<div class="inner"><div class="intro-box">'
              '<div class="logo">runspector</div>'
              '<div class="intro-line">An AI running coach for your Garmin data</div>'
-             '<div class="intro-sub">Local-first · runs on your Claude subscription · open source</div>'
+             '<div class="intro-sub">Local-first · runs on your own Claude sign-in · open source</div>'
              f'<div class="intro-cue">▶&nbsp; {round(total)}-second demo · sound on</div>'
              '</div></div></section>')
 
@@ -204,15 +210,15 @@ def render(*, captions_on: bool = False) -> str:
 
     try_ = section("try", f"""
       <div class="facts-row">
-        <span class="f1">your own machine</span><span class="f2">your Claude subscription</span>
+        <span class="f1">your own machine</span><span class="f2">your own Claude sign-in</span>
         <span class="f3">no API key</span><span class="f4">no cloud</span>
       </div>
       <div class="term try-term">
         <div class="bar"><i></i><i></i><i></i><span>Terminal</span></div>
         <div class="body">
-          <div class="blk b1">{typed("uv tool install git+https://github.com/edxleon/runspector")}</div>
+          <div class="blk b1">{typed("uv tool install runspector")}</div>
           <div class="blk b2">{typed("runspector serve --demo")}
-            {out("runspector 0.2.0 (demo data) - http://127.0.0.1:8765/", "ok")}
+            {out(f"runspector {VERSION} (demo data) - http://127.0.0.1:8765/", "ok")}
             {out("data: ~/.runspector/demo   stop with Ctrl+C")}</div>
         </div>
       </div>
@@ -253,7 +259,7 @@ def render(*, captions_on: bool = False) -> str:
 <body>
 <div id="root" data-composition-id="main" data-start="0" data-duration="{total}" data-width="1920" data-height="1080">
   <div id="chrome" class="clip" data-start="0" data-duration="{total}">
-    <div class="wordmark">runspector <span>v0.2</span></div>
+    <div class="wordmark">runspector <span>v{VERSION}</span></div>
   </div>
   {intro}{hook}{answer}{today}{strategy}{runs}{chat}{watch}{try_}{close}
   {captions}

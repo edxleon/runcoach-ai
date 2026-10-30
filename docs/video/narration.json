@@ -6,8 +6,8 @@
  },
  {
   "id": "answer",
-  "say": "Run coach does. One tap, and Claude reads your numbers, and gives you a straight answer, with the reason behind it.",
-  "show": "runspector does. One tap, and Claude reads your numbers, and gives you a straight answer, with the reason behind it."
+  "say": "Runspector does. One tap, and Claude reads your numbers, and gives you a straight answer, with the reason behind it.",
+  "show": "Runspector does. One tap, and Claude reads your numbers, and gives you a straight answer, with the reason behind it."
  },
  {
   "id": "today",
@@ -36,12 +36,12 @@
  },
  {
   "id": "try",
-  "say": "It runs on your own machine, on the Claude subscription you already have. There's no A.P.I. key, and no cloud. Try it first, without any account.",
-  "show": "It runs on your own machine, on the Claude subscription you already have. There's no API key, and no cloud. Try it first, without any account."
+  "say": "It runs on your own machine, with your own Claude sign-in, and a Claude plan is enough. No A.P.I. key needed, and no cloud. Try it first, without any account.",
+  "show": "It runs on your own machine, with your own Claude sign-in, and a Claude plan is enough. No API key needed, and no cloud. Try it first, without any account."
  },
  {
   "id": "close",
-  "say": "Run coach. Built by a runner whose V O two max would not move.",
-  "show": "runspector. Built by a runner whose VO2max would not move."
+  "say": "Runspector. Built by a runner whose V O two max would not move.",
+  "show": "Runspector. Built by a runner whose VO2max would not move."
  }
 ]
