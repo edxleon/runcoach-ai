@@ -617,9 +617,10 @@ def test_apply_uploads_schedules_pushes_verifies_and_refreshes_the_mirror(store,
     mirror = store.get_scheduled_workouts(today, today)
     assert [m["workout_id"] for m in mirror] == [it["workout_id"]], "Today tab sees it now"
 
-    # once only
+    # once only - and the refusal names what is already there
     again = tools.apply_workout(store, pid)
     assert "already applied" in again and len(fake.data["library"]) == 1
+    assert f"workout(s) {it['workout_id']} from {today}" in again, again
 
 
 def test_apply_with_an_unknown_id_lists_the_open_proposals(store, today, monkeypatch):
@@ -1072,6 +1073,7 @@ def test_the_summary_drops_the_removal_claim_when_the_unschedule_failed(store, t
                                 replaces_schedule_id=777).split("proposal ")[1].split()[0]
     out = tools.apply_workout(store, pid)
     assert "could not remove" in out and "Removed from the calendar" not in out
+    assert f'could not remove "VO2max 5x3" from {today}' in out, "it names WHICH entry stayed"
     assert plan.read(pid)["replaces"][0]["removed"] is False
 
 
@@ -1145,6 +1147,8 @@ def test_an_upload_whose_answer_was_lost_keeps_its_claim_and_is_reported(store, 
     out = plan.apply(store, LostAnswer(), p["id"], today=today)
     assert "unclear whether Garmin created it" in " ".join(out["warnings"])
     assert [u["proposal_id"] for u in store.unresolved_claims()] == [p["id"]]
+    assert plan.pending_of(plan.read(p["id"], store), today) == 0, \
+        "the card must not offer to put it on the watch again"
 
     _age_claims(store, p["id"], minutes=CLAIM_STALE_MINUTES + 60)
     assert store.reap_stale_claims() == 0, "an unresolved upload is never reaped"
@@ -1411,6 +1415,9 @@ def test_a_proposal_whose_apply_died_before_saving_is_not_reported_as_waiting(st
     assert plan.workouts_of(reconciled) == [900_777]
     assert plan.open_proposals(store) == [], "it is not waiting for anything"
     assert [x["id"] for x in plan.open_proposals()] == [p["id"]], "...and without a store it is"
+    # The list a mistyped id gets back offers only what is really waiting.
+    wrong = plan.apply(store, FakeGarmin(), "p-20260101-000000-dead", today=today)
+    assert p["id"] not in wrong["error"], wrong["error"]
 
 
 def _web_app(tmp_path, monkeypatch, today):
@@ -1754,6 +1761,7 @@ def test_undo_takes_the_session_off_the_calendar_and_leaves_the_workout(store, t
     assert wid in fake.data["library"], "the workout itself is not"
     assert store.get_scheduled_workouts(today, today) == [], "and the mirror agrees"
     assert plan.pending_of(plan.read(pid, store)) == 1, "so the proposal has work again"
+    assert "is on the calendar any more" in tools.undo_workout(store, pid), "undone already"
 
 
 def test_undo_puts_the_proposal_back_within_reach_of_a_second_apply(store, today, monkeypatch):
@@ -1803,7 +1811,9 @@ def test_undo_on_something_that_was_never_applied_says_so(store, today, monkeypa
     _seed_zones(store, today)
     monkeypatch.setattr(garmin, "login", lambda tokenstore=None: FakeGarmin())
     p = plan.propose(store, "easy", duration_min=40, today=today)
-    assert "nothing of this proposal is on the calendar" in tools.undo_workout(store, p["id"])
+    out = tools.undo_workout(store, p["id"])
+    assert "nothing of this proposal is on the calendar" in out
+    assert "any more" not in out, "it was never there - not 'no longer'"
     assert "nothing to take back" in tools.undo_workout(store, "p-20260101-000000-dead")
 
 
@@ -1921,6 +1931,7 @@ def test_a_proposal_for_a_day_that_has_passed_is_not_applied(store, today, monke
     later = today + timedelta(days=3)
     out = plan.apply(store, fake, pid, today=later)
     assert out.get("error") and "past" in out["error"], out
+    assert f"in the past ({today})" in out["error"], "it names the day"
     assert not fake.data.get("library"), "nothing may be uploaded for a day that is gone"
 
 
@@ -2147,6 +2158,257 @@ def test_a_swap_undone_and_applied_again_swaps_again(store, today, monkeypatch):
     # ...and the cycle holds a second time round.
     tools.undo_workout(store, pid)
     assert [s["workoutId"] for s in fake.data["schedule"].values()] == [4242]
+
+
+# ── one session that goes wrong does not take the others with it ────────────
+#
+# The loops of `apply` and `undo` skip a session with `continue`, and every
+# test above had only ONE session where that `continue` could stop: written
+# as `break`, the week after the first problem silently went missing, and so
+# did several of the guards below. mutation.yml found each of them.
+
+def _week(store, today) -> dict:
+    from runcoach import plan
+
+    _seed_zones(store, today)
+    p = plan.propose_week(store, start=today, days_per_week=4, long_run_day="sun", today=today)
+    assert len(p["items"]) == 4, p["preview"]
+    return p
+
+
+def _swap(store, today, *entries, client=FakeGarmin):
+    """A proposal for today that replaces `entries` - (schedule id, workout id,
+    title) - on Garmin's calendar and in the mirror."""
+    from runcoach import plan
+
+    _seed_zones(store, today)
+    fake = client(schedule={sid: {"workoutId": wid, "date": today.isoformat()}
+                            for sid, wid, _ in entries})
+    store.replace_scheduled_workouts(
+        [ScheduledWorkout(sid, today, workout_id=wid, title=t, sport="running")
+         for sid, wid, t in entries], today, today)
+    p = plan.propose(store, "easy", duration_min=40, replaces=[e[0] for e in entries], today=today)
+    return fake, p
+
+
+def test_a_week_with_a_day_gone_by_still_writes_the_days_ahead(store, today):
+    """The past-day rule is for a proposal that has NOTHING left to write. A
+    week clicked on its second day must still put the rest of it on the watch;
+    only the day that is gone is skipped, and said to be."""
+    from runcoach import plan
+
+    p = _week(store, today)
+    days = sorted(date.fromisoformat(it["day"]) for it in p["items"])
+    later = days[0] + timedelta(days=1)
+    fake = FakeGarmin()
+    out = plan.apply(store, fake, p["id"], today=later)
+    assert not out.get("error"), out["error"]
+    assert len(fake.data["library"]) == sum(1 for d in days if d >= later)
+    assert f"{days[0]} skipped: that day is in the past" in out["warnings"]
+
+
+def test_sessions_another_apply_holds_are_skipped_and_the_rest_go_up(store, today):
+    """Session 1 may already be on Garmin (its answer was lost), session 2 is
+    being written by a second apply right now. Neither is uploaded here, each
+    is named - and sessions 3 and 4 go up all the same."""
+    from runcoach import plan
+
+    p = _week(store, today)
+    pid = p["id"]
+    store.claim_proposal_item(pid, 0)
+    store.mark_proposal_item_unknown(pid, 0)
+    store.claim_proposal_item(pid, 1)
+    fake = FakeGarmin()
+    out = plan.apply(store, fake, pid, today=today)
+
+    assert len(fake.data["library"]) == 2, "sessions 3 and 4"
+    said = " ".join(out["warnings"])
+    assert "an earlier apply may have uploaded it already" in said
+    assert "another apply of this proposal is already handling it" in said
+    # The card offers the one held by the other apply, never the unclear one:
+    # applying that again is how a session lands on the watch twice.
+    assert plan.pending_of(plan.read(pid, store), today) == 1
+
+
+def test_an_apply_killed_while_the_upload_was_on_the_wire_never_uploads_it_again(store, today):
+    """The claim is marked "sending" before the request goes out, so a process
+    that dies mid-request leaves a question for `doctor`, not a claim the
+    reaper hands back after half an hour for a second upload."""
+    from runcoach import plan
+
+    class _ProcessKilled(BaseException):     # what `except Exception` does not catch
+        pass
+
+    class DiesMidUpload(FakeGarmin):
+        def upload_running_workout(self, w):
+            raise _ProcessKilled
+
+    _seed_zones(store, today)
+    p = plan.propose(store, "vo2max", distance_km=10, today=today)
+    with pytest.raises(_ProcessKilled):
+        plan.apply(store, DiesMidUpload(), p["id"], today=today)
+
+    _age_claims(store, p["id"], minutes=CLAIM_STALE_MINUTES + 1)
+    fake = FakeGarmin()
+    plan.apply(store, fake, p["id"], today=today)
+    assert not fake.data.get("library"), "uploaded a second time"
+    assert [u["proposal_id"] for u in store.unresolved_claims()] == [p["id"]]
+
+
+def test_a_resume_gives_every_uploaded_session_its_day(store, today):
+    from runcoach import plan
+
+    class NoCalendar(FakeGarmin):
+        def schedule_workout(self, workout_id, date_str):
+            raise ConnectionError("calendar is down")
+
+    p = _week(store, today)
+    down = NoCalendar()
+    first = plan.apply(store, down, p["id"], today=today)
+    assert len(plan.workouts_of(first)) == 4 and plan.pending_of(first, today) == 4
+
+    fake = FakeGarmin(library=down.data["library"])
+    second = plan.apply(store, fake, p["id"], today=today)
+    assert plan.pending_of(second, today) == 0, plan.describe_result(second)
+    assert len(fake.data["schedule"]) == 4 and len(fake.data["library"]) == 4
+
+
+def test_a_calendar_step_another_apply_holds_is_left_to_it(store, today):
+    from runcoach import plan
+
+    fake, p = _swap(store, today, (777, 4242, "VO2max 5x3"))
+    store.claim_proposal_item(p["id"], plan.REPLACES_CLAIM_INDEX)
+    out = plan.apply(store, fake, p["id"], today=today)
+    assert 777 in fake.data["schedule"]
+    assert "being handled by another apply - nothing was removed here" in " ".join(out["warnings"])
+
+
+def test_a_swap_entry_that_changed_is_left_and_the_next_one_is_still_removed(store, today):
+    """Two entries to replace; between the proposal and the yes, the first
+    calendar id came to hold another workout. That one is left alone and
+    named, and the second is still taken off."""
+    from runcoach import plan
+
+    fake, p = _swap(store, today, (777, 4242, "VO2max 5x3"), (778, 4343, "Tempo 3x10"))
+    store.replace_scheduled_workouts(
+        [ScheduledWorkout(777, today, workout_id=5555, title="Strength", sport="running"),
+         ScheduledWorkout(778, today, workout_id=4343, title="Tempo 3x10", sport="running")],
+        today, today)
+    out = plan.apply(store, fake, p["id"], today=today)
+    assert 777 in fake.data["schedule"] and 778 not in fake.data["schedule"]
+    assert 'did NOT remove schedule 777 ("VO2max 5x3")' in " ".join(out["warnings"])
+
+
+def test_undo_finds_a_session_whose_apply_never_saved_the_file(store, today):
+    """The process died after the write and before the file: the claim table
+    and `runcoach_workouts` know the session is on the calendar, the file does
+    not. Undo reads the record, not the file, or it answers "nothing to take
+    back" about a session that is on the watch."""
+    from runcoach import paths, plan
+
+    _seed_zones(store, today)
+    p = plan.propose(store, "vo2max", distance_km=10, today=today)
+    fake = FakeGarmin()
+    plan.apply(store, fake, p["id"], today=today)
+    paths.write_json_atomic(plan._path(p["id"]), p)     # the file as it was before
+
+    out = plan.undo(store, fake, p["id"], today=today)
+    assert out["undone"] == 1 and fake.data["schedule"] == {}, out.get("error")
+
+
+def test_undoing_a_swap_whose_removal_failed_does_not_put_the_entry_on_twice(store, today):
+    """Garmin refused to take the old entry off, so it never left the calendar.
+    Undo puts back only what the swap removed - "putting back" this one was a
+    second copy of the athlete's session on the same day."""
+    from runcoach import plan
+
+    class KeepsThatOne(FakeGarmin):
+        def unschedule_workout(self, scheduled_workout_id):
+            if int(scheduled_workout_id) == 777:
+                raise ConnectionError("no route")
+            super().unschedule_workout(scheduled_workout_id)
+
+    fake, p = _swap(store, today, (777, 4242, "VO2max 5x3"), client=KeepsThatOne)
+    plan.apply(store, fake, p["id"], today=today)
+    out = plan.undo(store, fake, p["id"], today=today)
+    assert out["undone"] == 1 and out["restored"] == []
+    assert [s["workoutId"] for s in fake.data["schedule"].values()] == [4242]
+
+
+@pytest.mark.parametrize("trouble,said", [
+    ("not ours", "not one this app uploaded"),
+    ("calendar id reused", "no longer holds workout"),
+    ("unschedule refused", "could not take it off"),
+])
+def test_undo_of_a_week_leaves_the_one_session_it_must_and_takes_off_the_rest(store, today,
+                                                                             trouble, said):
+    """Each guard of `undo` on the FIRST session of four: that one stays on
+    the calendar with a reason, the other three come off."""
+    import sqlite3
+
+    from runcoach import plan
+
+    p = _week(store, today)
+    fake = FakeGarmin()
+    applied = plan.apply(store, fake, p["id"], today=today)
+    sids = [it["schedule_id"] for it in applied["items"]]
+    first = applied["items"][0]
+    if trouble == "not ours":
+        with sqlite3.connect(store.path) as conn:
+            conn.execute("DELETE FROM runcoach_workouts WHERE workout_id = ?",
+                         (first["workout_id"],))
+    elif trouble == "calendar id reused":
+        lo, hi = today - timedelta(days=7), today + timedelta(days=14)
+        store.replace_scheduled_workouts(
+            [ScheduledWorkout(m["schedule_id"], date.fromisoformat(str(m["day"])),
+                              workout_id=4242 if m["schedule_id"] == sids[0] else m["workout_id"],
+                              title=m["title"], sport="running")
+             for m in store.get_scheduled_workouts(lo, hi)], lo, hi)
+    else:
+        real = fake.unschedule_workout
+
+        def refuse_the_first(sid):
+            if int(sid) == sids[0]:
+                raise ConnectionError("no route")
+            real(sid)
+
+        fake.unschedule_workout = refuse_the_first
+
+    out = plan.undo(store, fake, p["id"], today=today)
+    assert set(fake.data["schedule"]) == {sids[0]}, trouble
+    assert out["undone"] == 3
+    assert said in " ".join(out["warnings"])
+
+
+def test_undo_a_day_later_does_not_put_back_a_session_whose_day_has_passed(store, today):
+    from runcoach import plan
+
+    fake, p = _swap(store, today, (777, 4242, "VO2max 5x3"))
+    plan.apply(store, fake, p["id"], today=today)
+    out = plan.undo(store, fake, p["id"], today=today + timedelta(days=1))
+    assert 4242 not in [s["workoutId"] for s in fake.data["schedule"].values()]
+    assert f'"VO2max 5x3" on {today} is not put back - that day is past' in out["warnings"]
+
+
+def test_a_mirror_that_cannot_be_refreshed_is_said_not_hidden(store, today, monkeypatch):
+    """The write happened; only the Today tab is behind. Both directions say
+    so instead of leaving the tab to show a calendar that is no longer true."""
+    from runcoach import plan
+
+    def down(client, start, end):
+        raise ConnectionError("calendar is down")
+
+    _seed_zones(store, today)
+    p = plan.propose(store, "vo2max", distance_km=10, today=today)
+    fake = FakeGarmin()
+    monkeypatch.setattr(garmin, "fetch_scheduled_workouts", down)
+    applied = plan.apply(store, fake, p["id"], today=today)
+    assert plan.workouts_of(applied)
+    assert any(w.startswith("calendar mirror not refreshed (ConnectionError)")
+               for w in applied["warnings"])
+    undone = plan.undo(store, fake, p["id"], today=today)
+    assert undone["undone"] == 1
+    assert "calendar mirror not refreshed (ConnectionError)" in undone["warnings"]
 
 
 # ── What comes next: the readiness tool and the week proposal ────────────────
