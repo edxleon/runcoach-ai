@@ -34,6 +34,77 @@ def db_path() -> Path:
     return home() / "runspector.db"
 
 
+# ── the move from runcoach-ai (v0.4 and earlier) ────────────────────────────
+#
+# Until v0.5.0 this app was runcoach-ai: data in `~/.runcoach`, the database
+# `runcoach.db`, the variables `RUNCOACH_*`. A new version that silently
+# ignored them would start on an empty directory, which looks exactly like
+# lost data. Everything here goes in v0.6.
+
+LEGACY_ENV_PREFIX = "RUNCOACH_"
+LEGACY_HOME = ".runcoach"
+LEGACY_DB = "runcoach.db"
+#: SQLite finds a database's journal by its file name, so they move together.
+DB_SIDECARS = ("", "-wal", "-shm", "-journal")
+
+
+def adopt_legacy_env() -> list[str]:
+    """Read every `RUNCOACH_X` as `RUNSPECTOR_X` unless that one is set itself.
+    Returns the old names it took over, for one warning."""
+    taken = []
+    for name in sorted(os.environ):
+        if name.startswith(LEGACY_ENV_PREFIX):
+            new = "RUNSPECTOR_" + name.removeprefix(LEGACY_ENV_PREFIX)
+            if new not in os.environ:
+                os.environ[new] = os.environ[name]
+                taken.append(name)
+    return taken
+
+
+def legacy_home() -> Path:
+    return Path.home() / LEGACY_HOME
+
+
+def migrate_legacy_home() -> tuple[list[str], str | None]:
+    """Move an old install's data to where this version looks for it.
+
+    Returns (what was moved, why it refused). It refuses while an old server
+    holds its directory: renaming a database under a live process splits the
+    data between the old place and the new. A crash leaves the lock behind too,
+    so the refusal says how to tell the two apart - without guessing at pids."""
+    done: list[str] = []
+    if "RUNSPECTOR_HOME" not in os.environ:
+        old, new = legacy_home(), Path.home() / ".runspector"
+        if old.is_dir() and not new.exists():
+            if (old / "serve.lock").exists():
+                return done, _in_use(old)
+            try:
+                old.rename(new)
+            except OSError as exc:
+                return done, f"could not move {display_path(old)} to {display_path(new)}: {exc}"
+            done.append(f"{display_path(old)} -> {display_path(new)}")
+    root = Path(os.environ.get("RUNSPECTOR_HOME") or Path.home() / ".runspector")
+    old_db, new_db = root / LEGACY_DB, root / "runspector.db"
+    if old_db.is_file() and not new_db.exists():
+        if (root / "serve.lock").exists():
+            return done, _in_use(root)
+        try:
+            for suffix in DB_SIDECARS:
+                if (root / f"{LEGACY_DB}{suffix}").exists():
+                    (root / f"{LEGACY_DB}{suffix}").rename(root / f"runspector.db{suffix}")
+        except OSError as exc:
+            return done, f"could not rename {display_path(old_db)}: {exc}"
+        done.append(f"{display_path(old_db)} -> {display_path(new_db)}")
+    return done, None
+
+
+def _in_use(directory: Path) -> str:
+    return (f"{display_path(directory)} is still held by a running runcoach server, or by one "
+            f"that crashed and left {display_path(directory / 'serve.lock')} behind.\n"
+            f"Stop the old server (Ctrl-C in its window) - or, if none runs, delete that "
+            f"file - and start again. Your data is moved on that start.")
+
+
 def garmin_dir() -> Path:
     """Garmin session tokens (written by `runspector login`). `RUNSPECTOR_GARMIN_TOKENS`
     points at an existing python-garminconnect token directory instead."""

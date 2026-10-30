@@ -139,6 +139,13 @@ def cmd_doctor(args) -> int:
         probe.write_text("x", encoding="utf-8")
         probe.unlink()
         check(f"data directory writable ({home})", True)
+        # Left over when both existed at the move: the new one won, and a
+        # second copy of the athlete's health data should not linger unnoticed.
+        left = paths.legacy_home()
+        if "RUNSPECTOR_HOME" not in os.environ and left.is_dir():
+            check(f"the old data directory {paths.display_path(left)} is still there", False,
+                  f"runspector uses {paths.display_path(home)}; delete the old one once you "
+                  f"no longer need it", fatal=False)
     except OSError as exc:
         where = os.environ.get("RUNSPECTOR_HOME") or "~/.runspector"
         check(f"data directory unusable ({where}: {exc.strerror or exc})", False,
@@ -286,6 +293,9 @@ def cmd_doctor(args) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     _utf8()
+    # Before anything reads a variable: `RUNCOACH_LOG` set for v0.4 must still
+    # configure the logging two lines down.
+    taken = paths.adopt_legacy_env()
     # `.upper()` because `RUNSPECTOR_LOG=debug` is the natural spelling and used to
     # kill every subcommand with a raw `ValueError: Unknown level: 'debug'`.
     logging.basicConfig(level=(os.environ.get("RUNSPECTOR_LOG") or "WARNING").upper(),
@@ -337,6 +347,17 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(fn=cmd_doctor)
 
     args = ap.parse_args(argv)
+    if taken:
+        print(f"note: {', '.join(taken)} - read as RUNSPECTOR_* for now; rename them, "
+              f"the old names stop working in v0.6", file=sys.stderr)
+    # Every subcommand, `mcp` included: a Claude Code config that starts the
+    # server is often the first thing to run after the upgrade.
+    moved, refused = paths.migrate_legacy_home()
+    for line in moved:
+        print(f"moved your runcoach data: {line}", file=sys.stderr)
+    if refused:
+        print(refused, file=sys.stderr)
+        return 1
     return args.fn(args)
 
 

@@ -6,6 +6,7 @@ no network, no Garmin account. Garmin is replaced by small fake client classes.
 
 from __future__ import annotations
 
+import os
 import sys
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -39,6 +40,10 @@ def _isolated_env(tmp_path, monkeypatch):
                  "RUNSPECTOR_GARMIN_TOKENS", "RUNSPECTOR_DEMO", "RUNSPECTOR_TOKEN",
                  "RUNSPECTOR_CLAUDE_CMD", "RUNSPECTOR_MODEL", "RUNSPECTOR_LOG"):
         monkeypatch.delenv(name, raising=False)
+    # `cli.main` reads every `RUNCOACH_X` as `RUNSPECTOR_X`: an old variable in
+    # the developer's shell (`RUNCOACH_DB`, say) would point a test at real data.
+    for name in [n for n in os.environ if n.startswith(paths.LEGACY_ENV_PREFIX)]:
+        monkeypatch.delenv(name)
 
 @pytest.fixture(autouse=True)
 def _no_worker_outlives_its_test():
