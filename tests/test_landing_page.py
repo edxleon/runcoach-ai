@@ -60,3 +60,12 @@ def test_every_file_the_page_points_at_is_in_docs():
         if target in ("./", "/"):
             continue
         assert (DOCS / target).is_file(), target
+
+
+def test_search_engines_have_a_way_to_the_page():
+    """A new page that nothing links to stays "unknown to Google" however often
+    indexing is requested: the sitemap and the README badge are its two ways in."""
+    (canonical,) = re.findall(r'<link rel="canonical" href="([^"]+)">', PAGE)
+    sitemap = (DOCS / "sitemap.xml").read_text(encoding="utf-8")
+    assert re.findall(r"<loc>(.*?)</loc>", sitemap) == [canonical]
+    assert f"]({canonical})" in (ROOT / "README.md").read_text(encoding="utf-8")

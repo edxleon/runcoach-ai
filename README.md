@@ -4,6 +4,7 @@
 [![PyPI](https://img.shields.io/pypi/v/runspector)](https://pypi.org/project/runspector/)
 [![evals 35/35](https://img.shields.io/badge/evals-35%2F35-brightgreen)](evals/RESULTS.md)
 [![license MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![website](https://img.shields.io/badge/website-edxleon.github.io%2Frunspector-blue)](https://edxleon.github.io/runspector/)
 
 **A free, open-source AI running coach for Garmin watches.** Runspector syncs your Garmin Connect data -
 HRV, sleep, Body Battery, resting heart rate, training load and every run - into a file on your own
@@ -55,7 +56,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-1085 tests, 85 frontend tests and that gate on three operating systems and two Python versions, with every
+1086 tests, 85 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
