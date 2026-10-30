@@ -1,4 +1,4 @@
-# Runspector
+# Runspector — AI running coach and Garmin MCP server
 
 **A local-first AI running coach for your Garmin data.** Runspector syncs your Garmin Connect
 data into a SQLite file on your own machine, decides today's training (GO / EASY / REST) with a

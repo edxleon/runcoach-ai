@@ -1,7 +1,7 @@
 [project]
 name = "runspector"
 version = "0.5.1"
-description = "Local-first AI running coach for Garmin: readiness, VO2max and 80/20 training explained, workouts on your watch - on your own Claude Code sign-in."
+description = "AI running coach for Garmin: reads HRV, sleep and training load, explains readiness and VO2max, puts workouts on your watch. Local, free, an MCP server for Claude."
 # PyPI renders this page without the repository around it, so it is its own,
 # shorter file with absolute links - and the one the MCP registry reads the
 # `mcp-name` line from (tests/test_packaging.py).
@@ -9,8 +9,8 @@ readme = "docs/pypi.md"
 authors = [{ name = "Eddie Leon", email = "23697411+edxleon@users.noreply.github.com" }]
 requires-python = ">=3.12"
 license = "MIT"
-keywords = ["running", "coach", "garmin", "garmin-connect", "vo2max", "training", "ai", "mcp",
-            "claude-code", "local-first"]
+keywords = ["running", "coach", "running-coach", "garmin", "garmin-connect", "vo2max", "hrv", "training",
+            "ai", "mcp", "mcp-server", "claude", "claude-code", "local-first"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
@@ -33,7 +33,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/edxleon/runspector"
+Homepage = "https://edxleon.github.io/runspector/"
 Repository = "https://github.com/edxleon/runspector"
 Issues = "https://github.com/edxleon/runspector/issues"
 Changelog = "https://github.com/edxleon/runspector/releases"

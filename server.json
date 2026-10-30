@@ -1,8 +1,8 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.edxleon/runspector",
-  "title": "Runspector",
-  "description": "Local-first AI running coach for Garmin: readiness, VO2max, 80/20, workouts on your watch",
+  "title": "Runspector — AI running coach for Garmin",
+  "description": "AI running coach for Garmin: HRV, readiness and VO2max explained, workouts on your watch",
   "repository": {
     "url": "https://github.com/edxleon/runspector",
     "source": "github"
