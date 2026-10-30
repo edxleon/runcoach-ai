@@ -987,11 +987,12 @@ def serve(*, host: str = "127.0.0.1", port: int = 8765, demo: bool = False,
     if lock is None:
         return 1
     if setup_check and not demo:
-        # Garmin and Claude, checked and - in a terminal - signed into right
-        # here, before the page exists. Otherwise the page told a new user to
-        # open another terminal for `runspector login`, and most restarted this
-        # one afterwards because nothing said they need not.
-        onboarding.first_start(interactive=onboarding.is_interactive())
+        # Garmin and Claude, checked before the page exists. On this computer the
+        # page takes the Garmin login itself, so the terminal only points there;
+        # for a server reached from the phone the page refuses a password
+        # (`_peer_is_local`), and the terminal offers the login instead.
+        onboarding.first_start(interactive=onboarding.is_interactive(),
+                               page_signin=host in ("127.0.0.1", "localhost", "::1"))
     try:
         app = App(demo=demo, token=token)
     except Exception as exc:  # noqa: BLE001 — a corrupt database is a finding

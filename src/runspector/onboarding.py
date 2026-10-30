@@ -156,9 +156,14 @@ def claude_line(status: str) -> str:
 def first_start(*, interactive: bool, ask: Callable[[str], str] = input,
                 garmin_login: Callable[[], int] | None = None,
                 claude_login: Callable[[list[str]], int] | None = None,
-                say: Callable[[str], None] = print) -> None:
+                say: Callable[[str], None] = print, page_signin: bool = False) -> None:
     """Check Garmin and Claude before the server starts; in a terminal, offer
-    to sign in to whichever is missing, right here."""
+    to sign in to whichever is missing, right here.
+
+    `page_signin`: the page about to open can take the Garmin login itself (a
+    server on this computer). Then the terminal does not ask: a prompt that
+    Enter answers with "yes" put a new user into the terminal login, past the
+    sign-in the page was built for."""
     if garmin_login is None:
         from .auth import interactive_login
 
@@ -180,6 +185,9 @@ def first_start(*, interactive: bool, ask: Callable[[str], str] = input,
     say("Setup check")
     if paths.garmin_session_present():
         say("  Garmin   signed in")
+    elif page_signin:
+        say("  Garmin   not signed in - sign in on the page that opens now: Setup → Sign in to Garmin\n"
+            "           (or `runspector login` in any terminal; the first sync starts right after)")
     else:
         say("  Garmin   not signed in - runspector reads your data with your own Garmin session")
         if yes("           Sign in now? (e-mail, password and the MFA code, once - only a\n"

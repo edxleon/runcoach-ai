@@ -35,7 +35,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-988 tests, 80 frontend tests and that gate on three operating systems and two Python versions, with every
+991 tests, 80 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -76,9 +76,9 @@ uv tool install runspector
 runspector serve --demo
 
 # 3. the real thing
-runspector serve        # first start: asks for the Garmin login (e-mail, password, MFA code -
-                      # only session tokens are stored), checks Claude, then opens
-                      # http://127.0.0.1:8765 and syncs the last 30 days in the background
+runspector serve        # first start: checks Garmin and Claude, opens http://127.0.0.1:8765 -
+                        # sign in to Garmin right there (Setup → Sign in to Garmin; only a
+                        # session token is stored) - and syncs the last 30 days in the background
 ```
 
 **Claude is not connected inside runspector.** Coach cards run on the

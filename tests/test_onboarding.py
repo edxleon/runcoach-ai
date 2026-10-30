@@ -74,6 +74,19 @@ def test_serve_offers_the_garmin_login_in_its_own_terminal(monkeypatch, tmp_path
     assert "subscription" in out
 
 
+def test_a_local_serve_sends_the_garmin_login_to_the_page(monkeypatch, tmp_path):
+    """The page signs in to Garmin itself: a terminal prompt that Enter answers
+    with "yes" put a new user into the terminal login instead."""
+    _claude(monkeypatch, {"loggedIn": True, "authMethod": "claude.ai"})
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
+    out, asked = [], []
+    onboarding.first_start(interactive=True, ask=lambda q: asked.append(q) or "",
+                           garmin_login=lambda: pytest.fail("no terminal login"),
+                           say=out.append, page_signin=True)
+    assert asked == [], "nothing is asked about Garmin"
+    assert "Sign in to Garmin" in "\n".join(out)
+
+
 def test_without_a_terminal_nothing_is_asked_and_the_way_is_named(monkeypatch, tmp_path):
     _claude(monkeypatch, {"loggedIn": False})
     calls, out = _first_start(monkeypatch, tmp_path, interactive=False, answers=[])

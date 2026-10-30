@@ -21,7 +21,7 @@ Formerly `runcoach-ai`. Source, full documentation and the design decisions:
 uv tool install runspector    # needs uv: https://docs.astral.sh/uv/
 # without uv:                 pipx install runspector
 runspector serve --demo       # look around without any account
-runspector serve              # the real thing: Garmin sign-in, then http://127.0.0.1:8765
+runspector serve              # the real thing: opens http://127.0.0.1:8765, sign in to Garmin there
 ```
 
 Coach cards run on [Claude Code](https://claude.com/claude-code) on your machine, with your own

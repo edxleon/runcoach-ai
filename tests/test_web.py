@@ -569,6 +569,26 @@ def test_bad_request_bodies(httpd):
 
 # ── token ────────────────────────────────────────────────────────────────────
 
+@pytest.mark.parametrize(("host", "page"), [("127.0.0.1", True), ("0.0.0.0", False)])
+def test_serve_leaves_the_garmin_login_to_the_page_only_on_this_computer(host, page, monkeypatch):
+    """From the phone the page refuses a password (`_peer_is_local`), so a
+    server opened to the network still offers the login in its terminal."""
+    seen = {}
+
+    class StopError(Exception):
+        pass
+
+    def first_start(**kw):
+        seen.update(kw)
+        raise StopError
+
+    monkeypatch.setenv("RUNSPECTOR_TOKEN", "s3cret-token")
+    monkeypatch.setattr(server.onboarding, "first_start", first_start)
+    with pytest.raises(StopError):
+        server.serve(host=host, port=0, open_browser=False, sync_on_start=False, setup_check=True)
+    assert seen["page_signin"] is page
+
+
 def test_serve_refuses_a_non_loopback_host_without_a_token(capsys):
     assert server.serve(host="0.0.0.0", port=0, open_browser=False, sync_on_start=False) == 2
     assert "RUNSPECTOR_TOKEN" in capsys.readouterr().err
