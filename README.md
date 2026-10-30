@@ -31,7 +31,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-967 tests, 77 frontend tests and that gate on three operating systems and two Python versions, with every
+971 tests, 77 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -65,7 +65,7 @@ themes — e.g. <a href="docs/screenshots/today.png">today.png</a> and
 
 ```bash
 # 1. install (needs uv: https://docs.astral.sh/uv/)
-uv tool install git+https://github.com/edxleon/runspector
+uv tool install runspector
 
 # 2. look around without any account
 runspector serve --demo
@@ -105,12 +105,12 @@ Keep it fresh without the app (cron / Task Scheduler): `runspector sync`.
 Later on:
 
 ```bash
-uv tool upgrade runspector     # newer code; your data and Garmin session stay where they are
+uv tool upgrade runspector     # the newest release; your data and Garmin session stay where they are
 uv tool uninstall runspector   # removes the program only - delete ~/.runspector yourself if you want the data gone
 ```
 
-`uv tool install` takes whatever is on `main`; pin a release instead with
-`uv tool install git+https://github.com/edxleon/runspector@v0.4.1`.
+`uv tool install runspector` takes the latest release from PyPI (`runspector==0.4.1` pins one);
+`uv tool install git+https://github.com/edxleon/runspector` takes whatever is on `main`.
 
 ## Before you start: the usual worries
 

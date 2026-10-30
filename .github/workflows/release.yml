@@ -1,9 +1,10 @@
 name: release
 
 # A pushed tag `vX.Y.Z` becomes the GitHub release, with the wheel and the
-# sdist built HERE and signed with a build-provenance attestation. Three jobs:
-# `build` and `test` run without rights, `release` holds them and runs no
-# Python at all. Until now a
+# sdist built HERE and signed with a build-provenance attestation, the same
+# files on PyPI, and the MCP registry entry pointing at them. `build` and
+# `test` run without rights; `release`, `pypi` and `mcp-registry` hold only the
+# rights their own step needs and run no project code. Until now a
 # release was four hand steps on one laptop (bump, build, create, upload), and
 # nothing checked that the tag, `pyproject.toml` and `__version__` agree - a
 # wheel named 0.3.0 on a v0.3.1 release would have passed.
@@ -46,17 +47,22 @@ jobs:
         with:
           node-version: 22
           package-manager-cache: false
-      - name: The tag, pyproject.toml and __version__ name the same version
+      - name: The tag, pyproject.toml, __version__ and server.json name the same version
         env:
           TAG: ${{ github.ref_name }}
         run: |
           uv run --python 3.12 --locked python - <<'EOF'
-          import os, re, tomllib
+          import json, os, re, tomllib
           tag = os.environ["TAG"].removeprefix("v")
           project = tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]
           init = re.search(r'__version__ = "([^"]+)"', open("src/runspector/__init__.py").read())[1]
-          print(f"tag {tag}, pyproject {project}, __version__ {init}")
-          raise SystemExit(0 if tag == project == init else "versions disagree - bump both, re-tag")
+          # The registry entry pins the PyPI version a client installs: a stale
+          # one would hand every new user the previous release.
+          server = json.load(open("server.json"))
+          listed = [server["version"], *(p["version"] for p in server["packages"])]
+          print(f"tag {tag}, pyproject {project}, __version__ {init}, server.json {listed}")
+          raise SystemExit(0 if {tag, project, init, *listed} == {tag}
+                           else "versions disagree - bump all of them, re-tag")
           EOF
       # The matrix in ci.yml ran on this commit when it reached main; this is
       # the short version again, so a tag on a commit that never went through
@@ -125,3 +131,56 @@ jobs:
           else
             gh release create "$TAG" dist/* --verify-tag --title "$TAG" --generate-notes
           fi
+
+  # PyPI through a trusted publisher: no token exists anywhere, PyPI trusts the
+  # OIDC identity of this workflow in the `pypi` environment. Like `release`, it
+  # runs no project code and uploads the files `build` made - the attested ones.
+  pypi:
+    needs: [build, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: pypi
+    permissions:
+      id-token: write        # the trusted-publisher identity, nothing else
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+
+  # The MCP registry entry points at the PyPI package and checks the `mcp-name`
+  # line in its README, so it runs after `pypi`. mcp-publisher is a downloaded
+  # binary in a job that can mint an OIDC token: pinned to a version and checked
+  # against the hash taken when it was pinned, so nothing floats in here.
+  mcp-registry:
+    needs: [pypi]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write        # the registry's GitHub OIDC login for io.github.edxleon/*
+    env:
+      MCP_PUBLISHER_VERSION: v1.8.1
+      MCP_PUBLISHER_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # nothing here pushes; no token left in .git/config
+      - name: mcp-publisher, verified
+        run: |
+          curl -fsSL -o mcp-publisher.tar.gz \
+            "https://github.com/modelcontextprotocol/registry/releases/download/${MCP_PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz"
+          echo "${MCP_PUBLISHER_SHA256}  mcp-publisher.tar.gz" | sha256sum -c -
+          tar -xzf mcp-publisher.tar.gz mcp-publisher
+      # PyPI serves a fresh upload's README a little after the upload returns,
+      # and the registry reads it from there - so a few tries, not one.
+      - name: Publish server.json
+        run: |
+          ./mcp-publisher login github-oidc
+          for attempt in 1 2 3 4 5 6; do
+            ./mcp-publisher publish && exit 0
+            echo "attempt $attempt failed - PyPI may not show the new release yet"
+            sleep 30
+          done
+          exit 1
