@@ -70,6 +70,7 @@ themes — e.g. <a href="docs/screenshots/today.png">today.png</a> and
 ```bash
 # 1. install (needs uv: https://docs.astral.sh/uv/)
 uv tool install runspector
+#    without uv: pipx install runspector
 
 # 2. look around without any account
 runspector serve --demo
@@ -124,7 +125,8 @@ uv tool upgrade runspector     # the newest release; your data and Garmin sessio
 uv tool uninstall runspector   # removes the program only - delete ~/.runspector yourself if you want the data gone
 ```
 
-`uv tool install runspector` takes the latest release from PyPI (`runspector==0.5.0` pins one);
+`uv tool install runspector` takes the latest release from PyPI (`runspector==0.5.0` pins one; `pipx install runspector`
+and `pipx upgrade runspector` do the same without uv);
 `uv tool install git+https://github.com/edxleon/runspector` takes whatever is on `main`.
 
 ## Questions people ask

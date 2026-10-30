@@ -19,6 +19,7 @@ Formerly `runcoach-ai`. Source, full documentation and the design decisions:
 
 ```bash
 uv tool install runspector    # needs uv: https://docs.astral.sh/uv/
+# without uv:                 pipx install runspector
 runspector serve --demo       # look around without any account
 runspector serve              # the real thing: Garmin sign-in, then http://127.0.0.1:8765
 ```
