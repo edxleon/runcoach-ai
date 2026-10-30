@@ -21,7 +21,7 @@ import {
 } from "./ui.js";
 import { mountApp } from "./chassis.js";
 import {
-  addDays, axisX, bandSplit, barLabel, barScale, carryForward, chartPoints, chartScale, dataAge as ageOf, groupRunsByWeek, hardSessionToday as hardSessionOf, hasNoData, lastHardLabel, setupSteps, intensityHits, intensitySeries, isFirstRun, showSyncFailure, isRunning, isStrength, lightAddendum as lightAddendumOf, loadFocusPhrase, loadFocusRows, NO_DATE, shortTitle, stepMarks, stepPath, todayIso, volumeAverageKm, volumeComparison, weekdayShort, weekIncomplete, weekLabel, weeksBetween, weekStart, zoneTimeParts,
+  addDays, axisX, bandSplit, barLabel, barScale, carryForward, chartPoints, chartScale, dataAge as ageOf, groupRunsByWeek, hardSessionToday as hardSessionOf, hasNoData, lastHardLabel, setupSteps, signInHere, intensityHits, intensitySeries, isFirstRun, showSyncFailure, isRunning, isStrength, lightAddendum as lightAddendumOf, loadFocusPhrase, loadFocusRows, NO_DATE, shortTitle, stepMarks, stepPath, todayIso, volumeAverageKm, volumeComparison, weekdayShort, weekIncomplete, weekLabel, weeksBetween, weekStart, zoneTimeParts,
 } from "./logic.js";
 import { mountCards, mountJobs, jobPoller, todayCard, handle409,
          setCardContext } from "./cards.js";
@@ -403,7 +403,7 @@ const COACH_REASSURANCE = "A second tap starts it. It runs on your Claude subscr
    missing once there is data (a Claude that was never signed in must not hide
    behind a full Today tab). Empty when everything is done. */
 function setupHtml(onlyMissing) {
-  const steps = setupSteps(D());
+  const steps = setupSteps(D(), { signInHere: signInHere(location.hostname) });
   const shown = onlyMissing ? steps.filter(s => !s.done && !s.running) : steps;
   if (!shown.length || steps.every(s => s.done)) return "";
   const mark = s => s.done ? "✓" : s.running ? "⟳" : "○";
@@ -470,7 +470,8 @@ function renderActions() {
     ${hasActiveJob() ? `<div class="job-warn">A run is still under way —
       the buttons are locked until it is done.</div>` : ""}
     <div class="note" style="margin-top:8px">${noData()
-      ? (firstRun() ? "Nothing to analyse yet — start with runcoach login, above."
+      ? (firstRun() ? `Nothing to analyse yet — start with ${
+                        signInHere(location.hostname) ? "the Garmin sign-in" : "runcoach login"} on the Today tab.`
                     : "Nothing to analyse yet — sync first.")
       : coachUnavailable()
         ? claudeHint()
@@ -478,7 +479,9 @@ function renderActions() {
 
   document.getElementById("coach-hint").innerHTML = noData()
     ? `<div class="coach-hint">No data to analyse yet — the coach reads what a sync
-         has stored. ${firstRun() ? "Start with <code>runcoach login</code>."
+         has stored. ${firstRun() ? (signInHere(location.hostname)
+             ? `<button type="button" class="btn btn-primary btn-inline" data-signin>Sign in to Garmin</button>`
+             : "Start with <code>runcoach login</code>.")
                                   : "Press ↻ or run <code>runcoach sync</code>."}</div>`
     : coachUnavailable()
       ? `<div class="coach-hint">${claudeHint()}</div>` : "";
@@ -1337,6 +1340,10 @@ function renderHealth() {
       ${sync.reason ? `<span class="why">${esc(String(sync.reason))}</span>` : ""}
       <span class="why">Press ↻ to try again. If it keeps failing, run
         <b>runcoach doctor</b> in a terminal - it names the next step.</span>
+      ${sync.needs_sign_in && signInHere(location.hostname)
+        ? `<span class="why">Or, if your Garmin session has run out:
+             <button type="button" class="btn btn-quiet btn-inline" data-signin>Sign in again</button>
+             - the sync starts right after.</span>` : ""}
     </div>`);
   }
   // Any store read that failed and has NO card of its own to say so. Five of the
@@ -1415,6 +1422,109 @@ async function saveProfile(set, done) {
   }
 }
 
+/* ── Garmin sign-in ──────────────────────────────────────────────────────
+   The dialog's form is rendered once per step and never re-rendered while it
+   is open: a poll that rebuilt it would wipe what is being typed. Busy and
+   error only toggle the fieldset and one line. Closing it - Cancel, Escape -
+   empties it, so no password stays in the page, and drops a sign-in that is
+   still waiting for its code on the server. */
+const signin = { step: null, done: false, before: 0 };
+
+function signinDialog() { return document.getElementById("signin"); }
+
+async function showSignin(step) {
+  const { signinHtml } = await import("./signin.js");
+  const dlg = signinDialog();
+  signin.step = step;
+  dlg.innerHTML = signinHtml(step, (D().garmin_login || {}).notice || []);
+  if (!dlg.open) dlg.showModal();
+  dlg.querySelector("input")?.focus();
+}
+
+function openSignin() {
+  signin.done = false;
+  showSignin((D().garmin_login || {}).waiting_for_code ? "code" : "account")
+    .catch(() => toast("The sign-in could not be opened - is runcoach still running? Reload the page."));
+}
+
+signinDialog()?.addEventListener("close", () => {
+  const dlg = signinDialog();
+  dlg.innerHTML = "";
+  if (signin.step === "code" && !signin.done) {
+    apiPost("/api/garmin/login", { cancel: true }).catch(() => {});
+  }
+  signin.step = null;
+});
+
+document.addEventListener("submit", async ev => {
+  const form = ev.target.closest && ev.target.closest("form[data-signin-form]");
+  if (!form) return;
+  ev.preventDefault();
+  const fields = form.querySelector("fieldset");
+  const error = form.querySelector("[data-signin-error]");
+  const btn = form.querySelector("button[type=submit]");
+  const body = Object.fromEntries(new FormData(form));
+  signin.before = (D().garmin_login || {}).signins || 0;
+  fields.disabled = true;
+  error.textContent = "";
+  btn.textContent = form.dataset.signinForm === "code" ? "Checking…" : "Signing in…";
+  try {
+    // The library tries five ways in, with built-in pauses between them: when
+    // Garmin is blocking, its answer takes two and a half minutes. Giving up
+    // sooner showed "no answer" and invited a second round at a blocked account.
+    const r = await apiPost("/api/garmin/login", body, 240_000);
+    if (r.state === "code") { await showSignin("code"); return; }
+    signinDone();
+  } catch (e) {
+    let msg = e?.data?.error || "runcoach did not answer - is it still running?";
+    if (e?.data?.restart) await showSignin("account");
+    else if (!e?.data || e.data.busy) {
+      // No answer in time, or one still running: the server may yet get
+      // Garmin's answer. Follow it instead of offering a second "Sign in",
+      // which would drop a code Garmin sent and make it send another.
+      const late = await followSignin();
+      if (late === "signed_in") return;
+      if (late === "code") msg = "Garmin answered late - enter the code it sent you.";
+    }
+    const f = signinDialog().querySelector("form[data-signin-form]");
+    if (!f) return;
+    f.querySelector("fieldset").disabled = false;
+    const b = f.querySelector("button[type=submit]");
+    b.textContent = b.dataset.label;
+    f.querySelector("[data-signin-error]").textContent = msg;
+  }
+});
+
+/** Wait for a sign-in the server is still running, then show where it ended:
+ *  `signed_in` (dialog closed, sync followed), `code` (the code step), or
+ *  nothing new. */
+async function followSignin() {
+  const t0 = Date.now();
+  while (Date.now() - t0 < 300_000) {
+    await refresh().catch(() => {});
+    const g = D().garmin_login || {};
+    if (!g.busy) {
+      if (signin.step === "account" && g.waiting_for_code) { await showSignin("code"); return "code"; }
+      if ((g.signins || 0) > signin.before && signinDialog().open) {
+        signinDone();
+        return "signed_in";
+      }
+      return "";
+    }
+    await new Promise(res => setTimeout(res, 3000));
+  }
+  return "";
+}
+
+function signinDone() {
+  signin.done = true;
+  signinDialog().close();
+  toast("Signed in to Garmin — fetching your data now.");
+  // The state first, so the setup shows Garmin done and the sync running at
+  // once; then the ↻ flow, which follows the sync the server already started.
+  refresh().catch(() => {}).finally(() => document.getElementById("refresh")?.click());
+}
+
 document.addEventListener("input", ev => {
   const area = ev.target.closest && ev.target.closest("[data-note]");
   if (!area) return;
@@ -1428,6 +1538,8 @@ document.addEventListener("input", ev => {
 });
 
 document.addEventListener("click", ev => {
+  if (ev.target.closest("button[data-signin]")) { openSignin(); return; }
+  if (ev.target.closest("button[data-signin-cancel]")) { signinDialog().close(); return; }
   const weekBtn = ev.target.closest("button[data-week-edit], button[data-week-cancel], "
     + "button[data-week-pick], button[data-week-reset], button[data-week-save], button[data-note-save]");
   if (weekBtn) {

@@ -53,8 +53,10 @@ def _client_methods() -> set[str]:
     for path in (SRC / "garmin.py", SRC / "auth.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
+            # A READ: `client.password = None` (the web sign-in dropping the
+            # password) writes an instance attribute, pinned on its own below.
             if (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name)
-                    and node.value.id == "client"):
+                    and node.value.id == "client" and not isinstance(node.ctx, ast.Store)):
                 names.add(node.attr)
     return names
 
@@ -68,8 +70,15 @@ def test_the_app_reads_a_meaningful_number_of_client_methods():
     assert "upload_running_workout" in found and "get_activities" in found
 
 
+#: Instance attributes, not methods: `client.client` is the library's session
+#: object, which the web sign-in asks whether it holds a token. Pinned on a
+#: real instance in `test_the_web_sign_in_still_finds_the_two_step_login_in_the_library`.
+_INSTANCE_ATTRS = {"client"}
+
+
 def test_every_client_method_this_app_calls_still_exists_in_the_library():
-    missing = sorted(n for n in _client_methods() if not hasattr(garminconnect.Garmin, n))
+    missing = sorted(n for n in _client_methods() - _INSTANCE_ATTRS
+                     if not hasattr(garminconnect.Garmin, n))
     assert not missing, (
         f"the pinned garminconnect no longer offers: {missing}. The write path would fail at "
         f"runtime with AttributeError, and every test here would stay green because the double "
@@ -90,9 +99,10 @@ def test_the_double_offers_exactly_what_the_app_asks_of_a_client():
     AttributeError the moment a test reaches it; a method it has and the app
     never calls is a fixture pretending to cover something."""
     used, fake = _client_methods(), set(dir(FakeGarmin))
-    # `login` is called on the client inside our own `login()`; the double is
-    # handed to the code already "logged in", so it does not need one.
-    expected = used - {"login"}
+    # `login` is called on the client inside our own `login()`, `resume_login`
+    # by the web sign-in; the double is handed to the code already "logged
+    # in", so it needs neither - the sign-in tests bring their own.
+    expected = used - {"login", "resume_login"} - _INSTANCE_ATTRS
     missing = sorted(expected - fake)
     assert not missing, f"FakeGarmin does not implement: {missing}"
 
@@ -102,3 +112,16 @@ def test_the_double_offers_exactly_what_the_app_asks_of_a_client():
                    if not n.startswith("_") and callable(getattr(FakeGarmin, n, None))
                    and n not in {"upload_workout", "delete_workout"})
     assert not extra, f"FakeGarmin offers methods the app never calls: {extra}"
+
+
+def test_the_web_sign_in_still_finds_the_two_step_login_in_the_library():
+    """`WebLogin` asks for the code in a second request: `return_on_mfa`, then
+    `resume_login(state, code)`. And it drops the password from the client it
+    keeps waiting for the code - which only works while that is where the
+    library keeps it."""
+    client = garminconnect.Garmin(email="a@example.org", password="pw", return_on_mfa=True)
+    assert client.password == "pw" and client.return_on_mfa is True
+    # How `finish` sees that Garmin took the code although a later step of the
+    # library failed: the client already holds a token.
+    assert client.client.is_authenticated is False
+    inspect.signature(garminconnect.Garmin.resume_login).bind(client, {"state": 1}, "123456")

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import dataclasses
 import hmac
+import ipaddress
 import json
 import logging
 import os
@@ -24,7 +25,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote, urlparse
 
-from .. import __version__, facts, garmin, onboarding, paths, snapshot
+from .. import __version__, auth, facts, garmin, onboarding, paths, snapshot
 from .. import profile as profile_mod
 from ..store import Store
 from . import agent, jobs
@@ -177,6 +178,7 @@ class App:
         #: reproduce in isolation: in isolation there is no leaked thread.
         self.worker_stop = threading.Event()
         self.last_sync: dict | None = None
+        self.garmin_signin = auth.WebLogin()
 
     # ── templates ──
     def templates(self) -> list[dict]:
@@ -233,6 +235,15 @@ class App:
             # AuthenticationError as the top banner - an error report for a
             # state that is simply step one of the README.
             "garmin_session": paths.garmin_session_present(),
+            # The sign-in dialog shows what the terminal says before it asks
+            # for the e-mail - from the same list - and whether a sign-in is
+            # waiting for its code (a reload must not strand it).
+            "garmin_login": {
+                "notice": auth.notice_points(paths.display_path(paths.garmin_dir())),
+                "waiting_for_code": self.garmin_signin.waiting_for_code(),
+                "busy": self.garmin_signin.busy(),
+                "signins": self.garmin_signin.signins,
+            },
             # `idle` / `running` / `done` / `error`: the setup checklist shows the
             # first sync as running instead of as a step still to do.
             "sync_state": self.refresh_status()["state"],
@@ -385,7 +396,7 @@ class App:
                 out["note"] = st["reason"]          # partial success, still usable
             return out
 
-    def refresh_start(self) -> dict:
+    def refresh_start(self, *, after_sign_in: bool = False) -> dict:
         if self.demo:
             return {"state": "fresh", "ago_s": 0}
         # NOTE: `refresh_status()` takes and releases the lock, and the claim
@@ -399,7 +410,10 @@ class App:
             # put two syncs on one rate-limited account and one SQLite file —
             # and the abandoned thread would still report a verdict.
             return status
-        if status["state"] in ("done", "error") and status["ago_s"] < REFRESH_COOLDOWN_S:
+        if (status["state"] in ("done", "error") and status["ago_s"] < REFRESH_COOLDOWN_S
+                and not after_sign_in):
+            # A sign-in is the one thing that changes the answer: the sync that
+            # just failed for want of a session would now go through.
             # Also after an error: hammering is most harmful precisely when the
             # last attempt failed because Garmin rate-limited us.
             return status if status["state"] == "error" else {"state": "fresh",
@@ -423,7 +437,7 @@ class App:
     def _sync(self, generation: int) -> None:
         from .. import garmin, sync
 
-        ok, reason = True, None
+        ok, reason, sign_in = True, None, False
         lines: list[str] = []
         try:
             # An empty store gets a month at once: the first sync is what fills the
@@ -442,17 +456,23 @@ class App:
                 ok, reason = True, rep.summary()      # partial, but the data did move
         except Exception as exc:  # noqa: BLE001 — reported to the UI, never fatal
             ok = False
-            reason = (f"Garmin login failed ({type(exc).__name__}) - run `runcoach login`"
-                      if "login" in type(exc).__name__.lower() or "Auth" in type(exc).__name__
-                      or not paths.garmin_session_present()
-                      else f"{type(exc).__name__}: {exc}")
+            sign_in = ("login" in type(exc).__name__.lower() or "Auth" in type(exc).__name__
+                       or not paths.garmin_session_present())
+            # ↻ first: the library raises its AuthenticationError for an
+            # offline profile fetch too, with a valid token on disk.
+            reason = (f"Garmin login failed ({type(exc).__name__}) - press ↻ to try again; if "
+                      f"it keeps failing, sign in again (on the computer runcoach runs on, or "
+                      f"with `runcoach login`)"
+                      if sign_in else f"{type(exc).__name__}: {exc}")
         with self._refresh_lock:
             # Only stamp the run we belong to: a thread that outlived its slot
             # must not overwrite a newer sync's status with its own.
             if self._refresh.get("generation") == generation:
                 self._refresh.update(finished=time.monotonic(), ok=ok, reason=reason,
                                      log=lines[-40:])
-        self.last_sync = {"ok": ok, "reason": reason,
+        # `needs_sign_in`: the banner offers the sign-in dialog instead of ↻,
+        # which would only fail the same way again.
+        self.last_sync = {"ok": ok, "reason": reason, "needs_sign_in": sign_in,
                           "at": datetime.now().astimezone().isoformat(timespec="seconds")}
 
     # ── spawn ──
@@ -550,6 +570,44 @@ class App:
         except ValueError as exc:
             return {"error": str(exc)}, 400
         return {"ok": True, "week": self.week()}, 200
+
+    def garmin_sign_in(self, op: dict, *, local: bool) -> tuple[dict, int]:
+        """The page's sign-in dialog: `{email, password}`, then `{code}` when
+        Garmin asks for one, or `{cancel: true}`. After Garmin's yes the sync
+        starts on its own - the step the terminal login left to the athlete."""
+        if self.demo:
+            return {"error": "The demo has no Garmin account to sign in to."}, 400
+        if not local:
+            # With `--host` and a token the page is reachable from the phone -
+            # over plain HTTP. A token there reads data; a password crossing
+            # the network in clear text is a different thing to hand out.
+            # 400, not 403: the page reads a 403 as a wrong access token and
+            # drops it, signing the athlete out of the page for asking.
+            return {"error": "Sign in on the computer runcoach runs on, or with `runcoach login` "
+                             "there: from another device your password would cross the network "
+                             "unencrypted."}, 400
+        if op.get("cancel") is True:
+            self.garmin_signin.cancel()
+            return {"ok": True}, 200
+        if "code" in op:
+            code = re.sub(r"\s", "", op["code"]) if isinstance(op["code"], str) else ""
+            if not re.fullmatch(r"\d{4,10}", code):
+                return {"error": "The code is the number Garmin sent you, digits only."}, 400
+            out = self.garmin_signin.finish(code)
+        else:
+            email, password = op.get("email"), op.get("password")
+            if not (isinstance(email, str) and isinstance(password, str)
+                    and "@" in email.strip() and len(email.strip()) <= 254
+                    and 0 < len(password) <= 256):
+                return {"error": "Your Garmin e-mail and password are needed."}, 400
+            out = self.garmin_signin.start(email.strip(), password)
+        if out.get("error"):
+            return out, 400
+        if out.get("state") == "signed_in":
+            # The banner about the last failed sync named a cause that is gone.
+            self.last_sync = None
+            out["sync"] = self.refresh_start(after_sign_in=True)
+        return {"ok": True, **out}, 200
 
     def feedback(self, op: dict) -> tuple[dict, int]:
         cid = str(op.get("card_id") or "").strip()
@@ -759,6 +817,16 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         return not origin or urlparse(origin).netloc == self.headers.get("Host")
 
+    def _peer_is_local(self) -> bool:
+        """Did the request come from this computer? The connection's own
+        address, not a header: a header is whatever the sender writes."""
+        try:
+            ip = ipaddress.ip_address(self.client_address[0])
+        except (ValueError, IndexError, TypeError):
+            return False
+        mapped = getattr(ip, "ipv4_mapped", None)
+        return (mapped or ip).is_loopback
+
     def _host_ok(self) -> bool:
         """DNS-rebinding guard: without a token, only answer requests that were
         addressed to a loopback name — a rebound `evil.example` resolves to
@@ -840,6 +908,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(*self.app.feedback(op))
         if route == "/api/profile":
             return self._json(*self.app.save_profile(op))
+        if route == "/api/garmin/login":
+            return self._json(*self.app.garmin_sign_in(op, local=self._peer_is_local()))
         if route == "/api/plan/undo":
             return self._json(*self.app.undo_proposal(op))
         if route == "/api/plan/apply":

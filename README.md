@@ -29,7 +29,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-925 tests, 72 frontend tests and that gate on three operating systems and two Python versions, with every
+957 tests, 76 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -77,8 +77,10 @@ runcoach serve        # first start: asks for the Garmin login (e-mail, password
 **The Claude subscription is not connected inside runcoach.** Coach cards run on the
 [Claude Code](https://claude.com/claude-code) CLI on your machine, signed in with your plan: install
 it and run `claude auth login` once. `runcoach serve` checks that at start (and offers the login when
-it is missing), the Coach tab says what is missing, and there is no API key anywhere. Garmin works the
-same way: `runcoach login` signs in from any terminal, and a running app picks it up on ↻ - no restart.
+it is missing), the Coach tab says what is missing, and there is no API key anywhere. Garmin can be
+signed into from the page itself (Setup → *Sign in to Garmin*, or *Sign in again* when the session has
+expired) - e-mail, password and Garmin's code if your account uses one, and the sync starts right after.
+`runcoach login` does the same from any terminal, and a running app picks it up on ↻ - no restart.
 
 `runcoach doctor` tells you what is missing — it checks the Garmin session by actually
 using it, and reports the data age, because a token that quietly expired is how this kind of app dies.
@@ -111,6 +113,8 @@ uv tool uninstall runcoach-ai   # removes the program only - delete ~/.runcoach 
 
 - **Is my Garmin password stored?** No. It goes to Garmin once, to sign in. Garmin answers with a
   session token, and only that is kept, on your computer, in a folder only your user account can read.
+  The page's sign-in takes the password only on the computer runcoach runs on: opened from a phone,
+  the page is plain HTTP across your network, so there it points to `runcoach login` instead.
 - **Does it cost anything extra?** runcoach is free (MIT). Coach cards use your Claude plan the way any
   Claude Code use does, with no API key and no bill per card. Without Claude, everything except the
   cards still works.

@@ -108,7 +108,15 @@ export function hasNoData(s) {
    says which are done, and gives exactly one command for each that is not -
    the subscription is the `claude` CLI's own login, so its step is always
    `claude auth login` in a terminal, never something entered on this page. */
-export function setupSteps(s) {
+/** Can this page sign in to Garmin at all? The server takes a password only
+ *  over a connection from its own computer (`server._peer_is_local`); from the
+ *  phone the dialog would only collect a refusal, so the page names the
+ *  terminal instead. */
+export function signInHere(hostname) {
+  return ["127.0.0.1", "localhost", "::1", "[::1]"].includes(String(hostname || "").toLowerCase());
+}
+
+export function setupSteps(s, { signInHere = false } = {}) {
   const st = s || {};
   if (st.demo) return [];
   const garmin = st.garmin_session !== false;
@@ -124,7 +132,9 @@ export function setupSteps(s) {
   return [
     { key: "garmin", done: garmin, title: "Garmin",
       text: garmin ? "signed in."
-        : "not signed in. In a terminal: <code>runcoach login</code> (e-mail, password and the MFA code, once). Your password goes to Garmin only and is never stored; only a session token is kept, on this computer, readable by your user account alone. Then press ↻ - no restart needed." },
+        : signInHere
+          ? "not signed in. <button type=\"button\" class=\"btn btn-primary btn-inline\" data-signin>Sign in to Garmin</button> E-mail, password and - if your account asks for one - the code Garmin sends you, once. The first sync starts right after."
+          : "not signed in. In a terminal: <code>runcoach login</code> (e-mail, password and the MFA code, once). Your password goes to Garmin only and is never stored; only a session token is kept, on this computer, readable by your user account alone. Then press ↻ - no restart needed." },
     { key: "claude", done: claude === "subscription" || claude === "unknown", title: "Claude",
       text: claudeText },
     { key: "sync", done: data, running: !data && st.sync_state === "running", title: "First sync",

@@ -221,6 +221,23 @@ select.field {
            font-weight: 600; cursor: pointer; }
 .linkish:hover { text-decoration: underline; }
 
+/* ── Garmin sign-in dialog ─────────────────────────────────────────────── */
+.signin { width: min(420px, calc(100vw - 32px)); padding: 18px 20px 20px; color: var(--text);
+          background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); }
+.signin::backdrop { background: rgb(0 0 0 / .55); }
+.signin-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.signin-title { font-size: 17px; margin: 0; }
+.signin-notice { margin: 12px 0 4px; padding-left: 18px; display: grid; gap: 5px;
+                 font-size: 12px; color: var(--muted); line-height: 1.45; }
+.signin-form > .note { margin: 10px 0 0; }
+.signin fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; gap: 12px;
+                   margin-top: 14px; }
+.signin-label { display: grid; gap: 5px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.signin .form-error:empty { display: none; }
+.signin .form-error { margin-top: 0; }
+.signin .form-actions { margin-top: 2px; justify-content: flex-end; }
+.btn-inline { padding: 5px 11px; margin: 2px 4px 2px 0; }
+
 /* ── You tab ─────────────────────────────────────────────────────────────── */
 .you { display: grid; gap: 18px; }
 .you-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
