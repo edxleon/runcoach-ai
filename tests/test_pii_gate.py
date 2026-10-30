@@ -15,6 +15,7 @@ trades those the wrong way round. These cases pin the inversion.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -37,9 +38,14 @@ UNCOVERED_BEFORE = (".csv", ".ps1", ".ipynb", ".xml", ".ini", ".log", ".tsv",
                     ".pyi", ".fit", ".gpx", ".tcx", ".bak", ".env.example")
 
 
-def run_gate(tree: Path) -> tuple[int, str]:
+def run_gate(tree: Path, **env: str) -> tuple[int, str]:
+    # Without GIT_*: run from a git hook (the pre-push hook runs this suite), the
+    # environment carries GIT_DIR, and from a linked worktree that is an absolute
+    # path to the REAL repository - the gate then read the real commits instead of
+    # the throw-away tree's, and a planted private address came back "clean".
+    clean = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
     out = subprocess.run([sys.executable, str(tree / "scripts" / "pii_gate.py")],
-                         capture_output=True, text=True, timeout=120)
+                         capture_output=True, text=True, timeout=120, env={**clean, **env})
     return out.returncode, out.stdout
 
 
@@ -108,10 +114,8 @@ def test_the_private_term_hook_still_works(tree, monkeypatch):
     """`RUNSPECTOR_PII_EXTRA` adds names without committing them — the mechanism
     that lets this repo be checked for a person's actual name."""
     (tree / "docs" / "notes.md").write_text("a note about Hauptbahnhof", encoding="utf-8")
-    env = {**dict(__import__("os").environ), "RUNSPECTOR_PII_EXTRA": "Hauptbahnhof"}
-    out = subprocess.run([sys.executable, str(tree / "scripts" / "pii_gate.py")],
-                         capture_output=True, text=True, env=env, timeout=120)
-    assert out.returncode == 1 and "private term" in out.stdout
+    rc, out = run_gate(tree, RUNSPECTOR_PII_EXTRA="Hauptbahnhof")
+    assert rc == 1 and "private term" in out
 
 
 def test_the_gate_skips_its_own_patterns_and_the_usual_noise(tree):
