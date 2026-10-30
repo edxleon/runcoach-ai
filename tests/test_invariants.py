@@ -448,6 +448,18 @@ def test_doctor_is_green_on_a_fresh_database(today, capsys, monkeypatch, tmp_pat
     assert "0 day(s) behind" in out and code == 0
 
 
+@pytest.mark.parametrize(("status", "named"), [("signed_out", False), ("other", True)])
+def test_doctor_names_the_api_key_switch_only_to_an_api_key_sign_in(status, named, capsys,
+                                                                     monkeypatch):
+    """To someone not signed in at all, "use this sign-in" points at nothing."""
+    monkeypatch.setattr("runspector.cli.shutil.which", lambda _n: "claude")
+    monkeypatch.setattr("runspector.cli.subprocess.run",
+                        lambda *a, **k: type("R", (), {"returncode": 0, "stdout": "2.0", "stderr": ""})())
+    monkeypatch.setattr("runspector.onboarding.claude_status", lambda **_k: status)
+    _code, out = _doctor(capsys)
+    assert ("RUNSPECTOR_ALLOW_API_KEY" in out) is named, out
+
+
 def test_doctor_hints_at_the_week_profile_without_failing(today, capsys, monkeypatch, tmp_path):
     """The week planner runs on defaults and says so - doctor points at the two
     fields, but a cron running `doctor || alert` must not page for them."""
@@ -2214,4 +2226,5 @@ def test_doctor_says_when_billing_variables_will_be_stripped(tmp_path, monkeypat
     cli.main(["doctor", "--offline"])
     out = capsys.readouterr().out
     assert "ANTHROPIC_API_KEY" in out, "doctor is silent about a key it will remove"
-    assert "subscription" in out.lower()
+    assert "never bills a card" in out, "it says why the key is removed"
+    assert "RUNSPECTOR_ALLOW_API_KEY=1" in out, "and how to keep it"

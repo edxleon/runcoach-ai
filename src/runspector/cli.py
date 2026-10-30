@@ -170,7 +170,7 @@ def cmd_doctor(args) -> int:
                   "e.g. Europe/Berlin, America/New_York - or unset it for the system zone")
 
     claude = shutil.which("claude")
-    check("claude CLI on PATH (coach cards run on your Claude subscription)", bool(claude),
+    check("claude CLI on PATH (coach cards run on your Claude Code sign-in)", bool(claude),
           "install Claude Code and sign in: https://claude.com/claude-code", fatal=False)
     if claude:
         try:
@@ -186,8 +186,10 @@ def cmd_doctor(args) -> int:
         status = claude_status(fresh=True)
         check(f"Claude: {CLAUDE_LINES[status]}",
               status in ("subscription", "unknown") or (status == "other" and api_key_allowed()),
-              "run `claude auth login` and sign in with your Claude plan, or set "
-              "RUNSPECTOR_ALLOW_API_KEY=1 to use this sign-in for the cards", fatal=False)
+              # The switch only means something to a sign-in that exists.
+              "run `claude auth login` and sign in with your Claude plan"
+              + (", or set RUNSPECTOR_ALLOW_API_KEY=1 to use this sign-in for the cards"
+                 if status == "other" else ""), fatal=False)
 
     # The app strips these before spawning the agent unless the athlete allowed
     # them. Without a word here that is a trap with no way out: the CLI works in
