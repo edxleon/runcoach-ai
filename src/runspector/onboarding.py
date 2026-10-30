@@ -31,6 +31,15 @@ CLAUDE_STATUS_TTL_S = 20
 _cache: dict = {"at": 0.0, "status": None}
 
 
+def api_key_allowed() -> bool:
+    """The athlete chose Claude Code's API-key sign-in for the cards. A switch,
+    not the default, and not dropped: the stripping protects against a key that
+    was exported for something else, but Anthropic's conditions for products
+    that run Claude Code ask them not to restrict its built-in sign-in methods
+    (code.claude.com/docs/en/legal-and-compliance) - so the choice stays open."""
+    return os.environ.get("RUNSPECTOR_ALLOW_API_KEY") == "1"
+
+
 def claude_command() -> list[str] | None:
     override = os.environ.get("RUNSPECTOR_CLAUDE_CMD")   # JSON array; lets tests stub the CLI
     if override:
@@ -80,8 +89,8 @@ CLAUDE_LINES = {
                "(install it, then run `claude auth login` once)",
     "subscription": "signed in with your Claude subscription - coach cards run on it, "
                     "nothing to set up in runspector",
-    "other": "signed in, but not with a Claude subscription (API key or cloud provider) - "
-             "runspector strips API-key variables, so sign in with `claude auth login`",
+    "other": "signed in, but not with a Claude plan (API key or cloud provider) - coach cards "
+             "use it only with RUNSPECTOR_ALLOW_API_KEY=1; with a plan: `claude auth login`",
     "signed_out": "installed, not signed in - run `claude auth login`",
     "unknown": "installed (its login could not be checked - `claude auth status` tells you)",
 }
@@ -126,8 +135,12 @@ def first_start(*, interactive: bool, ask: Callable[[str], str] = input,
                 "no restart needed")
 
     status = claude_status(fresh=True)
-    say(f"  Claude   {CLAUDE_LINES[status]}")
-    if status in ("signed_out", "other") and (cmd := claude_command()) is not None:
+    # An API-key sign-in the athlete allowed for the cards is a choice, not a gap.
+    allowed = status == "other" and api_key_allowed()
+    line = ("signed in with an API key or a cloud provider - coach cards use it"
+            if allowed else CLAUDE_LINES[status])
+    say(f"  Claude   {line}")
+    if status in ("signed_out", "other") and not allowed and (cmd := claude_command()) is not None:
         if yes("           Sign in to Claude now (opens your browser)?"):
             claude_login(cmd)
             status = claude_status(fresh=True)

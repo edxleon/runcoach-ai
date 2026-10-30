@@ -219,6 +219,8 @@ class App:
             # `missing` / `subscription` / `other` / `signed_out` / `unknown`,
             # cached for a minute: the page says which step is missing.
             "claude_status": onboarding.claude_status(),
+            # With it, `other` (an API key or a cloud provider) is a working sign-in.
+            "claude_api_key_allowed": onboarding.api_key_allowed(),
             "templates": [{"id": t["id"], "title": t.get("title") or t["id"],
                            "params": t.get("params") or [], "hint": t.get("hint") or ""}
                           for t in self.templates()],

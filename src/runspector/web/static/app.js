@@ -395,9 +395,14 @@ function hasActiveJob() {
 
 /* Said where the buttons are, because that is where the questions come up:
    does this cost extra, what does Claude get, can it touch my watch. */
-const COACH_REASSURANCE = "A second tap starts it. It runs on your Claude subscription - " +
-  "no API key, no bill per card. Claude gets the numbers this app shows, never your " +
+const COACH_REASSURANCE_TAIL = "Claude gets the numbers this app shows, never your " +
   "Garmin password, and an analysis never changes anything on your watch.";
+/* "no bill per card" is true on a plan, and false for the API-key sign-in an
+   athlete allowed with RUNSPECTOR_ALLOW_API_KEY=1 - there each card is billed. */
+const coachReassurance = () => (D().claude_status === "other" && D().claude_api_key_allowed === true
+  ? "A second tap starts it. It runs on your Claude Code sign-in, billed per token on that account. "
+  : "A second tap starts it. It runs on your Claude subscription - no API key, no bill per card. ")
+  + COACH_REASSURANCE_TAIL;
 
 /* The setup checklist: all three steps on an empty page, only what is still
    missing once there is data (a Claude that was never signed in must not hide
@@ -475,7 +480,7 @@ function renderActions() {
                     : "Nothing to analyse yet — sync first.")
       : coachUnavailable()
         ? claudeHint()
-        : COACH_REASSURANCE}</div>`;
+        : coachReassurance()}</div>`;
 
   document.getElementById("coach-hint").innerHTML = noData()
     ? `<div class="coach-hint">No data to analyse yet — the coach reads what a sync
@@ -506,7 +511,7 @@ function renderActions() {
     <div class="subhead" style="margin-top:14px">Start an analysis</div>
     <div class="btn-row">${tpls.filter(t => !(t.params || []).length)
       .map(t => tplButton(t)).join("")}</div>
-    ${coachUnavailable() || noData() ? "" : `<div class="note">${COACH_REASSURANCE}</div>`}
+    ${coachUnavailable() || noData() ? "" : `<div class="note">${coachReassurance()}</div>`}
     ${plan ? `
     <div class="subhead" style="margin-top:14px">Plan a session for a route</div>
     <div class="btn-row plan-form" data-plan-form>

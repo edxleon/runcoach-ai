@@ -6,7 +6,7 @@
 [![evals 32/32](https://img.shields.io/badge/evals-32%2F32-brightgreen)](evals/RESULTS.md)
 [![license MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-**A local-first AI running coach for your Garmin data — powered by the Claude subscription you already have.**
+**A local-first AI running coach for your Garmin data — on your own Claude Code sign-in, no API key needed.**
 
 I came to running late, and for a long time my VO2max would not move. I had always trained a lot,
 and it had never really shown up in that number — so I assumed more of the same would eventually
@@ -16,9 +16,9 @@ never did: Garmin collects everything and explains nothing.
 That was the idea. The data is already there; let an AI read it and coach — with the training aimed
 squarely at raising VO2max rather than at collecting kilometres, and with the decision rules written
 down so the coach explains them instead of improvising. This repository started as that tool for one
-athlete. It is now installable for anyone with a Garmin watch and a Claude subscription.
+athlete. It is now installable for anyone with a Garmin watch and Claude Code (a Claude plan is enough).
 
-No cloud backend, no API key, no Docker. One Python package that syncs your Garmin data into a
+No cloud backend, no API key needed, no Docker. One Python package that syncs your Garmin data into a
 SQLite file on your machine, shows it in a small web app, and lets Claude act as your coach —
 with a deterministic readiness engine underneath, so the AI explains decisions instead of inventing them.
 
@@ -31,7 +31,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-964 tests, 76 frontend tests and that gate on three operating systems and two Python versions, with every
+967 tests, 77 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -76,10 +76,11 @@ runspector serve        # first start: asks for the Garmin login (e-mail, passwo
                       # http://127.0.0.1:8765 and syncs the last 30 days in the background
 ```
 
-**The Claude subscription is not connected inside runspector.** Coach cards run on the
-[Claude Code](https://claude.com/claude-code) CLI on your machine, signed in with your plan: install
-it and run `claude auth login` once. `runspector serve` checks that at start (and offers the login when
-it is missing), the Coach tab says what is missing, and there is no API key anywhere. Garmin can be
+**Claude is not connected inside runspector.** Coach cards run on the
+[Claude Code](https://claude.com/claude-code) CLI on your machine, with your own sign-in - a Claude plan is
+enough: install it and run `claude auth login` once. `runspector serve` checks that at start (and offers the login when
+it is missing), the Coach tab says what is missing, and no API key is needed (to use Claude Code's API-key
+sign-in for the cards instead, set `RUNSPECTOR_ALLOW_API_KEY=1`). Garmin can be
 signed into from the page itself (Setup → *Sign in to Garmin*, or *Sign in again* when the session has
 expired) - e-mail, password and Garmin's code if your account uses one, and the sync starts right after.
 `runspector login` does the same from any terminal, and a running app picks it up on ↻ - no restart.
@@ -157,7 +158,7 @@ flowchart TD
     L --> SNAP[snapshot.py]
     SNAP --> WEB[web app<br/>127.0.0.1:8765]
     L --> MCP[MCP server<br/>16 tools<br/>13 read-only · sync · apply · undo]
-    WEB -- "spawn job" --> A["claude --print<br/>(your subscription)"]
+    WEB -- "spawn job" --> A["claude --print<br/>(your Claude sign-in)"]
     A -- "only mcp__runspector__*" --> MCP
     A -- "JSON card" --> WEB
     MCP --- CC[Claude Code / Desktop]
@@ -173,8 +174,11 @@ of that decision, not a second, independently produced verdict. Claude may expla
 rule cannot — or disagree, in which case it has to say which number it disagrees with. Claude's job is
 the part rules are bad at: weighing a conflict, phrasing a plan, answering a follow-up.
 
-**Your subscription, not an API key.** Coach jobs run `claude --print` as a subprocess. There is no key
-to leak, no per-token bill, nothing to configure. If your quota is exhausted the job *waits* for the next
+**Your own Claude Code sign-in, not a key in the app.** Coach jobs run `claude --print` as a subprocess,
+signed in the way you signed Claude Code in. On a Claude plan there is no key to leak, no per-token bill,
+nothing to configure. API-key variables exported for other work are stripped from the card runs by
+default, so they never bill a card unasked; `RUNSPECTOR_ALLOW_API_KEY=1` keeps them for anyone who wants
+Claude Code's API-key sign-in. If your quota is exhausted the job *waits* for the next
 window instead of failing.
 
 **The agent gets an allowlist, not a denylist.** Workout titles are attacker-controlled text that ends
@@ -287,6 +291,7 @@ network you do not control.
 | `RUNSPECTOR_AUTOSYNC_MIN` | `30` | in a Claude Code / Desktop chat, `get_training_readiness` syncs first when the last sync is older than this; `0` turns it off |
 | `RUNSPECTOR_QUOTA_WAIT_S` | `3600` | how long a job waits for subscription quota |
 | `RUNSPECTOR_JOB_TIMEOUT_S` | `600` | hard timeout for a single coach job |
+| `RUNSPECTOR_ALLOW_API_KEY` | unset | `1` keeps `ANTHROPIC_*` (and Bedrock/Vertex) for coach cards, so they can use Claude Code's API-key sign-in, billed per token; unset, the cards strip them |
 | `RUNSPECTOR_ACTIVITY_BACKFILL_DAYS` | `182` | minimum window of the workout list a sync fetches (your habits look back 26 weeks; zone detail is fetched for the last 35 days) |
 | `RUNSPECTOR_LT_HISTORY_DAYS` | `180` | how far back the lactate-threshold history is fetched |
 | `RUNSPECTOR_LOG` | `WARNING` | log level — set `INFO` or `DEBUG` to watch a sync. `INFO` and `DEBUG` also log every HTTP request of the web app |

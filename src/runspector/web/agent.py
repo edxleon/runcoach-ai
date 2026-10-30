@@ -31,6 +31,7 @@ from pathlib import Path
 
 from .. import paths, plan, tools
 from .. import profile as profile_mod
+from ..onboarding import api_key_allowed
 from . import jobs
 
 PKG = Path(__file__).resolve().parent.parent
@@ -181,12 +182,12 @@ def mcp_config(db: str | None, demo: bool = False) -> dict:
         "command": sys.executable, "args": ["-m", "runspector.cli", "mcp"], "env": env}}}
 
 
-#: Everything that moves `claude` off the signed-in subscription and onto a
-#: metered account. The README promises "your subscription, not an API key — no
-#: key to leak, no per-token bill"; inheriting the parent environment made that
-#: a hope rather than a rule. Anyone with `ANTHROPIC_API_KEY` exported for other
-#: work was billed per token by an app that says it never bills — and since the
-#: cost card was removed, with nothing on screen to notice it by.
+#: Everything that moves `claude` off the signed-in plan and onto a metered
+#: account. Inheriting the parent environment made "no per-token bill" a hope
+#: rather than a rule: anyone with `ANTHROPIC_API_KEY` exported for other work
+#: was billed per token by an app that says it never bills - and since the cost
+#: card was removed, with nothing on screen to notice it by. So the default
+#: strips them, and `RUNSPECTOR_ALLOW_API_KEY=1` keeps them (`api_key_allowed`).
 #:
 #: A PREFIX, not a list of names. The first version named seven variables and
 #: was already incomplete when it was written (`ANTHROPIC_CUSTOM_HEADERS` can
@@ -204,8 +205,11 @@ def strips_billing(name: str) -> bool:
 
 def child_env() -> dict:
     """The environment the agent runs in: the parent's, minus everything that
-    would redirect billing. All the rest is passed through — the CLI needs PATH,
-    HOME/USERPROFILE, SYSTEMROOT and its own config directory."""
+    would redirect billing unless `api_key_allowed()`. All the rest is passed
+    through — the CLI needs PATH, HOME/USERPROFILE, SYSTEMROOT and its own
+    config directory."""
+    if api_key_allowed():
+        return dict(os.environ)
     return {k: v for k, v in os.environ.items() if not strips_billing(k)}
 
 

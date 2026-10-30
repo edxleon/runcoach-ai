@@ -181,25 +181,32 @@ def cmd_doctor(args) -> int:
         except Exception as exc:  # noqa: BLE001 — reported as a failed check, not a traceback
             check(f"claude --version ({type(exc).__name__})", False, fatal=False)
         # The subscription is the CLI's own login - the one thing to "connect".
-        from .onboarding import CLAUDE_LINES, claude_status
+        from .onboarding import CLAUDE_LINES, api_key_allowed, claude_status
 
         status = claude_status(fresh=True)
-        check(f"Claude: {CLAUDE_LINES[status]}", status in ("subscription", "unknown"),
-              "run `claude auth login` and sign in with your Claude subscription", fatal=False)
+        check(f"Claude: {CLAUDE_LINES[status]}",
+              status in ("subscription", "unknown") or (status == "other" and api_key_allowed()),
+              "run `claude auth login` and sign in with your Claude plan, or set "
+              "RUNSPECTOR_ALLOW_API_KEY=1 to use this sign-in for the cards", fatal=False)
 
-    # The app strips these before spawning the agent, so that the README's "your
-    # subscription, not an API key" holds. Without a word here that is a trap
-    # with no way out: the CLI works in the user's own terminal, every coach
-    # card fails in the app, and doctor said [ok] twice.
+    # The app strips these before spawning the agent unless the athlete allowed
+    # them. Without a word here that is a trap with no way out: the CLI works in
+    # the user's own terminal, every coach card fails in the app, and doctor
+    # said [ok] twice.
+    from .onboarding import api_key_allowed
     from .web.agent import strips_billing
 
     stripped = sorted(n for n in os.environ if strips_billing(n))
-    if stripped:
+    if stripped and api_key_allowed():
+        check(f"billing variables kept for coach cards (RUNSPECTOR_ALLOW_API_KEY=1): "
+              f"{', '.join(stripped)}", True)
+    elif stripped:
         check(f"billing variables in the environment: {', '.join(stripped)}", False,
-              "coach cards deliberately run on your Claude SUBSCRIPTION, so these are "
-              "removed before the agent starts. If you meant to bill through an API "
-              "key or Bedrock/Vertex, this app is not set up for it; unset them to "
-              "silence this check.", fatal=False)
+              "coach cards run on your Claude Code sign-in and remove these before the "
+              "agent starts, so a key exported for other work never bills a card. To "
+              "use an API key or Bedrock/Vertex for the cards, set "
+              "RUNSPECTOR_ALLOW_API_KEY=1; otherwise unset them to silence this check.",
+              fatal=False)
 
     # The write path, which `doctor` used not to know existed at all: a package
     # that stopped half way, or a claim whose upload never answered, is exactly

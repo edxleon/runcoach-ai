@@ -2097,6 +2097,23 @@ def test_the_agent_cannot_be_billed_per_token(monkeypatch):
         "only billing is stripped - the CLI keeps its own configuration")
 
 
+def test_an_api_key_reaches_the_cards_only_when_the_athlete_allowed_it(monkeypatch):
+    """The stripping protects against a key exported for other work; it must not
+    close Claude Code's API-key sign-in to someone who chose it."""
+    from runspector.web import agent as agent_mod
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
+    monkeypatch.setenv("CLAUDE_CODE_USE_BEDROCK", "1")
+    monkeypatch.delenv("RUNSPECTOR_ALLOW_API_KEY", raising=False)
+    assert "ANTHROPIC_API_KEY" not in agent_mod.child_env()
+    for not_quite in ("true", "yes", "0", ""):
+        monkeypatch.setenv("RUNSPECTOR_ALLOW_API_KEY", not_quite)
+        assert "ANTHROPIC_API_KEY" not in agent_mod.child_env(), not_quite
+    monkeypatch.setenv("RUNSPECTOR_ALLOW_API_KEY", "1")
+    env = agent_mod.child_env()
+    assert env["ANTHROPIC_API_KEY"] == "sk-test" and env["CLAUDE_CODE_USE_BEDROCK"] == "1"
+
+
 def test_the_spawn_really_hands_over_the_filtered_environment(tmp_path, monkeypatch):
     """The guard above is a function; this is the wiring — and the wiring is
     where it was missing: a reviewer deleted `kwargs["env"] = child_env()` and

@@ -87,6 +87,24 @@ def test_a_signed_out_claude_is_offered_its_login(monkeypatch, tmp_path):
     assert "Garmin   signed in" in out
 
 
+def test_an_api_key_sign_in_is_offered_the_plan_login_and_the_switch(monkeypatch, tmp_path):
+    _claude(monkeypatch, {"loggedIn": True, "authMethod": "apiKey"})
+    calls, out = _first_start(monkeypatch, tmp_path, interactive=True, answers=["n"],
+                              signed_in_garmin=True)
+    assert calls["claude"] == 0 and "RUNSPECTOR_ALLOW_API_KEY=1" in out
+
+
+def test_an_allowed_api_key_sign_in_is_a_choice_not_a_gap(monkeypatch, tmp_path):
+    """With the switch set, `other` is the sign-in the athlete chose: asking
+    them to sign in again with a plan would be asking them to undo it."""
+    _claude(monkeypatch, {"loggedIn": True, "authMethod": "apiKey"})
+    monkeypatch.setenv("RUNSPECTOR_ALLOW_API_KEY", "1")
+    calls, out = _first_start(monkeypatch, tmp_path, interactive=True, answers=[],
+                              signed_in_garmin=True)
+    assert calls["claude"] == 0
+    assert "coach cards use it" in out
+
+
 def test_the_first_sync_of_an_empty_store_takes_a_month(tmp_path, monkeypatch):
     """`runspector sync --days 30` was a step of its own on the first-run page."""
     from runspector import garmin, sync

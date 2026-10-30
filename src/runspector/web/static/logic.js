@@ -127,7 +127,9 @@ export function setupSteps(s, { signInHere = false } = {}) {
     unknown: "Claude Code is installed (its sign-in could not be read - <code>claude auth status</code> shows it).",
     missing: "for the coach cards. Install Claude Code (<a href=\"https://claude.com/claude-code\" target=\"_blank\" rel=\"noopener\">claude.com/claude-code</a>), then in a terminal: <code>claude auth login</code> and sign in with your Claude plan. That is the whole connection: no API key, nothing to enter here. Reload this page afterwards.",
     signed_out: "Claude Code is installed but not signed in. In a terminal: <code>claude auth login</code>, sign in with your Claude plan, then reload this page.",
-    other: "signed in, but not with a Claude subscription. In a terminal: <code>claude auth login</code> and choose your Claude account, then reload.",
+    other: st.claude_api_key_allowed
+      ? "signed in with an API key or a cloud provider - coach cards use it (RUNSPECTOR_ALLOW_API_KEY=1), billed there."
+      : "signed in, but not with a Claude plan. In a terminal: <code>claude auth login</code> and choose your Claude account, then reload - or start runspector with <code>RUNSPECTOR_ALLOW_API_KEY=1</code> to use this sign-in for the cards.",
   }[claude] || "";
   return [
     { key: "garmin", done: garmin, title: "Garmin",
@@ -135,7 +137,8 @@ export function setupSteps(s, { signInHere = false } = {}) {
         : signInHere
           ? "not signed in. <button type=\"button\" class=\"btn btn-primary btn-inline\" data-signin>Sign in to Garmin</button> E-mail, password and - if your account asks for one - the code Garmin sends you, once. The first sync starts right after."
           : "not signed in. In a terminal: <code>runspector login</code> (e-mail, password and the MFA code, once). Your password goes to Garmin only and is never stored; only a session token is kept, on this computer, readable by your user account alone. Then press ↻ - no restart needed." },
-    { key: "claude", done: claude === "subscription" || claude === "unknown", title: "Claude",
+    { key: "claude", title: "Claude",
+      done: claude === "subscription" || claude === "unknown" || (claude === "other" && st.claude_api_key_allowed === true),
       text: claudeText },
     { key: "sync", done: data, running: !data && st.sync_state === "running", title: "First sync",
       text: data ? "done."

@@ -575,3 +575,13 @@ test("the note to the coach is escaped and keeps what is being typed", async () 
   assert.match(typing, />less time<\/textarea>/);
   assert.match(typing, /data-note-save >/);
 });
+
+test("setup: an API-key sign-in counts as done only when the athlete allowed it", () => {
+  const base = { garmin_session: true, claude_status: "other", counts: {} };
+  const refused = setupSteps(base)[1];
+  assert.equal(refused.done, false);
+  assert.match(refused.text, /RUNSPECTOR_ALLOW_API_KEY=1/, "the way to keep that sign-in is named");
+  const allowed = setupSteps({ ...base, claude_api_key_allowed: true })[1];
+  assert.equal(allowed.done, true);
+  assert.match(allowed.text, /billed there/);
+});
