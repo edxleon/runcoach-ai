@@ -109,7 +109,7 @@ uv tool upgrade runspector     # the newest release; your data and Garmin sessio
 uv tool uninstall runspector   # removes the program only - delete ~/.runspector yourself if you want the data gone
 ```
 
-`uv tool install runspector` takes the latest release from PyPI (`runspector==0.4.1` pins one);
+`uv tool install runspector` takes the latest release from PyPI (`runspector==0.5.0` pins one);
 `uv tool install git+https://github.com/edxleon/runspector` takes whatever is on `main`.
 
 ## Before you start: the usual worries

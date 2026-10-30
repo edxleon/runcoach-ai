@@ -1,6 +1,6 @@
 [project]
 name = "runspector"
-version = "0.4.1"
+version = "0.5.0"
 description = "Local-first AI running coach for Garmin: readiness, VO2max and 80/20 training explained, workouts on your watch - on your own Claude Code sign-in."
 # PyPI renders this page without the repository around it, so it is its own,
 # shorter file with absolute links - and the one the MCP registry reads the
