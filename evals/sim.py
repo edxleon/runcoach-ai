@@ -75,6 +75,19 @@ class Persona:
     #: True: the athlete filled in a profile, so the week is planned with their
     #: days and long-run day. False (most people): the planner reads the history.
     profile: bool = False
+    #: Minutes this runner runs EVERY day, easy, whatever the calendar says
+    #: (0 = runs the plan). The app still plans its weeks.
+    own_rhythm: int = 0
+    #: (weekday, minutes): no more time than this on that weekday - a run
+    #: planned longer there is cut short. Never told to the app.
+    short_day: tuple = ()
+    #: A profile file as the athlete (or an editor) left it - written as is,
+    #: past `profile.validate`, so a contradiction reaches the planner.
+    profile_file: tuple = ()
+    #: Says yes to the Sunday's week this many days later, through the real
+    #: `plan.apply` against a Garmin double; 0 = the week is on the calendar
+    #: at once, as after a timely apply.
+    applies_late: int = 0
 
 
 PERSONAS = {p.name: p for p in (
@@ -92,6 +105,17 @@ PERSONAS = {p.name: p for p in (
     # Lifts on Tuesday evenings; runs Wednesday, Friday, Saturday, Sunday.
     Persona("gym_tuesday", weekdays=(2, 4, 5, 6), other=((1, "strength_training", 60, 3.0),),
             seed=10),
+    # The same 55 easy minutes every day, more than the weeks before held.
+    Persona("daily_even", days_per_week=7, weekdays=(0, 1, 2, 3, 4, 5, 6), base_week_min=280,
+            effort="never_hard", own_rhythm=55, seed=11),
+    # Thirty minutes on Tuesdays, never more; the app is never told.
+    Persona("short_tuesday", weekdays=(1, 3, 5, 6), short_day=(1, 30), seed=12),
+    # Five runs a week in the profile - and Monday, Wednesday and Friday off.
+    Persona("contradictory", days_per_week=5, weekdays=(1, 3, 5, 6),
+            profile_file=(("days_per_week", 5), ("off_days", ["mon", "wed", "fri"]),
+                          ("long_run_day", "sun")), seed=13),
+    # Says yes to the week on Wednesday: Monday and Tuesday are gone by then.
+    Persona("late_yes", applies_late=3, seed=14),
 )}
 
 
@@ -116,6 +140,11 @@ class DayRecord:
     acwr: float | None = None
     #: On Sundays that plan: the proposal for the next week.
     week: dict | None = None
+    #: Every third day: what `runspector today` prints that morning.
+    morning: str | None = None
+    #: The day a late yes was given: (proposal days, apply result, the Garmin
+    #: double's schedule after it).
+    applied: tuple | None = None
 
 
 @dataclass
@@ -195,6 +224,8 @@ class _Sim:
         self.wid = 7_000_000
         self.vo2 = 48.0
         self.calendar: dict[date, tuple] = {}     # day -> (kind, minutes)
+        #: day -> the planned session's easier option (minutes), if it has one.
+        self.fallback: dict[date, int] = {}
         self.loads: dict[date, float] = {}
         self.events = {}
         for w, kind, days in persona.events:
@@ -323,7 +354,13 @@ class _Sim:
                 elif wd in run_days:
                     first = wd == quality_day
                     kind = "vo2max" if first and w % 2 else "threshold" if first else "easy"
-                    self.run(d, kind, per)
+                    self.run(d, kind, self._time_left(d, per))
+
+    def _time_left(self, day: date, minutes: int) -> int:
+        """`minutes`, or less on this runner's short day."""
+        if self.p.short_day and day.weekday() == self.p.short_day[0]:
+            return min(minutes, self.p.short_day[1])
+        return minutes
 
     def plan_week(self, sunday: date) -> dict:
         from runspector import plan
@@ -335,13 +372,24 @@ class _Sim:
         given = ({"days_per_week": self.p.days_per_week,
                   "long_run_day": planning.WEEKDAYS[self.p.long_day]} if self.p.profile else {})
         p = plan.propose_week(self.store, today=sunday, **given)
-        sessions = []
+        sessions, fallbacks = [], {}
         for it in p["items"]:
             d = date.fromisoformat(it["day"])
             spec = it["spec"]
             mins = round(spec["estimated_seconds"] / 60)
             sessions.append((d, spec["kind"], mins))
-            self.calendar[d] = (spec["kind"], mins)
+            if spec.get("fallback_min"):
+                self.fallback[d] = fallbacks[d] = spec["fallback_min"]
+        if self.p.applies_late:
+            # The yes comes later; until then nothing of this week is on the watch.
+            self.pending = (p["id"], sunday + timedelta(days=self.p.applies_late), sessions)
+            return {"budget": budget, "lines": lines, "mode": mode, "sessions": sessions,
+                    "fallbacks": fallbacks, "id": p["id"],
+                    "assumptions": [ln.split("assumption: ", 1)[1]
+                                    for ln in str(p.get("preview") or "").splitlines()
+                                    if "assumption: " in ln]}
+        for d, kind, mins in sessions:
+            self.calendar[d] = (kind, mins)
         # As after an apply: the app's own workouts on the Garmin calendar.
         items = []
         for d, kind, mins in sessions:
@@ -354,14 +402,42 @@ class _Sim:
         monday = sunday + timedelta(days=1)
         self.store.replace_scheduled_workouts(items, monday, monday + timedelta(days=6))
         return {"budget": budget, "lines": lines, "mode": mode, "sessions": sessions,
+                "fallbacks": fallbacks,
                 "assumptions": [ln.split("assumption: ", 1)[1]
                                 for ln in str(p.get("preview") or "").splitlines()
                                 if "assumption: " in ln]}
+
+    def late_yes(self, day: date) -> tuple | None:
+        """The Sunday's week, applied today through the real write path."""
+        pending = getattr(self, "pending", None)
+        if not pending or pending[1] != day:
+            return None
+        from runspector import plan
+
+        if not hasattr(self, "garmin"):
+            sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tests"))
+            from conftest import FakeGarmin
+
+            self.garmin = FakeGarmin()
+        pid, _, sessions = pending
+        self.pending = None
+        before = set(self.garmin.data.get("schedule") or {})
+        result = plan.apply(self.store, self.garmin, pid, today=day)
+        placed = {date.fromisoformat(it["day"]) for it in result.get("items") or []
+                  if it.get("workout_id")}
+        for d, kind, mins in sessions:
+            if d in placed:
+                self.calendar[d] = (kind, mins)
+        # Only what THIS yes put on the calendar; earlier weeks are there too.
+        new = {k: v for k, v in (self.garmin.data.get("schedule") or {}).items() if k not in before}
+        return (sessions, result, new)
 
     def athlete(self, day: date, decision: str, stimulus: str | None, ill: bool) -> Run | None:
         """What this runner does today, given what the app said."""
         if ill or self.events.get(day) == "pause":
             return None
+        if self.p.own_rhythm:
+            return None if decision == "rest" else self.run(day, "easy", self.p.own_rhythm)
         planned = self.calendar.get(day)
         if self.p.plans_week:
             if planned is None or self.rng.random() > self.p.compliance:
@@ -374,13 +450,15 @@ class _Sim:
             kind = stimulus if decision == "hard" and stimulus in HARD else "easy"
             if day.weekday() == self.p.long_day:
                 kind, mins = "long", int(mins * 1.5)
+        mins = self._time_left(day, mins)
         if self.p.effort == "harder":
             return self.run(day, "tempo" if kind == "easy" else kind, int(mins * 1.3))
         # A runner who listens: a red light is a rest day, an easy light an easy run.
         if decision == "rest":
             return None
         if kind in HARD and (decision != "hard" or self.p.effort == "never_hard"):
-            kind = "easy"
+            # The plan's own easier option where it gave one, else the same time easy.
+            kind, mins = "easy", self._time_left(day, self.fallback.get(day, mins))
         return self.run(day, kind, mins)
 
 
@@ -401,6 +479,9 @@ def simulate(persona: Persona, weeks: int = 16, probe=None) -> Course:
         clock = [START]
         paths.today = lambda: clock[0]
         try:
+            if persona.profile_file:
+                paths.profile_path().write_text(json.dumps(dict(persona.profile_file)),
+                                                encoding="utf-8")
             sim = _Sim(persona, weeks, Path(tmp))
             sim.seed_history()
             if persona.plans_week:
@@ -416,6 +497,9 @@ def simulate(persona: Persona, weeks: int = 16, probe=None) -> Course:
                 rec = DayRecord(day=day, decision=dec["decision"], stimulus=stim,
                                 readiness=tools.get_training_readiness(sim.store),
                                 ill=ill, planned=sim.calendar.get(day), acwr=acwr)
+                if i % 3 == 0:
+                    rec.morning = tools.today_text(sim.store)[0]
+                rec.applied = sim.late_yes(day)
                 rec.ran = sim.athlete(day, rec.decision, stim, ill)
                 if not ill and sim.events.get(day) != "pause":
                     sim.other_sport(day)
@@ -471,6 +555,14 @@ def check(course: Course) -> list[str]:
         # The app always answers, with its decision spelled out.
         if "The app's decision for today:" not in r.readiness:
             out.append(f"{r.day}: readiness text carries no decision")
+        # The morning text says the call the page shows, for the day it is.
+        if r.morning is not None:
+            from runspector import tools
+
+            word = tools._CALL.get(r.decision)
+            first = r.morning.splitlines()[0] if r.morning else ""
+            if word and not first.startswith(f"{r.day:%a %d %b}: {word}"):
+                out.append(f"{r.day}: the morning text says {first!r}, the call is {r.decision}")
         # Never hard when the body says ill.
         if r.ill and r.decision == "hard":
             out.append(f"{r.day}: ill (HRV low, short sleep) and the app said hard")
@@ -533,6 +625,14 @@ def check(course: Course) -> list[str]:
             if hard:
                 out.append(f"{r.day}: week planned in or right after a break "
                            f"(last run {last}) holds hard sessions {hard}")
+        # Every hard session and long run says in advance what to do on a day
+        # it is too much: an easy run, never longer than the session itself.
+        for d, kind, mins in w["sessions"]:
+            if kind in HARD or kind == "long":
+                fb = w.get("fallbacks", {}).get(d)
+                if not fb or fb > mins:
+                    out.append(f"{r.day}: the {kind} of {mins} min on {d} has no sound easier "
+                               f"option ({fb})")
         # A week is mostly easy running: never more hard sessions than other ones.
         kinds = [k for _, k, _ in w["sessions"]]
         n_hard = sum(k in HARD for k in kinds)
@@ -555,7 +655,8 @@ def check(course: Course) -> list[str]:
 
     # Regular lighter weeks, never two in a row - for a runner who follows the plan
     # through a quiet course (a pause or illness makes its own light weeks).
-    if p.plans_week and p.compliance == 1.0 and not p.events and p.effort == "as_planned":
+    if p.plans_week and p.compliance == 1.0 and not p.events and p.effort == "as_planned" \
+            and not p.applies_late:
         totals = [sum(m for _, _, m in r.week["sessions"]) for r in weeks]
         light = [b < 0.85 * a for a, b in zip(totals, totals[1:], strict=False)]
         if sum(light) < len(totals) // 6:
@@ -567,7 +668,9 @@ def check(course: Course) -> list[str]:
 
     # The VO2max work does not disappear: a runner who runs what the app says
     # does a Z5 session at least every two weeks outside a break.
-    if p.effort == "as_planned" and p.compliance == 1.0 and p.zone_detail:
+    # (A late yes loses the first days of every week: that runner does not run
+    # the whole plan, like one who skips sessions.)
+    if p.effort == "as_planned" and p.compliance == 1.0 and p.zone_detail and not p.applies_late:
         for r in days[14:]:
             if any(r.day - timedelta(days=k) in event_days or back_in(r.day - timedelta(days=k))
                    for k in range(21)):
@@ -616,6 +719,83 @@ def check(course: Course) -> list[str]:
                      if k in HARD and d.weekday() in blocked]
             if clash:
                 out.append(f"{r.day}: quality on or right after the other sport: {clash}")
+
+    # A heavy week of the same run every day is not answered with a step up:
+    # the runner's days were all alike and more than their weeks before held,
+    # so the coach plans no step and never more than the last seven days ran.
+    if p.own_rhythm:
+        def load(d: date) -> float:
+            run = course.runs.get(d)
+            return run.minutes * _LOAD_PER_MIN.get(run.kind, 1.5) if run else 0.0
+        for r in weeks:
+            last7 = [course.runs.get(r.day - timedelta(days=k)) for k in range(7)]
+            if not all(x is not None and x.minutes == p.own_rhythm for x in last7):
+                continue
+            week_load = sum(load(r.day - timedelta(days=k)) for k in range(7))
+            before = [sum(load(r.day - timedelta(days=7 * w + k)) for k in range(7))
+                      for w in range(1, 5)]
+            if week_load < sum(before) / 4:
+                continue
+            total = sum(m for _, _, m in r.week["sessions"])
+            ran = _window(course, r.day)
+            if r.week["mode"] == "step" or total > ran:
+                out.append(f"{r.day}: seven alike days, heavier than the weeks before, and the "
+                           f"plan is a {r.week['mode']} of {total} min after {ran} run "
+                           f"({r.week['lines'][:1]})")
+
+    # A day this runner has little time on is planned as short as it is, and
+    # without the week's hard sessions while another day can take them.
+    if p.short_day and p.plans_week:
+        wd, limit = p.short_day
+        for r in weeks:
+            ses = r.week["sessions"]
+            hard_elsewhere = any(k in HARD for d, k, _ in ses if d.weekday() != wd)
+            for d, k, m in ses:
+                if d.weekday() != wd:
+                    continue
+                if m > limit + 1:
+                    out.append(f"{r.day}: {k} of {m} min on {d:%a}, a day with {limit} min")
+                if k in HARD and hard_elsewhere:
+                    out.append(f"{r.day}: the hard {k} on {d:%a}, the short day")
+
+    # Days off in the profile are never planned on, even when the profile asks
+    # for more runs than its free days hold - and the week says so.
+    if p.profile_file:
+        prof = dict(p.profile_file)
+        off = set(prof.get("off_days") or [])
+        from runspector import planning
+
+        for r in weeks:
+            ses = r.week["sessions"]
+            on_off = [(f"{d:%a}", k) for d, k, _ in ses if planning.WEEKDAYS[d.weekday()] in off]
+            if on_off:
+                out.append(f"{r.day}: sessions on the athlete's days off: {on_off}")
+            if len(ses) > 7 - len(off):
+                out.append(f"{r.day}: {len(ses)} sessions in a week with {7 - len(off)} free days")
+            asked = prof.get("days_per_week") or 0
+            if asked > 7 - len(off) and not any("days off" in a for a in r.week["assumptions"]):
+                out.append(f"{r.day}: {asked} runs asked, {7 - len(off)} free days, and the week "
+                           f"does not say why it planned fewer")
+
+    # A yes given late puts nothing on a day that has passed, says which days
+    # it skipped, and puts the rest of the week where it belongs.
+    for r in days:
+        if not r.applied:
+            continue
+        sessions, result, schedule = r.applied
+        past = [d for d in schedule.values() if str(d.get("date")) < r.day.isoformat()]
+        if past:
+            out.append(f"{r.day}: the late yes scheduled into the past: {past}")
+        gone = [d for d, _, _ in sessions if d < r.day]
+        said = " ".join(result.get("warnings") or []) + " " + str(result.get("error") or "")
+        for d in gone:
+            if d.isoformat() not in said:
+                out.append(f"{r.day}: the late yes does not say {d} was skipped ({said.strip()!r})")
+        ahead = {d.isoformat() for d, _, _ in sessions if d >= r.day}
+        placed = {str(e.get("date")) for e in schedule.values()}
+        if not ahead <= placed:
+            out.append(f"{r.day}: days still ahead were not put on the watch: "
+                       f"{sorted(ahead - placed)}")
 
     # A plateau gets measured: a steady block within six weeks of the course.
     if p.vo2_response == "plateau":

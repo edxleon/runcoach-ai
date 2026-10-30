@@ -267,4 +267,4 @@ def test_a_proposal_card_shows_the_button_and_the_demo_keeps_it_off(base_url, tm
     chunk = dom.split('data-apply="' + p["id"])[1][:400]
     assert "disabled" in chunk, "the demo must not offer a write to Garmin"
     assert "demo data" in dom
-    assert "warmup" in dom and "HR zone 5" in dom, "the preview is rendered"
+    assert "warmup" in dom and "interval" in dom and "(vo2max;" in dom, "the preview is rendered"

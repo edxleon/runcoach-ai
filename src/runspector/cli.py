@@ -53,6 +53,34 @@ def cmd_sync(args) -> int:
         return 2
 
 
+def cmd_today(args) -> int:
+    """Exit 0 a call for today, 3 no values for today yet (the text says so -
+    a cron can tell "not synced" from "rest day"), 2 the data unreadable."""
+    from . import tools
+    from .store import Store
+
+    if args.sync:
+        from . import sync
+
+        try:
+            rep = sync.sync_now(sync.DEFAULT_DAYS, say=lambda _line: None)
+            if rep.exit_code:
+                print(f"Sync: {rep.summary()}", file=sys.stderr)
+        except Exception as exc:  # noqa: BLE001 — the last data is still worth showing
+            hint = (" - run `runspector login`" if "Auth" in type(exc).__name__
+                    or "login" in type(exc).__name__.lower() else "")
+            print(f"Sync failed ({type(exc).__name__}){hint}; showing the last data.",
+                  file=sys.stderr)
+    try:
+        text, fresh = tools.today_text(Store())
+    except Exception as exc:  # noqa: BLE001 — a CLI prints a cause, it does not traceback
+        print(f"Cannot read the data ({type(exc).__name__}: {exc}). `runspector doctor` names "
+              f"the next step.", file=sys.stderr)
+        return 2
+    print(text)
+    return 0 if fresh else 3
+
+
 def cmd_serve(args) -> int:
     from .web import server
 
@@ -362,6 +390,11 @@ def main(argv: list[str] | None = None) -> int:
                    help="weekday of the long run, for the week planner; without it the "
                         "planner reads your history")
     p.set_defaults(fn=cmd_profile)
+
+    p = sub.add_parser("today", help="today's call in a few lines - for the morning, a cron "
+                                     "or any notifier (exit 3 = no values for today yet)")
+    p.add_argument("--sync", action="store_true", help="sync with Garmin first")
+    p.set_defaults(fn=cmd_today)
 
     p = sub.add_parser("doctor", help="check the installation (exit 1 = something is wrong)")
     p.add_argument("--offline", action="store_true",

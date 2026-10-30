@@ -70,6 +70,7 @@ def seed(path: Path | None = None) -> Store:
     today = paths.today()
     start = today - timedelta(days=WEEKS * 7)
     aid = 9_000_000_000
+    weights: dict = {}
 
     for offset in range(WEEKS * 7 + 1):
         day = start + timedelta(days=offset)
@@ -111,7 +112,14 @@ def seed(path: Path | None = None) -> Store:
             load_aerobic_high_min=460, load_aerobic_high_max=920,
             load_anaerobic_min=140, load_anaerobic_max=430,
             load_balance="BALANCED",
+            # Garmin's own score, beside the light, and a weigh-in every few
+            # days drifting down over the weeks (synthetic, like everything here).
+            garmin_readiness=max(5, min(98, round(rng.gauss(74 - (16 if hard_yesterday else 0), 6)))),
         )
+        if day.toordinal() % 3 == 0:
+            weights[day] = round(73.4 - 1.8 * fitness + rng.uniform(-0.2, 0.2), 1)
+        m.garmin_readiness_level = ("HIGH" if m.garmin_readiness >= 75 else "MODERATE"
+                                    if m.garmin_readiness >= 50 else "LOW")
         store.upsert_daily(m)
 
         if not kind or day >= today:   # today's session is planned, not done yet
@@ -151,4 +159,5 @@ def seed(path: Path | None = None) -> Store:
     plan = [ScheduledWorkout(7000 + i, monday + timedelta(days=wd + 7 * w), 100 + wd, name, "running")
             for w in (0, 1) for i, (wd, (_, _, name)) in enumerate(_WEEK_PLAN.items(), start=10 * w)]
     store.replace_scheduled_workouts(plan, monday, monday + timedelta(days=13))
+    store.replace_weights(start, today, weights)
     return store

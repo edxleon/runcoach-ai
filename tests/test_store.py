@@ -77,7 +77,8 @@ def test_profile_fields_are_exactly_the_coalesced_columns(store):
                                     load_aerobic_low_min=115, load_aerobic_low_max=279,
                                     load_aerobic_high_min=186, load_aerobic_high_max=350,
                                     load_anaerobic_min=0, load_anaerobic_max=164,
-                                    load_balance="AEROBIC_HIGH_SHORTAGE"))
+                                    load_balance="AEROBIC_HIGH_SHORTAGE",
+                                    garmin_readiness=72, garmin_readiness_level="MODERATE"))
     store.upsert_daily(make_day(day, steps=2))
     row = store.get_day(day)
     assert all(row[f] is not None for f in DailyMetrics.PROFILE_FIELDS)
@@ -920,3 +921,13 @@ def test_today_fixture_matches_constant(today):
     from runspector import paths
 
     assert paths.today() == TODAY == today
+
+
+def test_the_daily_load_sums_every_sport_per_local_day(store):
+    day = TODAY - timedelta(days=1)
+    store.upsert_activity(make_activity(9_100_001, day, load=80))
+    store.upsert_activity(make_activity(9_100_002, day, hour=17, activity_type="strength_training",
+                                        load=40, distance_m=None))
+    store.upsert_activity(make_activity(9_100_003, TODAY, load=None))
+    loads = store.daily_load(day, TODAY)
+    assert loads == {day: 120.0, TODAY: 0.0}

@@ -117,6 +117,14 @@ def learned(store: Store, today: date, snap: dict | None = None) -> list[Fact]:
     settings = profile_mod.load()
     facts += _with_settings(learned_week, habits.effective(settings, now), now, iso)
 
+    if now.known and now.short_days:
+        facts.append(Fact("short_days", "Your short days",
+                          ", ".join(f"{d} up to {m} min" for d, m in now.short_days.items()),
+                          now.evidence["short"] + " - the planner keeps every session there to it",
+                          "your history", iso,
+                          _change([", ".join(sorted(h.short_days)) or "none" if h.known else None
+                                   for h in habits_at])))
+
     # No change line: 7 and 8 of 8 weeks are the same habit.
     facts.append(Fact("consistency", "Consistency",
                       f"{_running_weeks(store, today)} of the last 8 weeks with a run",

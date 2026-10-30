@@ -722,3 +722,40 @@ def test_assemble_hands_every_surface_the_same_stimulus(store, today):
     assert snap["decision_today"]["decision"] == "hard"
     assert snap["decision_today"]["stimulus"] == snap["next_stimulus"], "one object, every surface"
     assert snap["vo2max"]["measurement"]["due"] is False
+
+
+# ── body weight beside VO2max ────────────────────────────────────────────────
+
+def _weights(*pairs):
+    return list(pairs)
+
+
+def test_a_weight_change_says_how_much_it_alone_moves_a_per_kilo_vo2max():
+    from datetime import date
+
+    from runspector import snapshot
+
+    today = date(2026, 10, 30)
+    w = snapshot.weight_change(_weights((date(2026, 9, 28), 73.0), (date(2026, 10, 29), 71.4)),
+                               today=today, vo2max=50.0)
+    # 50 x (73.0 / 71.4 - 1) = 1.12: the same absolute capacity over less body.
+    assert w == {"kg": 71.4, "day": "2026-10-29", "change_kg": -1.6, "since": "2026-09-28",
+                 "vo2max_effect": 1.1}
+
+
+def test_a_small_or_short_weight_change_is_no_factor():
+    from datetime import date
+
+    from runspector import snapshot
+
+    today = date(2026, 10, 30)
+    small = snapshot.weight_change(_weights((date(2026, 9, 28), 72.0), (date(2026, 10, 29), 71.4)),
+                                   today=today, vo2max=50.0)
+    assert small["change_kg"] == -0.6 and small["vo2max_effect"] is None
+    # Two weigh-ins ten days apart: no reference three weeks back, so no change.
+    short = snapshot.weight_change(_weights((date(2026, 10, 19), 74.0), (date(2026, 10, 29), 71.4)),
+                                   today=today, vo2max=50.0)
+    assert short["change_kg"] is None and short["vo2max_effect"] is None
+    assert snapshot.weight_change([], today=today) is None
+    stale = _weights((date(2026, 8, 1), 72.0), (date(2026, 9, 20), 71.0))
+    assert snapshot.weight_change(stale, today=today, vo2max=50.0) is None    # last weigh-in > 4 weeks

@@ -15,6 +15,31 @@ from datetime import date, timedelta
 ACWR_ELEVATED = 1.3
 ACWR_SPIKE = 1.5
 
+#: Training monotony (Foster 1998): a week's mean daily load over its standard
+#: deviation, rest days counting as 0. Foster's own thresholds were each
+#: athlete's; 2.0 is the warning line practitioners use. It only ever holds a
+#: week, and only a heavy one (`planning.monotony_brake`) - the pairing Foster
+#: found behind most illnesses was high monotony AND high load, not either alone.
+MONOTONY_HIGH = 2.0
+#: A week of identical days has no spread and so no finite monotony.
+MONOTONY_MAX = 10.0
+
+
+def monotony(daily_loads: list[float]) -> dict | None:
+    """Monotony and strain of seven daily loads, oldest first: `monotony` =
+    mean / standard deviation (population SD over the seven days, a rest day
+    is a 0), `strain` = the week's load x monotony. `None` without seven
+    values or without any load - an empty week is not a monotonous one."""
+    if len(daily_loads) != 7:
+        return None
+    total = float(sum(daily_loads))
+    if total <= 0:
+        return None
+    mean = total / 7
+    sd = (sum((x - mean) ** 2 for x in daily_loads) / 7) ** 0.5
+    mono = MONOTONY_MAX if sd == 0 else min(MONOTONY_MAX, mean / sd)
+    return {"monotony": round(mono, 2), "load": round(total), "strain": round(total * mono)}
+
 
 def readiness_verdict(
     *, hrv_status, sleep_score, body_battery_high, acwr, resting_hr, resting_hr_baseline,

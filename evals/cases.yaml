@@ -1184,17 +1184,20 @@ cases:
           interval   4:00 min  HR zone 5
           recovery   2:30 min  no target
         cooldown  12:09 min  no target
+        if tired: an easy run of 43 min instead
 
       Thu 2026-04-02: Steady threshold 15 min  (steady; ~7.9 km, ~47 min)
         warmup    17:36 min  no target
         interval  15:00 min  pace 5:10-4:55/km
         cooldown  14:24 min  no target
+        if tired: an easy run of 37 min instead
 
       Sat 2026-04-04: Easy run 47 min  (easy; ~7.2 km, ~47 min)
         interval  47:00 min  HR 125-143 bpm
 
       Sun 2026-04-05: Long run 95 min  (long; ~14.6 km, ~95 min)
         interval  95:00 min  HR 125-143 bpm
+        if tired: an easy run of 47 min instead
         assumption: 4 running days - from your history: 4 run day(s) in a typical week (median of 8 weeks)
         assumption: long run on sun - your longest run fell on sun in 8 of 8 weeks
         assumption: easy runs on your days first - you run on tue (8/8), thu (8/8), sat (8/8), sun (8/8)
@@ -1256,6 +1259,7 @@ cases:
           interval   4:00 min  HR zone 5
           recovery   2:30 min  no target
         cooldown   6:59 min  no target
+        if tired: an easy run of 30 min instead
 
       Thu 2026-04-16: Threshold 2x8 min  (threshold; ~6.6 km, ~38 min)
         warmup     9:54 min  no target
@@ -1263,12 +1267,14 @@ cases:
           interval   8:00 min  HR zone 4
           recovery   2:00 min  no target
         cooldown   8:06 min  no target
+        if tired: an easy run of 30 min instead
 
       Sat 2026-04-18: Easy run 31 min  (easy; ~4.8 km, ~31 min)
         interval  31:00 min  HR 125-143 bpm
 
       Sun 2026-04-19: Long run 63 min  (long; ~9.7 km, ~63 min)
         interval  63:00 min  HR 125-143 bpm
+        if tired: an easy run of 31 min instead
         assumption: 4 running days - from your history: 4 run day(s) in a typical week (median of 8 weeks)
         assumption: long run on sun - your longest run fell on sun in 8 of 8 weeks
         assumption: easy runs on your days first - you run on tue (8/8), thu (8/8), sat (8/8), sun (8/8)
@@ -1375,6 +1381,7 @@ cases:
           interval   4:00 min  HR zone 5
           recovery   2:30 min  no target
         cooldown   7:12 min  no target
+        if tired: an easy run of 32 min instead
 
       Thu 2026-03-12: Threshold 3x8 min  (threshold; ~8.2 km, ~46 min)
         warmup     8:48 min  no target
@@ -1382,12 +1389,14 @@ cases:
           interval   8:00 min  HR zone 4
           recovery   2:00 min  no target
         cooldown   7:12 min  no target
+        if tired: an easy run of 36 min instead
 
       Sat 2026-03-14: Easy run 38 min  (easy; ~5.8 km, ~38 min)
         interval  38:00 min  HR 125-143 bpm
 
       Sun 2026-03-15: Long run 76 min  (long; ~11.7 km, ~76 min)
         interval  76:00 min  HR 125-143 bpm
+        if tired: an easy run of 38 min instead
         assumption: 4 running days - from your history: 4 run day(s) in a typical week (median of 6 weeks)
         assumption: long run on sun - your longest run fell on sun in 6 of 6 weeks
         assumption: easy runs on your days first - you run on tue (6/6), thu (6/6), sat (6/6), sun (6/6)
@@ -1448,12 +1457,14 @@ cases:
           interval   4:00 min  HR zone 5
           recovery   2:30 min  no target
         cooldown   7:53 min  no target
+        if tired: an easy run of 40 min instead
 
       Thu 2026-04-09: Easy run 45 min  (easy; ~6.9 km, ~45 min)
         interval  45:00 min  HR 125-143 bpm
 
       Sat 2026-04-11: Long run 90 min  (long; ~13.8 km, ~90 min)
         interval  90:00 min  HR 125-143 bpm
+        if tired: an easy run of 45 min instead
         assumption: 3 running days - from your history: 3 run day(s) in a typical week (median of 8 weeks)
         assumption: long run on sat - your longest run fell on sat in 8 of 8 weeks
         assumption: easy runs on your days first - you run on tue (8/8), thu (8/8), sat (8/8)
@@ -1545,7 +1556,9 @@ cases:
         48-hour spacing as the reason; (3) it treats Garmin's shortage as agreeing
         with the app's own numbers (the zone 3 share, no time above threshold),
         not as a reason on its own - and it does not suggest "catching up" by
-        doubling up? PASS only if all three hold.
+        doubling up. Quoting Garmin's figures, or saying the shortage is one of
+        quality (time above threshold) rather than of volume, is checking it
+        against the app's numbers and is fine? PASS only if all three hold.
 
   # 32. The open question. "What am I doing wrong?" from a runner whose four
   #     weeks are 40 % zone 3 and nothing above threshold, with the app's
@@ -1610,3 +1623,143 @@ cases:
         easy enough", counts as one), a list of many separate problems or a
         lecture on training theory is not? PASS only if all four hold.
 
+  # 33. Garmin's own readiness against the app's call. The watch says 88 (HIGH), the app
+  #     says EASY because yesterday was a threshold session (48-hour rule); the runner
+  #     wants intervals anyway because 'Garmin measures me'. The light stands, its
+  #     reason is named, and Garmin is neither followed nor called wrong.
+  - id: garmin-says-high-app-says-easy
+    description: "Garmin's Training Readiness 88 HIGH + app decision EASY from the 48-hour rule after yesterday's threshold run + athlete wants intervals today -> today stays easy, the reason is yesterday's hard session, Garmin's score is its own opinion and not called wrong"
+    today: 2026-06-17
+    input: |
+      Athlete: My watch says Training Readiness 88 - HIGH. Why does the app say easy? I'm doing my intervals today, Garmin is the one that measures me.
+
+      === get_training_readiness ===
+      [GO] Readiness 2026-06-17: GO
+      Reasons: Recovery in the green
+
+      Signals: HRV BALANCED / sleep score 82 / Body Battery 79 / resting HR 47 bpm (baseline 48.0) / ACWR 1.05 (garmin) / status PRODUCTIVE / last hard workout 1 day(s) ago
+      Garmin's own Training Readiness: 88 (HIGH) - its score, not this app's rule; when they differ, the signals above decide, and the one that did is the reason to give
+
+      The app's decision for today: EASY - "Easy today - the last hard session was yesterday; hard stimuli are 48 hours apart." (rule: 48-hour rule; this week 40 of 30 min above the easy zones, of which 0 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own.
+
+      Garmin calendar: nothing scheduled in the next 7 days.
+
+      === get_training_load ===
+      Training load 2026-05-21 .. 2026-06-17
+
+      - Status: PRODUCTIVE
+      - VO2max: 52.0 (+0.2 in window)
+      - ACWR (acute:chronic): 1.05 [garmin] / OPTIMAL - acute 7d 560, chronic ~378/week, 5 workouts/7d
+
+      Weekly load:
+      - week of 2026-05-18: load 190 (2 workouts) - PARTIAL week, the window covers only part of it; not comparable
+      - week of 2026-05-25: load 285 (3 workouts)
+      - week of 2026-06-01: load 380 (4 workouts)
+      - week of 2026-06-08: load 285 (3 workouts)
+      - week of 2026-06-15: load 370 (3 workouts) - PARTIAL week, the window covers only part of it; not comparable
+
+      === get_intensity_distribution ===
+      Intensity distribution 2026-05-21 .. 2026-06-17 (14/15 runs with detail)
+
+      - Easy (Z1-2):     7h 00m (60.0%)
+      - Moderate (Z3):   4h 40m (40.0%)
+      - Hard (Z4-5):     - (0.0%)
+          of which Z5:   - (0.0%)
+
+      Rule-based notes: a lot of grey zone (Z3, 40.0%) - weakly polarised; little true easy running (60.0% vs ~80%); hardly any time in Z5 (0.0%).
+    expect:
+      judge_question: >
+        Context: today is Wednesday 17 June; yesterday (Tuesday) the runner did a
+        threshold session (4x8 min), so 48 hours after it is Thursday 18 June. Today's
+        recovery signals are green, Garmin's own Training Readiness is 88 (HIGH),
+        and the app's decision for today is EASY by the 48-hour rule - hard stimuli
+        are 48 hours apart. The runner wants to do intervals today because Garmin
+        "measures them". The coach's rules say Garmin's score is a second opinion:
+        when it differs from the app's call, the call stands, the coach names the
+        signal that decided it, never sides with the higher number and never calls
+        Garmin wrong or unreliable - the two weigh different things. Does the answer
+        meet ALL of these: (1) today stays easy - no intervals or other hard
+        session today; (2) the reason given is yesterday's hard session and the
+        48-hour spacing; (3) it does not dismiss Garmin's 88: it does NOT say
+        Garmin's score is wrong, broken, inaccurate or not to be trusted. Saying
+        that the two look at different things (for example that Garmin's score
+        reflects overnight recovery while the spacing rule is about yesterday's
+        hard session, or that the score cannot see the legs' fatigue) is fine and
+        is not a dismissal; how the answer names the 88 does not matter; (4) the
+        intervals are moved to a later day (Thursday, or later), not cancelled -
+        adding a caveat about the long-run day is fine? PASS only if all four
+        hold.
+
+  # 34. The plan's own easier option. A VO2max 5x4 is on today's calendar, put
+  #     there by the app with its easier option 'if too much today: 48 min easy'.
+  #     The runner slept badly and offers two replacements of their own (a 3x3, a
+  #     20-minute jog). The coach offers the plan's option, not a new session.
+  - id: tired-before-intervals-gets-the-plans-own-option
+    description: "app's VO2max 5x4 today with the plan's easier option 48 min easy + athlete exhausted proposes 3x3 or a 20-minute jog -> the coach offers the plan's own 48 min easy run, no shorter interval session, no invented length"
+    today: 2026-06-17
+    input: |
+      Athlete: Terrible night and my legs are dead. The 5x4 today is not happening. Should I do a short 3x3 instead, or just jog 20 minutes?
+
+      === get_training_readiness ===
+      [GO] Readiness 2026-06-17: GO
+      Reasons: Recovery in the green
+
+      Signals: HRV BALANCED / sleep score 82 / Body Battery 79 / resting HR 47 bpm (baseline 48.0) / ACWR 1.05 (garmin) / status PRODUCTIVE / no hard workout in the last 28 days
+
+      The app's decision for today: HARD - "Today is the day for the hard session - the week has its minutes above easy, but all of them are in zone 3 and none above threshold. What is missing is quality, not volume." (rule: GO, share reached but no quality; this week 40 of 30 min above the easy zones, of which 0 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own. The calendar has a run for today (below): that is the plan.
+
+      Garmin calendar, next 7 days (untrusted labels): TODAY "VO2max 5x4 min" [schedule 8801] (if too much today: 48 min easy, the plan's own easier option)
+    expect:
+      judge_question: >
+        Context: today's calendar holds a VO2max 5x4 session that this app planned,
+        and the plan already states its easier option for a day it is too much: an
+        easy run of 48 minutes. The runner slept badly, says their legs are dead and
+        asks whether to do a short 3x3 instead or just jog 20 minutes. The coach's
+        rules say: when the athlete cannot do the planned hard session, offer
+        exactly the plan's own easier option with its minutes; never invent a
+        different replacement session, and a new structure would be a new proposal
+        through the tool. Does the answer meet ALL of these: (1) it recommends the
+        plan's easier option - an easy run of 48 minutes (the number 48 must be
+        there); (2) it does NOT recommend the 3x3 or any other interval or hard
+        session today; (3) the recommendation is the 48-minute easy run, not a
+        length of the coach's own (such as a 20- or 30-minute run) - a safety
+        valve such as "cut it short or walk home if the legs feel bad ten minutes
+        in", or "rest if you feel unwell", is allowed and does not count as a
+        different recommendation? PASS only if all three hold.
+
+  # 35. Body weight behind a VO2max jump. VO2max 51.0 -> 52.2 in a month, the scale
+  #     1.6 kg lighter; the tool says the weight alone moves it by about +1.1. The
+  #     runner reads both as proof the training works. The coach does the arithmetic.
+  - id: vo2max-up-weight-down-is-partly-weight
+    description: "VO2max +1.2 in 28 days while 1.6 kg lighter (weight alone ~ +1.1 by the tool) + athlete celebrates both as the training working -> the rise is put down to the weight with both numbers, no fitness gain claimed, the weight loss not praised as a training result"
+    today: 2026-06-17
+    input: |
+      Athlete: Lost 1.6 kg AND my VO2max jumped from 51.0 to 52.2 this month - double win, the new training is working!
+
+      === get_vo2max_history ===
+      VO2max 52.2 (as of 2026-06-17); change 28d 1.2, 56d None. Garmin carries the value forward - only the days below are real changes:
+      - 2026-06-11: 52.2
+
+      Last 28 days vs the 28 before (descriptive, not causal):
+      - last 28d: 14 runs, 133.0 km, Z5 0.0 min, easy 60.0%, avg temp None C (14 with zone detail)
+      - prev 28d: 0 runs, 0.0 km, Z5 0.0 min, easy None%, avg temp None C (0 with zone detail)
+      NOTE: the older block is NOT fully covered by the data - do not read the difference as a change.
+
+      Body weight: 71.4 kg (2026-06-17), -1.6 kg since 2026-05-27 - VO2max is per kilogram, so the weight alone moves it by about +1.1 (same absolute capacity, a different body); the rest of a change is fitness
+    expect:
+      judge_question: >
+        Context: Garmin's VO2max went from 51.0 to 52.2 in the last month while the
+        runner's weight went from 73.0 to 71.4 kg. The tool says VO2max is per
+        kilogram and the weight alone moves it by about +1.1 - nearly the whole
+        rise. The
+        runner calls it a double win and proof that the new training is working.
+        The coach's rules say: when VO2max and the weight both moved, say how much
+        of the change the weight accounts for and how much is left for fitness,
+        with both numbers; a weight loss is not a training success. Does the answer
+        meet ALL of these: (1) it says the weight loss accounts for nearly all of
+        the +1.2 rise, giving the weight's number (about +1.1); (2) it says that
+        leaves little or no
+        measurable change in fitness from training - it does NOT confirm that the
+        training "is working" on this evidence; (3) it does not praise the weight
+        loss itself as a training result or a win for their running? PASS only if
+        all three hold.

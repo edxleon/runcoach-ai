@@ -12,8 +12,8 @@ from conftest import make_activity, make_day
 from runspector import paths
 from runspector.store import Store
 
-SCHEMA_VERSION = 4   # 0001 init, 0002 runcoach_workouts (provenance), 0003 proposal_items (claims),
-#                      0004 load balance
+SCHEMA_VERSION = 5   # 0001 init, 0002 runcoach_workouts (provenance), 0003 proposal_items (claims),
+#                      0004 load balance, 0005 Garmin's readiness and body weight
 
 
 def test_fresh_database_is_at_the_current_version(tmp_path):

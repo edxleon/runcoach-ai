@@ -221,6 +221,10 @@ def run(store: Store, client, days: int = DEFAULT_DAYS, *, say=print) -> SyncRep
         _side_channel(rep, say, "race predictions", lambda: _sync_predictions(store, client, today))
         _side_channel(rep, say, "calendar", lambda: _sync_calendar(store, client, today, rep, say))
         _side_channel(rep, say, "account settings", lambda: _sync_account(client, today))
+        # Display-only, so after everything the app acts on: a Garmin that stops
+        # us here has already given the calendar.
+        _side_channel(rep, say, "Garmin readiness", lambda: _sync_garmin_readiness(store, client, today))
+        _side_channel(rep, say, "weigh-ins", lambda: _sync_weight(store, client, today))
     except _StoppedError:
         pass
 
@@ -256,6 +260,30 @@ def _sync_predictions(store: Store, client, today) -> None:
     rp = garmin.fetch_race_predictions(client)
     if rp:
         store.update_daily_fields(store.latest_day() or today, rp)
+
+
+def _sync_garmin_readiness(store: Store, client, today) -> None:
+    """Garmin's morning readiness, for TODAY only: it is shown beside today's
+    light and read by no rule, so one call per sync - not one per synced day,
+    which on watches without the feature would be a call that never answers."""
+    r = garmin.fetch_garmin_readiness(client, today)
+    if r:
+        store.set_daily_fields(today, r)
+
+
+#: Weigh-ins are read this far back: the VO2max factor compares two 28-day
+#: windows, and one range call costs the same as one day.
+WEIGHT_DAYS = 56
+
+
+def _sync_weight(store: Store, client, today) -> None:
+    """Body weight onto the day rows that exist (a weigh-in does not make a
+    measured day). An answer is the whole truth for its range - a weigh-in
+    deleted on Garmin is cleared here too; no answer changes nothing."""
+    start = today - timedelta(days=WEIGHT_DAYS - 1)
+    weights = garmin.fetch_weigh_ins(client, start, today)
+    if weights is not None:
+        store.replace_weights(start, today, weights)
 
 
 def _sync_account(client, today) -> None:

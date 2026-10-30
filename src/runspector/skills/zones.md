@@ -29,6 +29,10 @@ Load of the last 7 days against the weekly average of the last 28.
 
 Limits: the bands come from team-sport studies, and the ratio's value as an injury predictor is disputed (the acute week is part of the chronic average). It flags load *spikes*; it does not predict injuries. A ratio computed from plain load sums is cruder than Garmin's weighted one: a holiday week deflates the chronic side and inflates the ratio; HR-based load under-counts strength and short anaerobic work, so it reads low right after them. Volume: the "10 % per week" rule is a convention, not a finding — what the data show is that jumps above ~30 % in two weeks go with more distance-related injuries, and that a graded 10 % programme did not reduce injuries in a trial.
 
+## Monotony — how alike the days of a week were
+
+Monotony = the week's mean daily load ÷ its standard deviation (rest days count as 0); strain = the week's load × monotony. Seven similar medium days score high, a week of hard days, easy days and a rest day scores low — at the same total and the same ACWR. The app holds a week (no step up, never a cut) when the last 7 days were above **2.0** *and* at least as heavy as the athlete's own weekly mean of the 4 weeks before: high monotony together with high load is the pairing linked to illness. The planned week already has its rest day and easy days; those are the remedy. Limits: Foster's thresholds were each athlete's own — 2.0 is the practitioners' warning line, and Garmin's training load is not the session-RPE load the measure was built on. Most hobby runners with rest days never reach it.
+
 ## Training effect (Garmin, 0–5, aerobic and anaerobic per workout)
 
 0–0.9 none · 1–1.9 minor (recovery) · 2–2.9 maintaining · 3–3.9 improving, a solid stimulus · 4–4.9 highly improving, not daily · 5.0 overreaching, rare and deliberate. Hard session ≈ aerobic TE ≥ 3.0 or anaerobic TE ≥ 2.0. After ≥ 4.0, at least one easy day.
@@ -70,6 +74,7 @@ VO2max responds to **polarisation**: a large easy base *plus* true high-intensit
 | Time near VO2max | the stimulus is **minutes at 90–95 % of max HR**. A few seconds of Z5 per hard session is almost no stimulus. |
 | Rep length | **3–5 min** (5×3, 4×4). Reps of 30–60 s end before HR gets there: speed work, not VO2max. Reps beyond ~6 min drift into threshold work. |
 | Recoveries | jog until HR really drops (Z1–Z2). Recovery HR within ~12 bpm of work HR turns the session into one continuous Z4 block. |
+| Targets on the watch | **pace for reps, heart rate for easy running.** HR lags 60–90 s behind a 3–4 min rep, so a zone target says "too low" for the first third of every rep. Once the pace has a current source (a threshold measured in the last 90 days, or Garmin's race predictions) the reps go to the watch as a pace band of ± 5 s/km; without one they keep the zone - the built-in 5:00/km is nobody's pace, and a threshold measured before a pause is no longer the athlete's. Hills, heat and wind make a pace target wrong: then run the effort and let Z5 (Z4) at the end of the rep confirm it. |
 | Easy means easy | easy runs drifting into Z3 undermine recovery *and* base. |
 | Patience | response takes 6–8 weeks of consistent work; Garmin's estimate wobbles by ± 0.5–1. Judge over 4–6 weeks. |
 
@@ -108,6 +113,7 @@ Three grades. **Evidence**: a trial or meta-analysis says so. **Convention**: wh
 | ~80 % easy / ~20 % hard; the middle does least | Evidence (elite observational + one RCT) | Seiler & Kjerland 2006, Scand J Med Sci Sports 16:49, doi:10.1111/j.1600-0838.2004.00418.x · Stöggl & Sperlich 2014, Front Physiol 5:33, doi:10.3389/fphys.2014.00033 |
 | VO2max: minutes at 90–95 % max HR, reps of 3–5 min | Evidence | Helgerud et al. 2007, Med Sci Sports Exerc 39:665, doi:10.1249/mss.0b013e3180304570 · Buchheit & Laursen 2013, Sports Med 43:313, doi:10.1007/s40279-013-0029-x |
 | ACWR sweet spot 0.8–1.3, spike > 1.5 | Evidence, team sports; **disputed** | Gabbett 2016, Br J Sports Med 50:273, doi:10.1136/bjsports-2015-095788 · critique: Impellizzeri et al. 2020, Int J Sports Physiol Perform 15:907, doi:10.1123/ijspp.2019-0864 |
+| Monotony > 2.0 with a heavy week holds the week | Evidence for the measure, **convention** for the line | Foster 1998, Med Sci Sports Exerc 30:1164, doi:10.1097/00005768-199807000-00023 (monotony and strain; illnesses followed individually exceeded thresholds, mostly of strain) — the 2.0 line and "heavy = the athlete's own 4-week mean" are practice and this app |
 | Weekly volume progression | Evidence, weak | Nielsen et al. 2014, J Orthop Sports Phys Ther 44:739, doi:10.2519/jospt.2014.5164 (> 30 % in two weeks; HR 1.59, CI crosses 1) · Buist et al. 2008, Am J Sports Med 36:33, doi:10.1177/0363546507307505 (10 % programme, no effect) |
 | Age formulas miss by ± 10 bpm | Evidence | Tanaka, Monahan & Seals 2001, J Am Coll Cardiol 37:153, doi:10.1016/S0735-1097(00)01054-8 (208 − 0.7 × age; SD ≈ 10) |
 | Taper: −40–60 % volume over ~2 weeks, intensity kept | Evidence (meta-analysis) | Bosquet et al. 2007, Med Sci Sports Exerc 39:1358, doi:10.1249/mss.0b013e31806010e0 |

@@ -346,6 +346,76 @@ def fetch_race_predictions(client) -> dict:
     return out if any(v is not None for v in out.values()) else {}
 
 
+#: Garmin's readiness levels are SCREAMING_SNAKE words (`HIGH`, `MODERATE`, ...);
+#: anything else is not one, and it would reach a prompt.
+_READINESS_LEVEL = re.compile(r"[A-Z][A-Z_]{2,20}")
+
+
+def _not_found_is_none(fn):
+    """The call, with Garmin's 404 as `None`. The library raises its NotFound -
+    a ConnectionError, which `is_fatal` rightly lets stop a sync - for a 404;
+    for a display-only number a watch may simply not have, that means "none".
+    Other errors still stop the sync, after the calendar has been read."""
+    def call():
+        try:
+            return fn()
+        except Exception as exc:
+            if "NotFound" in type(exc).__name__:
+                log.info("%s: not found - taken as none", getattr(fn, "__name__", "call"))
+                return None
+            raise
+    return call
+
+
+def fetch_garmin_readiness(client, day: date) -> dict:
+    """Garmin's own Training Readiness for the morning of `day`: score 0-100
+    and its level. `{}` on watches that do not compute it - the library
+    answers None there, which is "no such number", not a failed call (a fenix
+    6S, checked 2026-10-30). Keys from garminconnect's typed
+    `TrainingReadiness` model, pinned in tests/test_vendor_api.py."""
+    raw = _safe(f"training_readiness {day.isoformat()}",
+                _not_found_is_none(lambda: client.get_morning_training_readiness(day.isoformat())),
+                raw=True)
+    if not isinstance(raw, dict):
+        return {}
+    level = raw.get("level")
+    level = level.strip().upper() if isinstance(level, str) else None
+    # Score and level are ONE reading: a missing or odd level is None next to
+    # its score, never the level of an earlier reading.
+    out = {"garmin_readiness": _coerce(raw.get("score"), 0, 100),
+           "garmin_readiness_level": level if level and _READINESS_LEVEL.fullmatch(level) else None}
+    return out if out["garmin_readiness"] is not None else {}
+
+
+def fetch_weigh_ins(client, start: date, end: date) -> dict[date, float] | None:
+    """Body weight in kg per day from Garmin's weigh-ins (the day's latest).
+    `{}` when Garmin answered with none, `None` when it did not answer (an
+    error, a 404, a null body): the caller replaces the range's weights with
+    an answer - a weigh-in deleted on Garmin goes here too - and keeps them
+    without one. Garmin records grams (`latestWeight.weight`, keys recorded
+    on a real account 2026-10-30); nothing else of the body composition is
+    kept - the coach needs the weight, not the rest."""
+    raw = _safe("weigh_ins", _not_found_is_none(
+        lambda: client.get_weigh_ins(start.isoformat(), end.isoformat())), raw=True)
+    days = raw.get("dailyWeightSummaries") if isinstance(raw, dict) else None
+    if not isinstance(days, list):
+        return None
+    out: dict[date, float] = {}
+    for d in days:
+        latest = d.get("latestWeight") if isinstance(d, dict) else None
+        grams = latest.get("weight") if isinstance(latest, dict) else None
+        if isinstance(grams, bool) or not isinstance(grams, int | float):
+            continue
+        try:
+            day = date.fromisoformat(str(d.get("summaryDate")))
+        except ValueError:
+            continue
+        kg = _coerce_float(grams / 1000, 25, 300)
+        if kg is not None and start <= day <= end:
+            out[day] = kg
+    return out
+
+
 def _months(start: date, end: date):
     y, m = start.year, start.month
     while (y, m) <= (end.year, end.month):
@@ -786,7 +856,7 @@ def to_running_workout(spec):
     """`planning.SessionSpec` -> `garminconnect.workout.RunningWorkout`."""
     from garminconnect import workout as w
 
-    from .planning import Repeat
+    from .planning import Repeat, fallback_words
 
     order = [0]
 
@@ -813,8 +883,12 @@ def to_running_workout(spec):
             steps.append(w.create_repeat_group(b.iterations, children, group_order))
         else:
             steps.append(step(b))
+    # The easier option as the workout's description: on the watch at the
+    # start of the run, where "too tired for this?" is asked. None is left out
+    # of the upload (`exclude_none`), so a session without one is unchanged.
     return w.RunningWorkout(
         workoutName=spec.name[:80], estimatedDurationInSecs=int(spec.estimated_seconds),
+        description=fallback_words(spec),
         workoutSegments=[w.WorkoutSegment(
             segmentOrder=1, sportType={"sportTypeId": 1, "sportTypeKey": "running"},
             workoutSteps=steps)])

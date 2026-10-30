@@ -252,7 +252,7 @@ def build_runs(store: Store, limit: int = RUNS) -> list[dict]:
 
 
 def build_vo2max(series: list[dict], runs: list[dict], *, today: date,
-                 last_steady_day: date | None = None) -> dict:
+                 last_steady_day: date | None = None, weights: list | None = None) -> dict:
     """VO2max is carry-forward: Garmin repeats the value until a measurement
     changes it. Hence steps instead of interpolation — and `changed_days`, so the
     UI can mark the real jumps instead of drawing noise.
@@ -302,7 +302,39 @@ def build_vo2max(series: list[dict], runs: list[dict], *, today: date,
         "days_with_value": len(pts),
         # Factors that plausibly play a role — as NUMBERS, without a causal claim.
         "factors": vo2max_factors(runs, today=today),
+        "weight": weight_change(weights or [], today=today, vo2max=round(pts[-1][1], 1)),
     }
+
+
+#: A weight change smaller than this is scale noise and water, not a factor.
+WEIGHT_FACTOR_MIN_KG = 1.0
+#: The reference weigh-in lies at least this far before the latest one.
+WEIGHT_COMPARE_DAYS = 21
+
+
+def weight_change(weights: list, *, today: date, vo2max: float | None = None) -> dict | None:
+    """The body weight beside VO2max: the latest weigh-in (within four weeks),
+    its change against the last one at least three weeks before it, and - when
+    that change is at least `WEIGHT_FACTOR_MIN_KG` - how much the weight ALONE
+    moves a per-kilogram VO2max: the same absolute capacity divided by the new
+    weight (`vo2max now x (1 - kg now / kg before)`: the same capacity over two
+    bodies, with `vo2max` the value that already carries the change). A number,
+    not a claim that the
+    weight caused the change. `None` without a recent weigh-in."""
+    pts = sorted((d, float(kg)) for d, kg in weights)
+    if not pts or (today - pts[-1][0]).days > 28:
+        return None
+    day, kg = pts[-1]
+    before = [(d, w) for d, w in pts if d <= day - timedelta(days=WEIGHT_COMPARE_DAYS)]
+    out = {"kg": round(kg, 1), "day": day.isoformat(), "change_kg": None, "since": None,
+           "vo2max_effect": None}
+    if before:
+        ref_day, ref_kg = before[-1]
+        change = round(kg - ref_kg, 1)
+        out.update(change_kg=change, since=ref_day.isoformat())
+        if vo2max and abs(change) >= WEIGHT_FACTOR_MIN_KG:
+            out["vo2max_effect"] = round(vo2max * (1 - kg / ref_kg), 1)
+    return out
 
 
 def vo2max_factors(all_sessions: list[dict], *, today: date) -> dict:
@@ -490,6 +522,25 @@ STEADY_EFFORT_S = 12 * 60
 COMEBACK_WINDOW_DAYS = 120
 
 
+#: The weeks the monotony rule's "heavy" is measured against.
+MONOTONY_BASE_WEEKS = 4
+
+
+def monotony_state(store: Store, end: date) -> dict | None:
+    """`logic.monotony` of the seven days ending on `end`, with `base`: the
+    mean load of the weeks among the four before that had any (`None` with
+    fewer than two - no "heavy" without a history to be heavy against)."""
+    loads = store.daily_load(end - timedelta(days=7 * (MONOTONY_BASE_WEEKS + 1) - 1), end)
+    m = logic.monotony([loads.get(end - timedelta(days=6 - i), 0.0) for i in range(7)])
+    if m is None:
+        return None
+    weeks = [sum(loads.get(end - timedelta(days=7 * k + i), 0.0) for i in range(7))
+             for k in range(1, MONOTONY_BASE_WEEKS + 1)]
+    loaded = [w for w in weeks if w > 0]
+    base = round(sum(loaded) / len(loaded)) if len(loaded) >= 2 else None
+    return {**m, "base": base, "end": end.isoformat()}
+
+
 def comeback_state(store: Store, today: date) -> dict | None:
     """`logic.comeback` on this athlete's runs - the one pause state the day's
     decision, the stimulus and the week planner all read."""
@@ -615,7 +666,9 @@ def assemble(store: Store, *, today: date | None = None) -> dict:
     ahead = soft(store.get_scheduled_workouts, today, today + timedelta(days=14), default=[]) or []
     last_steady = last_steady_day(own, runs_wide, today=today,
                                   on_calendar={e["schedule_id"] for e in ahead})
-    vo2 = build_vo2max(series_rows, runs_wide, today=today, last_steady_day=last_steady)
+    vo2 = build_vo2max(series_rows, runs_wide, today=today, last_steady_day=last_steady,
+                       weights=soft(store.weights, today - timedelta(days=SERIES_DAYS), today,
+                                    default=[]))
     cb = soft(comeback_state, store, today)
     # This app's own quality sessions already on the calendar in the coming
     # days: the stimulus does not name a session that is planned anyway.
@@ -645,6 +698,9 @@ def assemble(store: Store, *, today: date | None = None) -> dict:
             "chronic_weekly": tl["chronic_load_weekly"], "weekly_load": tl["weekly_load"],
             # Garmin's load focus: its opinion, drawn beside the app's minutes.
             "balance": soft(store.latest_load_balance, anchor),
+            # How even the last seven days were (Foster) - the second load signal,
+            # over the planner's own window: the seven days to today.
+            "monotony": soft(monotony_state, store, today),
         },
         "series": build_series(series_rows),
         "weeks": weeks,

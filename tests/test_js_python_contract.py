@@ -77,6 +77,8 @@ def _js_const(name: str) -> float:
     ("HARD_AEROBIC_TE", logic.HARD_AEROBIC_TE),
     ("HARD_ANAEROBIC_TE", logic.QUALITY_ANAEROBIC_TE),
     ("HARD_DURATION_S", logic.LONG_RUN_MIN_SECONDS),
+    ("MONOTONY_HIGH", logic.MONOTONY_HIGH),
+    ("MONOTONY_MAX", logic.MONOTONY_MAX),
 ])
 def test_the_hard_thresholds_are_the_same_number_in_both_languages(js_name, py_value):
     """`logic.js` calls these "a COPY of src/runspector/logic.py: is_hard". Until
@@ -356,3 +358,29 @@ def test_the_week_editors_preview_is_the_planners_reading():
                  module="you.js", alias="Y")
     diff = [(c, w, g) for c, w, g in zip(cases, want, got, strict=True) if w != g]
     assert not diff, f"{len(diff)} of {len(cases)} differ, e.g. {diff[:2]}"
+
+
+def test_the_page_reads_the_servers_sync_time_and_threshold(tmp_path, monkeypatch, today):
+    """`synced_at` is written by Python and parsed by `Date.parse`: a format the
+    browser could not read would make `syncOnReturn` answer "no" for ever, and
+    nothing on the page would say so."""
+    from datetime import datetime
+
+    from conftest import make_day
+    from runspector.store import Store
+    from runspector.web import server
+
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_AUTOSYNC_MIN", "45")
+    store = Store(tmp_path / "s.db")
+    store.upsert_daily(make_day(today))
+    app = server.App.__new__(server.App)
+    app.db_path, app.store, app.demo = store.path, store, False
+    app.reset_runtime_state()
+    payload = {**app.state(), "garmin_session": True}
+    synced = datetime.fromisoformat(payload["synced_at"]).timestamp() * 1000
+    assert payload["sync_after_min"] == 45
+    js = run_js(f"const s = {json.dumps(payload)};"
+                f"return [L.syncOnReturn(s, {synced} + 44 * 60000),"
+                f" L.syncOnReturn(s, {synced} + 46 * 60000)];")
+    assert js == [False, True], js

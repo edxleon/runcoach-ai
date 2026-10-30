@@ -13,7 +13,7 @@ import threading
 import time
 from datetime import UTC, date, timedelta
 
-from . import paths
+from . import logic, paths
 from .logic import run_kind
 from .store import Store
 
@@ -208,6 +208,11 @@ def get_training_load(store: Store, period_days: int = 28) -> str:
                      f"acute 7d {t['acute_load_7d']}, chronic ~{t['chronic_load_weekly']}/week, "
                      f"{t['workouts_7d']} workouts/7d")
     lines += _load_balance_lines(store.latest_load_balance(store.analysis_anchor()))
+    from . import snapshot
+
+    # The planner's window - the seven days to TODAY - or the line could say
+    # "the planner holds the next week" for a week the planner steps up.
+    lines += _monotony_lines(snapshot.monotony_state(store, paths.today()))
     lt = store.latest_lactate_threshold()
     if lt:
         pace = round(1000 / lt["lt_speed_mps"]) if lt.get("lt_speed_mps") else None
@@ -224,6 +229,19 @@ def get_training_load(store: Store, period_days: int = 28) -> str:
                if w.get("partial") else "")
             for w in t["weekly_load"]]
     return "\n".join(lines)
+
+
+def _monotony_lines(m: dict | None) -> list[str]:
+    """Only when it is high: a calm week says nothing (and every rendered
+    fixture without such a week stays byte-identical)."""
+    if not m or m["monotony"] <= logic.MONOTONY_HIGH:
+        return []
+    how = "every day alike" if m["monotony"] >= logic.MONOTONY_MAX else f"{m['monotony']}"
+    heavy = (f", at least as heavy as the ~{m['base']} a week before - the planner does not "
+             f"step the next week up" if m.get("base") is not None and m["load"] >= m["base"]
+             else "")
+    return [f"- Monotony, last 7 days to {m['end']}: {how} (above {logic.MONOTONY_HIGH}: "
+            f"the days were much alike; load {m['load']}{heavy})"]
 
 
 def get_recent_activities(store: Store, period_days: int = 14) -> str:
@@ -265,13 +283,15 @@ def get_training_readiness(store: Store) -> str:
     # A RUN on today's calendar is the plan; a gym hour is not a stand-in for it.
     planned_today = any(p["day"] == today.isoformat()
                         and "run" in str(p.get("sport") or "running").lower() for p in plan)
+    replaced = {e["schedule_id"] for e in _swap(store, plan, decision, today)["replace"]}
     if plan:
         # Titles are the athlete's own calendar entries, but still free text.
         # The schedule id is what `propose_workout(replaces_schedule_id=…)`
         # takes to swap an entry for an easier one.
         stale += "\n\nGarmin calendar, next 7 days (untrusted labels): " + "; ".join(
             f"{'TODAY' if p['day'] == today.isoformat() else p['day']} \"{p['title'] or '?'}\" "
-            f"[schedule {p['schedule_id']}]" for p in plan[:7])
+            f"[schedule {p['schedule_id']}]" + _easier_note(store, p, today, decision, replaced)
+            for p in plan[:7])
         stale += _swap_line(store, plan, decision, today)
     else:
         stale += "\n\nGarmin calendar: nothing scheduled in the next 7 days."
@@ -289,10 +309,78 @@ def get_training_readiness(store: Store) -> str:
         # important line on the page.
         + (f"last hard workout {dsh} day(s) ago" if dsh is not None
            else "no hard workout in the last 28 days"),
+        *_garmin_readiness_lines(s),
         *_goal_lines(),
         "",
         _decision_block(decision, planned_today=planned_today),
     ]) + stale
+
+
+#: The page's words for the day's call (`app.js` DECISION).
+_CALL = {"hard": "GO", "easy": "EASY", "rest": "REST"}
+
+
+def today_text(store: Store) -> tuple[str, bool]:
+    """The morning in a few lines, for `runspector today` - a terminal, or a
+    cron and any notifier: the app's call for today with its sentence, the
+    signals behind the light, today's planned session with its easier option,
+    and Garmin's own score beside it. `fresh` is False when nothing is from
+    today: then the text says so instead of calling a day it cannot see."""
+    from . import snapshot
+
+    today = paths.today()
+    snap = snapshot.assemble(store, today=today)
+    t, d = snap.get("today") or {}, snap.get("decision_today") or {}
+    fresh = t.get("day") == today.isoformat() and d.get("decision") in _CALL
+    lines = []
+    if fresh:
+        sentence = d.get("sentence")
+        lines.append(f"{today:%a %d %b}: {_CALL[d['decision']]}" + (f" - {sentence}" if sentence else ""))
+        s = t.get("signals") or {}
+        rhr = s.get("resting_hr")
+        lines.append(f"  HRV {s.get('hrv_status') or '-'} · sleep score {s.get('sleep_score') or '-'} · "
+                     f"Body Battery {s.get('body_battery_high') or '-'} · resting HR "
+                     f"{rhr if rhr is not None else '-'}"
+                     + (f" (baseline {s['resting_hr_baseline']})"
+                        if s.get("resting_hr_baseline") is not None else ""))
+        if s.get("garmin_readiness") is not None:
+            level = s.get("garmin_readiness_level")
+            lines.append(f"  Garmin's own Training Readiness: {s['garmin_readiness']}"
+                         + (f" ({level.lower()})" if level else "") + " - its score; the call is this app's")
+    else:
+        lines.append(f"{today:%a %d %b}: no values for today yet"
+                     + (f" - the latest are from {t['day']}" if t.get("day") else "")
+                     + ". Sync first: runspector today --sync")
+    todays = store.get_scheduled_workouts(today, today)
+    # The readiness tool's swap rule: on an easy day the hard entries give way,
+    # on a rest day nothing is run; what stands keeps its easier option.
+    replaced = {e["schedule_id"] for e in _swap(store, todays, d, today)["replace"]} \
+        if fresh else set()
+    for e in todays:
+        minutes = store.workout_fallback(e["workout_id"]) if e.get("workout_id") else None
+        line = f"  Planned: \"{e.get('title') or '?'}\""
+        if fresh and d.get("decision") == "rest":
+            line += " - not today: the light says rest"
+        elif e["schedule_id"] in replaced:
+            line += " - not on an easy day; instead " + (
+                f"{minutes} min easy (the plan's own easier option)" if minutes else "an easy run")
+        elif fresh and minutes:
+            line += f" - if too much today: {minutes} min easy instead"
+        lines.append(line)
+    return "\n".join(lines), fresh
+
+
+def _garmin_readiness_lines(s: dict) -> list[str]:
+    """Garmin's own score, absent when the watch has none - every rendered
+    fixture without it stays byte-identical. Said as Garmin's opinion: the
+    verdict above was decided without it."""
+    score = s.get("garmin_readiness")
+    if score is None:
+        return []
+    level = s.get("garmin_readiness_level")
+    return [f"Garmin's own Training Readiness: {score}" + (f" ({level})" if level else "")
+            + " - its score, not this app's rule; when they differ, the signals above decide, "
+              "and the one that did is the reason to give"]
 
 
 def _goal_lines() -> list[str]:
@@ -306,6 +394,30 @@ def _goal_lines() -> list[str]:
     return [f"Goal (athlete's profile, free text): \"{goal}\""] if goal else []
 
 
+def _easier_note(store: Store, entry: dict, today: date, decision: dict,
+                 replaced: set) -> str:
+    """Today's session's easier option, where this app planned it and the
+    session STANDS today: a session the day argues against gets its option in
+    the swap line below, and a rest day has no run to offer. A long run stands
+    on an easy day - it is easy running - and keeps its option there."""
+    if entry["day"] != today.isoformat() or not entry.get("workout_id") \
+            or decision.get("decision") not in ("hard", "easy") \
+            or entry["schedule_id"] in replaced:
+        return ""
+    minutes = store.workout_fallback(entry["workout_id"])
+    return f" (if too much today: {minutes} min easy, the plan's own easier option)" if minutes else ""
+
+
+def _swap(store: Store, plan: list[dict], decision: dict, today: date) -> dict:
+    """`planning.swap_for_readiness` on today's entries - one reading for the
+    calendar line, the swap line and `runspector today`."""
+    from . import planning
+
+    todays = [p for p in plan if p["day"] == today.isoformat()]
+    own = {w["workout_id"]: w["kind"] for w in store.own_workouts() if w["workout_id"]}
+    return planning.swap_for_readiness(decision.get("decision"), todays, own)
+
+
 def _swap_line(store: Store, plan: list[dict], decision: dict, today: date) -> str:
     """Which of today's calendar entries the decision argues against — decided
     from the RECORD, not from the titles above.
@@ -315,13 +427,7 @@ def _swap_line(store: Store, plan: list[dict], decision: dict, today: date) -> s
     `runcoach_workouts` knows the kind of everything this app uploaded, and
     `planning.swap_for_readiness` applies the rule to it; anything foreign is
     still a guess and is printed as one."""
-    from . import planning
-
-    todays = [p for p in plan if p["day"] == today.isoformat()]
-    if not todays:
-        return ""
-    own = {w["workout_id"]: w["kind"] for w in store.own_workouts() if w["workout_id"]}
-    swap = planning.swap_for_readiness(decision["decision"], todays, own)
+    swap = _swap(store, plan, decision, today)
     if not swap["replace"]:
         return ""
     guessed = {e["schedule_id"] for e in swap["guessed"]}
@@ -333,6 +439,18 @@ def _swap_line(store: Store, plan: list[dict], decision: dict, today: date) -> s
     if swap["kind"] is None:
         return (f"\nToday's decision argues against what is scheduled: {which}. On a rest day it "
                 f"is simply not run - do not propose a replacement unless the athlete asks.")
+    # The plan's own easier option where the session came from this app: the
+    # coach offers what the week already said, not a length of its own.
+    # Only when EVERY entry argued against is this app's, with its option: a
+    # foreign workout beside it has no plan, and one line naming both must not
+    # pin the app's minutes on it.
+    own_options = {store.workout_fallback(e["workout_id"]) if e["schedule_id"] not in guessed
+                   and e.get("workout_id") else None for e in swap["replace"]}
+    if len(own_options) == 1 and None not in own_options:
+        minutes = own_options.pop()
+        return (f"\nToday's decision argues against what is scheduled: {which}. Its easier option "
+                f"from the plan is {minutes} min easy: propose_workout(kind=\"easy\", "
+                f"duration_min={minutes}, replaces_schedule_id=<that id>) - after the athlete agrees.")
     return (f"\nToday's decision argues against what is scheduled: {which}. An easier session in "
             f"its place is propose_workout(kind=\"{swap['kind']}\", duration_min=…, "
             f"replaces_schedule_id=<that id>) - after the athlete agrees.")
@@ -508,7 +626,8 @@ def get_vo2max_history(store: Store) -> str:
 
     today = paths.today()
     series = store.get_daily_series(today - timedelta(days=snapshot.SERIES_DAYS), today)
-    v = snapshot.build_vo2max(series, snapshot.build_runs(store, snapshot.RUNS_FOR_FACTORS), today=today)
+    v = snapshot.build_vo2max(series, snapshot.build_runs(store, snapshot.RUNS_FOR_FACTORS), today=today,
+                              weights=store.weights(today - timedelta(days=snapshot.SERIES_DAYS), today))
     if v["current"] is None:
         return "No VO2max values yet."
     lines = [f"VO2max {v['current']} (as of {v['current_day']}); change 28d {v['change_28d']}, "
@@ -525,7 +644,24 @@ def get_vo2max_history(store: Store) -> str:
         if not f["covers_full_window"]:
             lines.append("NOTE: the older block is NOT fully covered by the data - do not read "
                          "the difference as a change.")
+    lines += _weight_lines(v.get("weight"))
     return "\n".join(lines)
+
+
+def _weight_lines(w: dict | None) -> list[str]:
+    """Only with a weigh-in on record: every fixture without one is unchanged."""
+    if not w:
+        return []
+    line = f"Body weight: {w['kg']} kg ({w['day']})"
+    if w.get("change_kg") is not None:
+        line += f", {w['change_kg']:+} kg since {w['since']}"
+    if w.get("vo2max_effect") is not None:
+        line += (f" - VO2max is per kilogram, so the weight alone moves it by about "
+                 f"{w['vo2max_effect']:+} (same absolute capacity, a different body); the rest "
+                 f"of a change is fitness")
+    elif w.get("change_kg") is not None:
+        line += " - too small to move VO2max by itself"
+    return ["", line]
 
 
 #: The one tool that reaches OUT of the machine, and the only one an injected

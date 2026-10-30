@@ -12,6 +12,8 @@ LOAD_BALANCE_FIELDS = ("load_aerobic_low", "load_aerobic_high", "load_anaerobic"
                        "load_aerobic_low_min", "load_aerobic_low_max",
                        "load_aerobic_high_min", "load_aerobic_high_max",
                        "load_anaerobic_min", "load_anaerobic_max", "load_balance")
+#: Garmin's own morning readiness (migration 0005).
+GARMIN_EXTRA_FIELDS = ("garmin_readiness", "garmin_readiness_level")
 
 
 @dataclass(slots=True)
@@ -79,6 +81,8 @@ class DailyMetrics:
     load_anaerobic_min: int | None = None
     load_anaerobic_max: int | None = None
     load_balance: str | None = None
+    garmin_readiness: int | None = None
+    garmin_readiness_level: str | None = None
 
     source: str = "garmin"
 
@@ -93,7 +97,7 @@ class DailyMetrics:
     #: ghost rows for days without any data.
     PROFILE_FIELDS = ("lthr_bpm", "lt_speed_mps", "lt_measured_on",
                       "race_5k_s", "race_10k_s", "race_hm_s", "race_m_s",
-                      *LOAD_BALANCE_FIELDS)
+                      *LOAD_BALANCE_FIELDS, *GARMIN_EXTRA_FIELDS)
 
     @classmethod
     def column_names(cls) -> list[str]:

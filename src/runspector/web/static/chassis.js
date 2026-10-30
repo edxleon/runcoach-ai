@@ -253,7 +253,8 @@ export function mountApp({
 
   // `onRefresh(fetchState)` lets the page turn ↻/pull into more than a re-read
   // (first the real Garmin sync, then the snapshot). Visibility changes and
-  // the first load deliberately stay with the cheap fetchState().
+  // the first load stay with the cheap fetchState(); the page's `onVisible`
+  // decides whether a return is old enough to sync (app.js, `syncOnReturn`).
   const reload = mountRefresh({ onRefresh: onRefresh ? () => onRefresh(fetchState) : fetchState });
 
   document.addEventListener("visibilitychange", () => {

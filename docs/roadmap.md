@@ -7,23 +7,24 @@ of what each item does for a runner who uses it every day - not in the order of 
 two (2, 14) and ordered the rest by what each does for the runner.
 
 The first item has since shipped (v0.3, "what comes next": the planner reads the history for a
-brake, a down week, a measurement, a return week and the next stimulus, in code). It stays here
-because the reasoning behind the order is the point of this file.
+brake, a down week, a measurement, a return week and the next stimulus, in code), and v0.6 shipped
+every item of small effort: 3, 4, 7, 8, 9, 11 and 12, each marked below with what it does and what
+it left open. They stay here because the reasoning behind the order is the point of this file.
 
 | # | Gap | For the runner | Effort |
 |---|---|---|---|
 | 1 | Progression without a plan: a brake, a down week when due, a measurement when due, the next stimulus, a return week - *shipped in v0.3* | very high | medium |
 | 2 | A way back from the athlete: ill, sore, stressed, how it felt - with a state that lasts until it is over | high | medium |
-| 3 | An easier option for every hard session in the plan, computed by the rules | high | small |
-| 4 | Rep targets by pace, not heart rate, once the pace is real | high (anyone without a chest strap) | small |
+| 3 | An easier option for every hard session in the plan, computed by the rules - *shipped in v0.6* | high | small |
+| 4 | Rep targets by pace, not heart rate, once the pace is real - *shipped in v0.6* | high (anyone without a chest strap) | small |
 | 5 | A session with your own structure, in your own words | high | medium |
 | 6 | The proposed session matched against the run that followed | high | medium |
-| 7 | Session sizes from the athlete's own time per weekday and usual run lengths | medium to high (every planned week) | small |
-| 8 | Monotony and weekly strain as a second load signal beside ACWR | medium (rarely fires) | small |
-| 9 | `runspector today` for the morning; a sync when the page comes back into focus | medium | tiny |
+| 7 | Session sizes from the athlete's own time per weekday and usual run lengths - *short days shipped in v0.6* | medium to high (every planned week) | small |
+| 8 | Monotony and weekly strain as a second load signal beside ACWR - *shipped in v0.6* | medium (rarely fires) | small |
+| 9 | `runspector today` for the morning; a sync when the page comes back into focus - *shipped in v0.6* | medium | tiny |
 | 10 | Where each statement on a card comes from: measured, said by you, or derived | medium (trust) | medium |
-| 11 | Garmin's own readiness beside the app's | medium (trust) | small |
-| 12 | Body weight in the sync | medium | small |
+| 11 | Garmin's own readiness beside the app's - *shipped in v0.6* | medium (trust) | small |
+| 12 | Body weight in the sync - *shipped in v0.6* | medium | small |
 | 13 | Deeper history on first install | medium (install day only) | medium |
 | 14 | Race preparation towards a goal race: base, build and taper, with the race itself known | medium (those with a date) | high |
 
@@ -57,6 +58,8 @@ check-in made before the morning sync would be lost.
 
 ## 3. An easier option for every hard session
 
+*Shipped in v0.6:* `planning.easier_minutes` is the one rule (a hard session 10 minutes shorter and easy, at least 30; the long run one of the week's easy runs); the preview prints it, the watch gets it as the workout's description, the readiness tool names it for today's session and the red-day swap offers it.
+
 The plan says "Thursday: 4×4 min VO2max". On Thursday the legs are heavy, the readiness is
 yellow, or there are only 30 minutes - and the plan has nothing to say, so the session is either
 forced or dropped. A coach would have said it in advance: "if you're tired, 30 minutes easy
@@ -70,6 +73,8 @@ upload sets none today), so it is there at the start of the run. A scenario test
 session has an alternative, and the alternative is never harder than the session.
 
 ## 4. Rep targets by pace
+
+*Shipped in v0.6:* reps go by a pace band (± 5 s/km) once the pace has a source - a measured threshold or a usable race prediction; without one they keep the heart-rate zone.
 
 VO2max and threshold reps go to the watch as heart-rate zones (`planning.py`, `hr_zone`). Heart
 rate lags by 60–90 s, so on a 3–4 minute rep the watch spends a third of it saying "too low".
@@ -100,6 +105,8 @@ let the coach learn from its own prescriptions.
 
 ## 7. Session sizes from the athlete's own time
 
+*Short days shipped in v0.6:* a weekday whose runs are all clearly shorter than the others (≤ 80 % of their median, four runs or more) keeps every session there to its longest run and takes no quality session while another day can. Still open: the athlete setting the time per weekday on the You tab, and the proportions of the whole week from their own run lengths.
+
 v0.4 reads the athlete's days from their history - how many, which weekdays,
 the long-run day, a weekly other sport (`habits.py`). It does not yet read how
 long they have on each of those days: a runner whose Tuesday runs never go past
@@ -111,6 +118,8 @@ eval fixture would move with it. Done right it replaces the built-in
 proportions with the athlete's own, under the same budget and the same cap.
 
 ## 8. Monotony and weekly strain
+
+*Shipped in v0.6:* above 2.0 with a week at least as heavy as the four before, the next week is held; the Trend tab shows the number, the coach hears it only when it is high.
 
 ACWR compares this week's load with the last four; it does not see how the load is spread. Seven
 similar medium days and a week of three hard days and four rest days can carry the same total
@@ -125,6 +134,8 @@ checked before they are used; a scenario test red against the old code first. Fo
 runners it will rarely fire - which is why it is item 8, not item 2.
 
 ## 9. The morning
+
+*Shipped in v0.6:* `runspector today [--sync]` (exit 3 without values for today), and a return to the page after more than `RUNSPECTOR_AUTOSYNC_MIN` minutes syncs first.
 
 The product is needed at 07:00. There is no `runspector today` printing the readiness text (a
 cron plus any notifier would do the rest), and the web app syncs only at start and on ↻, so a
@@ -145,10 +156,14 @@ claim marked measured that no tool returned fails the card.
 
 ## 11. Garmin's own readiness
 
+*Shipped in v0.6:* Garmin's morning Training Readiness beside the light on the Today tab, in the readiness tool and in `runspector today` - on the watches that compute it (a fenix 6S does not). No rule reads it.
+
 Every Garmin user will ask "Garmin says 85, you say EASY - why?", and the app cannot answer
 because it never fetches the number. Showing both would cost two columns and buy trust.
 
 ## 12. Body weight
+
+*Shipped in v0.6:* one weigh-in call per sync (56 days, kg, nothing else of the body composition); under the VO2max chart and in the VO2max tool with how much the weight alone moves a per-kilogram value.
 
 VO2max is ml/kg/min: two kilograms move it by about a point with no change in fitness. Garmin's
 weigh-ins are not fetched, so the one confounder every athlete can name is not in the picture.
@@ -184,6 +199,6 @@ block stays code; the question is the only place the conversation shapes it.
   is full of "VO2max 4x4 min".
 - No return-to-run after a symptom - deliberate, but the athlete is on their own afterwards.
 - The evals run on a different model and in `--safe-mode`; a green suite is not the shipped coach.
-- The simulator has no runner who reports pain the day after a quality session, none whose
-  settings contradict themselves (five runs a week, three free days), and no proposal that goes
-  stale before it is accepted.
+- The simulator has no runner who reports pain the day after a quality session - that needs item 2.
+  (One whose settings contradict themselves and one who says yes to the week three days late run
+  since v0.6.)

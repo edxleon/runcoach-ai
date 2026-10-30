@@ -2,7 +2,7 @@
 
 [![ci](https://github.com/edxleon/runspector/actions/workflows/ci.yml/badge.svg)](https://github.com/edxleon/runspector/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/runspector)](https://pypi.org/project/runspector/)
-[![evals 32/32](https://img.shields.io/badge/evals-32%2F32-brightgreen)](evals/RESULTS.md)
+[![evals 35/35](https://img.shields.io/badge/evals-35%2F35-brightgreen)](evals/RESULTS.md)
 [![license MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 **A free, open-source AI running coach for Garmin watches.** Runspector syncs your Garmin Connect data -
@@ -55,7 +55,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-995 tests, 80 frontend tests and that gate on three operating systems and two Python versions, with every
+1085 tests, 85 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -112,7 +112,10 @@ In Claude Desktop, or any MCP client with a JSON configuration (sign in once fir
 { "mcpServers": { "runspector": { "command": "uvx", "args": ["runspector", "mcp"] } } }
 ```
 
-Keep it fresh without the app (cron / Task Scheduler): `runspector sync`.
+Keep it fresh without the app (cron / Task Scheduler): `runspector sync`. For the morning:
+`runspector today --sync` prints today's call in a few lines - GO / EASY / REST with its sentence, the
+signals behind it, today's planned session with its easier option - and exits 3 when there is nothing
+from today yet, so a cron and any notifier can tell "not synced" from "rest day".
 
 Later on:
 
@@ -284,9 +287,9 @@ Delete `~/.runspector` (the app's footer shows the folder) and run
 
 | Tab | What it answers |
 |---|---|
-| **Today** | GO / EASY / REST with the signals behind it, *one* decision sentence for today and, on a hard day, *which* hard session (VO2max intervals, threshold reps, or the steady block Garmin measures VO2max from), your VO2max with the days since it last really changed, this week planned vs. done, last night's sleep, your zone bounds with their origin |
+| **Today** | GO / EASY / REST with the signals behind it, *one* decision sentence for today and, on a hard day, *which* hard session (VO2max intervals, threshold reps, or the steady block Garmin measures VO2max from), Garmin's own Training Readiness beside it on watches that have one (its opinion - the call is the app's), your VO2max with the days since it last really changed, this week planned vs. done, last night's sleep, your zone bounds with their origin. Coming back to the page after a while syncs first |
 | **Runs** | Every run with its intensity band, real interval structure (`5×4′`, not "5 minutes"), zones, weather, performance condition — and an *Analyze this run* button |
-| **Trend** | VO2max as honest steps (and whether a measurement is due), lactate threshold history, weekly hard-minute share vs. an 80/20 target, aerobic efficiency (pace at a fixed heart rate) with spread and trend, volume, polarisation, ACWR, and Garmin's own load focus (its 4-week load per band against its target range) as a second opinion |
+| **Trend** | VO2max as honest steps (and whether a measurement is due) with your body weight beside it - VO2max is per kilogram, so the page says how much of a change the weight alone explains -, lactate threshold history, weekly hard-minute share vs. an 80/20 target, aerobic efficiency (pace at a fixed heart rate) with spread and trend, volume, polarisation, ACWR and monotony (how alike the last seven days were - an even, heavy week holds the next one), and Garmin's own load focus (its 4-week load per band against its target range) as a second opinion |
 | **Coach** | Ask the coach anything in your own words (*what am I doing wrong?*) - a short card, the biggest lever first. One-tap analyses by Claude as short cards that remember the previous card of their kind, accept your 👍/👎, take follow-up questions and can be deleted. Two start here (*Why is VO2max moving? · Review my week*); the other two start where their subject is — *Should I train today?* on the Today tab, *Analyze this run* on a run |
 | **You** | **Your week**, the foundation the planner goes by: runs per week, your days, long run, days you can't run, another sport - read from your history and kept up to date, and yours to change: what you set wins until you hand it back. **For your coach**: a note in your own words ("gym Mon, Wed, Fri", "less time until December") the coach reads before every answer. And what the coach has learned about you, each with its evidence: how consistent you are, your intensity pattern, the VO2max trend, Garmin's load focus, resting-HR baseline and zones - and since when, where something changed. Every card and the MCP tool `get_athlete_profile` read all three |
 
@@ -381,17 +384,26 @@ the frontend, which draws curves, gets points.
   On a hard day the decision also says *which* hard session, from what the last seven days did
   and did not contain; after a pause the day is easy instead.
 - Without a measured threshold pace, sessions are sized from Garmin's own 5 km and 10 km predictions
-  rather than from a 5:00/km default that fitted one athlete.
-- Those rules are run, not only unit-tested: [`evals/sim.py`](evals/sim.py) puts eight synthetic
+  rather than from a 5:00/km default that fitted one athlete - and once the pace has such a source, the
+  reps go to the watch as a pace band: heart rate lags a minute behind a four-minute rep.
+- Every hard session and long run says in advance what to do on a day it is too much ("if tired: 48
+  min easy"), in the preview and as the workout's description on the watch - one rule, the same one
+  the calendar fit and the red-day swap use.
+- A weekday the athlete always keeps short (from the history) keeps every session there to that length
+  and no quality session; a week of heavy, alike days (Foster's monotony) is held, not stepped up.
+- Those rules are run, not only unit-tested: [`evals/sim.py`](evals/sim.py) puts fifteen synthetic
   athletes - one who follows the plan, one who skips 40 %, one who takes three weeks off, one who
-  falls ill, one who always runs harder - through sixteen weeks of the app, day by day against the
+  falls ill, one who always runs harder, one who runs the same every day, one with a short Tuesday,
+  one whose profile contradicts itself, one who says yes to the week three days late - through
+  sixteen weeks of the app, day by day against the
   real tools, and checks what a runner would expect of a coach over the whole course. It found the
-  two planner bugs above. It cannot tell whether the training works - its body is a toy - and it
+  two planner bugs above, and a held week that jumped past the last regular one after a down week.
+  It cannot tell whether the training works - its body is a toy - and it
   finds only what its data model knows, so the live test on a real account stays.
 
 **Prompts are tested like code.** The coach's behaviour lives in two Markdown files
 ([`skills/`](src/runspector/skills)) with an LLM-as-judge regression suite ([`evals/`](evals)):
-32 cases such as *"a run already happened today → no second hard session"*, *"warning signs of low energy
+35 cases such as *"a run already happened today → no second hard session"*, *"warning signs of low energy
 availability are not explained away"*, *"an instruction inside a workout name is not followed"*. They run
 without Garmin data against the real CLI — though only over those two files, not over the other two
 pieces of the shipped prompt (`templates.json` and the JSON-card frame in `web/agent.py`, which

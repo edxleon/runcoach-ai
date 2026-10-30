@@ -393,3 +393,124 @@ def test_the_sync_writes_the_account_settings_at_most_once_a_day(store, today):
     assert paths.read_json(paths.account_path()) == {
         "units": "metric", "locale": "en", "first_weekday": "monday", "synced": today.isoformat()}
     assert len(calls) == 1, "the second sync of the day reads the file, not Garmin"
+
+
+# ── Garmin's readiness and the weigh-ins ─────────────────────────────────────
+
+def _weigh(day, grams):
+    return {"summaryDate": day.isoformat(), "numOfWeightEntries": 1,
+            "latestWeight": {"calendarDate": day.isoformat(), "weight": grams,
+                             "bodyFat": 18.0, "sourceType": "INDEX_SCALE"}}
+
+
+def test_the_sync_writes_garmins_readiness_for_today_and_the_weigh_ins(store, today):
+    client = SyncClient(
+        training_readiness={"score": 72, "level": "MODERATE", "calendarDate": today.isoformat()},
+        weigh_ins={"dailyWeightSummaries": [_weigh(today - timedelta(days=1), 71400.0),
+                                            _weigh(today - timedelta(days=40), 72900.0)]})
+    rep, _ = _run(store, client)
+    assert rep.exit_code == 0 and rep.soft_errors == 0
+    row = store.get_day(today)
+    assert row["garmin_readiness"] == 72 and row["garmin_readiness_level"] == "MODERATE"
+    assert store.weights(today - timedelta(days=1), today) == [(today - timedelta(days=1), 71.4)]
+    # A weigh-in on a day without a row makes no day row (never a measured day),
+    # and is kept all the same.
+    assert store.get_day(today - timedelta(days=40)) is None and store.counts()["days"] == 3
+    assert (today - timedelta(days=40), 72.9) in store.weights(today - timedelta(days=55), today)
+    signals = store.get_readiness(today)["signals"]
+    assert signals["garmin_readiness"] == 72 and signals["garmin_readiness_level"] == "MODERATE"
+
+
+def test_a_watch_without_garmins_readiness_is_not_a_sync_error(store, today):
+    """The library answers None for a watch that does not compute it - a fenix
+    6S does not. That is "no such number", and a sync that reported it as an
+    error on every run would be an alarm that can never go green."""
+    rep, lines = _run(store, SyncClient())
+    assert rep.exit_code == 0 and rep.soft_errors == 0, lines
+    assert store.get_day(today)["garmin_readiness"] is None
+
+
+def test_the_body_composition_beside_the_weight_is_not_kept(store, today):
+    client = SyncClient(weigh_ins={"dailyWeightSummaries": [_weigh(today, 71400.0)]})
+    _run(store, client)
+    assert store.weights(today, today) == [(today, 71.4)]
+    import sqlite3
+
+    with sqlite3.connect(store.path) as conn:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(weigh_ins)")]
+    assert cols == ["day", "weight_kg", "synced_at"], "only the weight is kept"
+
+
+def test_a_weigh_in_deleted_on_garmin_is_gone_here_too(store, today):
+    """Review finding: a typo of 57.5 kg, deleted in Garmin Connect, stayed in
+    the store for good - and told the coach the weight alone moved VO2max by
+    +15. What the range call answers is the whole truth for its range."""
+    first = SyncClient(weigh_ins={"dailyWeightSummaries": [
+        _weigh(today - timedelta(days=1), 57500.0), _weigh(today, 75000.0)]})
+    _run(store, first)
+    assert store.weights(today - timedelta(days=1), today - timedelta(days=1))[0][1] == 57.5
+    _run(store, SyncClient(weigh_ins={"dailyWeightSummaries": [_weigh(today, 75000.0)]}))
+    assert store.weights(today - timedelta(days=1), today) == [(today, 75.0)]
+
+
+def test_a_weigh_in_call_that_failed_or_found_nothing_keeps_the_weights(store, today):
+    from garminconnect import GarminConnectNotFoundError
+
+    _run(store, SyncClient(weigh_ins={"dailyWeightSummaries": [_weigh(today, 75000.0)]}))
+
+    class Broken(SyncClient):
+        def get_weigh_ins(self, startdate, enddate):
+            raise RuntimeError("weight service down")
+
+    class Missing(SyncClient):
+        def get_weigh_ins(self, startdate, enddate):
+            raise GarminConnectNotFoundError("404")
+
+    class Null(SyncClient):
+        def get_weigh_ins(self, startdate, enddate):
+            return None
+
+    for client in (Broken(), Missing(), Null()):
+        rep, lines = _run(store, client)
+        assert store.weights(today, today) == [(today, 75.0)], (type(client).__name__, lines)
+        assert rep.fatal is None, (type(client).__name__, rep.fatal)
+
+
+def test_a_readiness_score_never_keeps_a_level_from_another_reading(store, today):
+    """Review finding: 30 / LOW in the morning, 85 without a level later -
+    and the row read 85 (LOW). Score and level are one reading."""
+    _run(store, SyncClient(training_readiness={"score": 30, "level": "LOW"}))
+    _run(store, SyncClient(training_readiness={"score": 85}))
+    row = store.get_day(today)
+    assert row["garmin_readiness"] == 85 and row["garmin_readiness_level"] is None
+
+
+def test_a_404_from_garmins_readiness_is_no_reading_not_a_stopped_sync(store, today):
+    """The library raises its NotFound - a ConnectionError, which stops a sync -
+    for any 4xx. For a display-only number that a watch may simply not have,
+    that is "none", and the calendar after it must still be read."""
+    from garminconnect import GarminConnectNotFoundError
+
+    class NoFeature(SyncClient):
+        def get_morning_training_readiness(self, cdate):
+            raise GarminConnectNotFoundError("404 - no training readiness")
+
+    client = NoFeature(calendar={"calendarItems": [
+        {"id": 5, "itemType": "workout", "workoutId": 9, "date": (today + timedelta(days=2)).isoformat(),
+         "title": "Easy 8k", "sportTypeKey": "running"}]})
+    rep, lines = _run(store, client)
+    assert rep.fatal is None and rep.exit_code == 0, lines
+    assert store.get_scheduled_workouts(today, today + timedelta(days=14)), "the calendar was read"
+
+
+def test_a_weigh_in_on_a_day_without_a_watch_row_is_kept(store, today):
+    """Live test on a real account: the store held day rows for 30 of the last
+    56 days (a first sync fetches 30, later ones 3), and 4 of 5 weigh-ins fell
+    on the others - written onto rows that did not exist, they were gone, and
+    the three-week comparison had nothing to compare. A weigh-in is its own
+    measurement, kept whether or not the watch had a day."""
+    old = today - timedelta(days=40)
+    rep, _ = _run(store, SyncClient(weigh_ins={"dailyWeightSummaries": [
+        _weigh(old, 73000.0), _weigh(today, 71400.0)]}))
+    assert store.get_day(old) is None, "a weigh-in still makes no day row"
+    assert store.weights(old, today) == [(old, 73.0), (today, 71.4)]

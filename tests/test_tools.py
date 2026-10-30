@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, date, datetime, timedelta
 
 import pytest
@@ -591,7 +592,8 @@ def test_propose_files_a_preview_and_writes_nothing_to_garmin(store, today, monk
     logins = []
     monkeypatch.setattr(garmin, "login", lambda tokenstore=None: logins.append(1))
     out = tools.propose_workout(store, "vo2max", distance_km=10)
-    assert "warmup" in out and "HR zone 5" in out and "NOT on Garmin yet" in out
+    # Zones seeded with a measured threshold pace: the reps go by pace.
+    assert "warmup" in out and "(vo2max;" in out and "pace " in out and "NOT on Garmin yet" in out
     assert "assumption" not in out, "zones were seeded - nothing to assume"
     pid = out.split("proposal ")[1].split()[0]
     p = plan.read(pid)
@@ -677,7 +679,10 @@ def test_propose_week_files_one_package_and_writes_nothing(store, today, monkeyp
     monkeypatch.setattr(garmin, "login", lambda tokenstore=None: logins.append(1))
     out = tools.propose_week(store, days_per_week=4, long_run_day="sun")
     assert "4 sessions" in out and out.count("Long run") == 1 and "NOT on Garmin yet" in out
-    assert "HR zone 5" in out and "HR zone 4" in out, "both quality sessions, with their targets"
+    assert "(vo2max;" in out and "(threshold;" in out, "both quality sessions"
+    reps = [ln for ln in out.splitlines() if ln.strip().startswith("interval") and "4:00 min" in ln
+            or ln.strip().startswith("interval") and "8:00 min" in ln]
+    assert reps and all("pace " in ln for ln in reps), ("every rep carries its target", reps)
     pid = out.split("proposal ")[1].split()[0]
     p = plan.read(pid)
     assert p["days"] == 4 and len(p["items"]) == 4 and p["status"] == "open"
@@ -2488,8 +2493,8 @@ def test_propose_week_puts_the_measurement_in_the_threshold_slot(store, today):
 
     steady = re.search(r"Steady threshold (\d+) min", sessions)
     assert steady and int(steady.group(1)) >= 12, "the block Garmin measures from is >= 12 min"
-    assert "HR zone 5" in sessions
-    assert "HR zone 4" not in sessions, "the steady block took the threshold slot"
+    assert "(vo2max;" in sessions
+    assert "(threshold;" not in sessions, "the steady block took the threshold slot"
     assert "assumption: measurement week: no new VO2max value for 29 days" in out
     # A steady block this app has on the calendar ahead holds the rule back.
     store.record_workout(4242, name="Steady threshold 15 min", kind="steady", spec_json="{}",
@@ -2499,7 +2504,7 @@ def test_propose_week_puts_the_measurement_in_the_threshold_slot(store, today):
                           title="Steady threshold 15 min", sport="running")],
         today - timedelta(days=7), today + timedelta(days=14))
     out = tools.propose_week(store, days_per_week=4, long_run_day="sun")
-    assert "measurement week" not in out and "HR zone 4" in out.split("assumption:")[0]
+    assert "measurement week" not in out and "(threshold;" in out.split("assumption:")[0]
 
 
 def test_propose_week_alternates_the_structure_by_week(store, today):
@@ -2539,3 +2544,57 @@ def test_the_athlete_profile_tool_carries_their_note_and_how_to_read_it(store):
     assert "Their note to the coach (their own words, from the You tab):" in out
     assert "Less time until December - keep weekday runs short." in out
     assert profile.NOTE_RULE in out
+
+
+def test_an_easy_day_offers_the_plans_own_easier_option_for_the_apps_session(store, today):
+    """The week said it in advance - "if tired: 48 min easy" - so the coach
+    offers that, not a length of its own. A foreign workout keeps the open
+    question; so does one of ours uploaded before the option existed."""
+    from runspector import planning
+
+    spec = planning.with_fallback(planning.build_session("vo2max", duration_min=58, zones={}))
+    store.record_workout(900003, name=spec.name, kind="vo2max",
+                         spec_json=json.dumps(planning.to_json(spec)), schedule_id=781,
+                         scheduled_day=today)
+    # A day the session stands: the calendar line carries its option.
+    hard = _readiness_with(store, today, "hard",
+                           [ScheduledWorkout(781, today, workout_id=900003, title=spec.name,
+                                             sport="running")])
+    assert "(if too much today: 48 min easy, the plan's own easier option)" in hard
+    out = _readiness_with(store, today, "easy",
+                          [ScheduledWorkout(781, today, workout_id=900003, title=spec.name,
+                                            sport="running")])
+    assert "easier option from the plan is 48 min easy" in out
+    assert 'propose_workout(kind="easy", duration_min=48' in out
+    # On an easy day the swap line offers it; the calendar note is for a day
+    # the session stands - and a rest day offers no run at all.
+    assert "if too much today" not in out
+    rest = _readiness_with(store, today, "rest",
+                           [ScheduledWorkout(781, today, workout_id=900003, title=spec.name,
+                                             sport="running")])
+    assert "48 min" not in rest and "simply not run" in rest
+
+    store.record_workout(900004, name="VO2max 5x4 min", kind="vo2max", spec_json="{}",
+                         schedule_id=782, scheduled_day=today)
+    out = _readiness_with(store, today, "easy",
+                          [ScheduledWorkout(782, today, workout_id=900004, title="VO2max 5x4 min",
+                                            sport="running")])
+    assert "duration_min=…" in out and "from the plan" not in out
+
+
+def test_the_plans_option_is_never_pinned_on_someone_elses_workout(store, today):
+    """Security review: the app's VO2max (option 48 min) and a foreign hard
+    entry guessed from its title, both today - the line named both and said
+    "its easier option from the plan is 48 min". One of them has no plan."""
+    from runspector import planning
+
+    spec = planning.with_fallback(planning.build_session("vo2max", duration_min=58, zones={}))
+    store.record_workout(900005, name=spec.name, kind="vo2max",
+                         spec_json=json.dumps(planning.to_json(spec)), schedule_id=783,
+                         scheduled_day=today)
+    out = _readiness_with(store, today, "easy",
+                          [ScheduledWorkout(783, today, workout_id=900005, title=spec.name,
+                                            sport="running"),
+                           ScheduledWorkout(784, today, workout_id=4243,
+                                            title="Tempo 3x10 min", sport="running")])
+    assert "from the plan" not in out.split("argues against")[1], out

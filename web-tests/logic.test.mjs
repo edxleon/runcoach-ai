@@ -600,3 +600,72 @@ test("the note under the coach buttons promises no bill only on a plan", () => {
   assert.doesNotMatch(coachReassurance({ claude_status: "unknown" }), /no bill per card/,
                       "a check that said nothing confirms no plan");
 });
+
+test("monotony: the line says what the server's number means, and when the planner holds", async () => {
+  const { monotonyLine } = await import("../src/runspector/web/static/logic.js");
+  assert.equal(monotonyLine(null), "");
+  assert.equal(monotonyLine({ monotony: null }), "");
+  assert.match(monotonyLine({ monotony: 1.2, load: 400, base: 420 }), /1\.2 - enough difference/);
+  assert.match(monotonyLine({ monotony: 2.4, load: 600, base: 500 }), /much alike; .*does not step the next one up/);
+  assert.doesNotMatch(monotonyLine({ monotony: 2.4, load: 300, base: 500 }), /step/);
+  assert.match(monotonyLine({ monotony: 10, load: 560, base: 560 }), /every day alike/);
+  assert.match(monotonyLine({ monotony: 2.04, load: 600, base: 500 }), /days: 2\.04 - the days were much alike/,
+    "2.04 is above the line and must read so - not as 2.0");
+  assert.doesNotMatch(monotonyLine({ monotony: 2.0, load: 900, base: 500 }), /much alike/,
+    "2.0 itself is not above the line - the same comparison as the Python");
+});
+
+test("Garmin's readiness: shown as Garmin's opinion beside the light, absent without one", async () => {
+  const { garminReadinessLine } = await import("../src/runspector/web/static/logic.js");
+  assert.equal(garminReadinessLine({}), "");
+  assert.equal(garminReadinessLine(null), "");
+  assert.equal(garminReadinessLine({ garmin_readiness: null, garmin_readiness_level: "HIGH" }), "");
+  assert.equal(garminReadinessLine({ garmin_readiness: 0 }).startsWith("Garmin's own Training Readiness: 0 -"), true,
+    "0 is a score, not a missing one");
+  assert.match(garminReadinessLine({ garmin_readiness: 85, garmin_readiness_level: "HIGH" }),
+    /Readiness: 85 \(high\) - its score; the call above is this app's/);
+});
+
+test("weight: the line under VO2max, with the weight's own share once it is a kilogram", async () => {
+  const { weightLine } = await import("../src/runspector/web/static/logic.js");
+  assert.equal(weightLine(null), "");
+  assert.equal(weightLine({ kg: 71.4, change_kg: null }), "Body weight 71.4 kg");
+  assert.equal(weightLine({ kg: 71.4, change_kg: -0.6, since: "2026-09-28", vo2max_effect: null }),
+    "Body weight 71.4 kg (-0.6 kg since 2026-09-28)");
+  assert.match(weightLine({ kg: 71.4, change_kg: -1.6, since: "2026-09-28", vo2max_effect: 1.1 }),
+    /\(-1\.6 kg since 2026-09-28\) - VO2max is per kilogram, so the weight alone moves it by about \+1\.1$/);
+  assert.match(weightLine({ kg: 74, change_kg: 2.1, since: "2026-09-28", vo2max_effect: -1.4 }),
+    /\(\+2\.1 kg .* about -1\.4$/);
+});
+
+test("sync on return: only when the data is older than the server's threshold", async () => {
+  const { syncOnReturn } = await import("../src/runspector/web/static/logic.js");
+  const synced = "2026-10-30T06:00:00+00:00";
+  const at = min => Date.parse(synced) + min * 60_000;
+  const s = { synced_at: synced, sync_after_min: 30, garmin_session: true, sync_state: "idle" };
+  assert.equal(syncOnReturn(s, at(29)), false);
+  assert.equal(syncOnReturn(s, at(31)), true);
+  assert.equal(syncOnReturn({ ...s, sync_after_min: 120 }, at(90)), false);
+  assert.equal(syncOnReturn({ ...s, demo: true }, at(600)), false, "never in the demo");
+  assert.equal(syncOnReturn({ ...s, garmin_session: false }, at(600)), false, "no session, no sync");
+  assert.equal(syncOnReturn({ ...s, sync_state: "running" }, at(600)), false, "one sync at a time");
+  assert.equal(syncOnReturn({ ...s, synced_at: null }, at(600)), false, "nothing synced yet: the setup says what");
+  assert.equal(syncOnReturn({ ...s, synced_at: "garbage" }, at(600)), false);
+  assert.equal(syncOnReturn({ ...s, sync_after_min: undefined }, at(31)), true, "30 minutes by default");
+});
+
+test("sync on return: off at 0, and no new attempt within the threshold of a failed one", async () => {
+  const { syncOnReturn } = await import("../src/runspector/web/static/logic.js");
+  const synced = "2026-10-30T06:00:00+00:00";
+  const at = min => Date.parse(synced) + min * 60_000;
+  const s = { synced_at: synced, sync_after_min: 30, garmin_session: true, sync_state: "idle" };
+  // Review finding: RUNSPECTOR_AUTOSYNC_MIN=0 means "off" to the tools.
+  assert.equal(syncOnReturn({ ...s, sync_after_min: 0 }, at(600)), false);
+  assert.equal(syncOnReturn({ ...s, sync_after_min: -5 }, at(600)), false);
+  // Review finding: a failed sync moves no data, so `synced_at` stays old and
+  // every glance used to start another login into a rate-limited account.
+  const failedAt = new Date(at(120)).toISOString();
+  const failed = { ...s, sync_state: "error", last_sync: { ok: false, at: failedAt } };
+  assert.equal(syncOnReturn(failed, at(125)), false, "five minutes after a failure");
+  assert.equal(syncOnReturn(failed, at(151)), true, "a threshold after it, once more");
+});

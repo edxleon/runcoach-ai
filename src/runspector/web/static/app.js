@@ -21,7 +21,7 @@ import {
 } from "./ui.js";
 import { mountApp } from "./chassis.js";
 import {
-  addDays, axisX, bandSplit, barLabel, barScale, carryForward, chartPoints, chartScale, dataAge as ageOf, groupRunsByWeek, hardSessionToday as hardSessionOf, hasNoData, lastHardLabel, setupSteps, signInHere, coachReassurance as reassuranceFor, intensityHits, intensitySeries, isFirstRun, showSyncFailure, isRunning, isStrength, lightAddendum as lightAddendumOf, loadFocusPhrase, loadFocusRows, NO_DATE, shortTitle, stepMarks, stepPath, todayIso, volumeAverageKm, volumeComparison, weekdayShort, weekIncomplete, weekLabel, weeksBetween, weekStart, zoneTimeParts,
+  addDays, axisX, bandSplit, barLabel, barScale, carryForward, chartPoints, chartScale, dataAge as ageOf, groupRunsByWeek, hardSessionToday as hardSessionOf, hasNoData, lastHardLabel, setupSteps, signInHere, coachReassurance as reassuranceFor, intensityHits, intensitySeries, isFirstRun, showSyncFailure, isRunning, isStrength, lightAddendum as lightAddendumOf, loadFocusPhrase, loadFocusRows, monotonyLine, garminReadinessLine, weightLine, syncOnReturn, NO_DATE, shortTitle, stepMarks, stepPath, todayIso, volumeAverageKm, volumeComparison, weekdayShort, weekIncomplete, weekLabel, weeksBetween, weekStart, zoneTimeParts,
 } from "./logic.js";
 import { mountCards, mountJobs, jobPoller, todayCard, handle409,
          setCardContext } from "./cards.js";
@@ -126,6 +126,7 @@ function renderVerdict() {
     </div>
     ${reasons ? `<ul class="reasons">${reasons}</ul>`
               : `<div class="empty-note">No reasons in the data.</div>`}
+    ${garminReadinessLine(t.signals) ? `<div class="note">${esc(garminReadinessLine(t.signals))}</div>` : ""}
     ${decisionHtml()}
     ${todayCardHtml()}
     ${vo2LineHtml()}
@@ -861,7 +862,8 @@ function renderVo2() {
         return m.due
           ? `${age} — <b>a measurement is due</b>: the next quality session is a steady block of at least 12 minutes at threshold, the one shape Garmin re-measures from.`
           : `${age}.`;
-      })()}</div>`;
+      })()}</div>
+    ${weightLine(v.weight) ? `<div class="note" style="margin-top:6px">${esc(weightLine(v.weight))}</div>` : ""}`;
 }
 
 /* ═══ Week plan, hard minutes, aerobic efficiency, predictions ═════════════
@@ -1235,6 +1237,8 @@ function renderAcwr() {
     </div>
     ${last.length ? `<div class="note" style="margin-top:8px">Latest: ${
       last.map(p => `${esc(fmtDayShort(p[0]))} ${fmtNum(p[1], 2)}`).join(" · ")}</div>` : ""}
+    ${monotonyLine(load.monotony) ? `<div class="note" style="margin-top:6px">${
+      esc(monotonyLine(load.monotony))}</div>` : ""}
     <div class="thin-data">Below 0.80 the stimulus is missing, above 1.30 the injury
       risk grows — in between is the range in which adaptation happens.</div>
     ${loadFocusHtml(load.balance)}`;
@@ -1686,7 +1690,9 @@ const app = mountApp({
   empty: hasNoData,           // one definition of "nothing here" for header and page
   render: p => { state = p; renderAll(); },
   onAfterLoad: () => poller.start(),
-  onVisible: () => poller.start(),
+  // Back on the page after a while: the real sync (↻'s path), not only a
+  // re-read - see `syncOnReturn` for when.
+  onVisible: p => { poller.start(); if (syncOnReturn(p, Date.now())) app.reload(); },
   onRefresh: syncAndLoad,
 });
 // Follow-up questions on a card start a job: pull the state, start the poller.

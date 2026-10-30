@@ -42,6 +42,13 @@ LONG_RUN_MARGIN = 1.2
 #: Another sport on the same weekday in this share of the weeks keeps the
 #: quality runs off that day and the day after it.
 OTHER_SPORT_SHARE = 0.4
+#: A weekday is a SHORT day when its runs never went past this share of the
+#: athlete's other runs (median, long runs left out) - a time limit, not a
+#: rhythm. Equal runs on every day are no short day: capping each day at its
+#: longest run would keep every week at the size it already is.
+SHORT_DAY_SHARE = 0.8
+#: ...and only with this many runs on that weekday in the window.
+SHORT_DAY_RUNS = 4
 #: Shorter than this, another sport is a walk to the shop, not a session.
 OTHER_SPORT_MIN_S = 20 * 60
 #: Not "another sport" for this purpose: moving, not training.
@@ -59,6 +66,9 @@ class Habits:
     avoid_hard: frozenset[str] = frozenset()
     #: The weekdays of the other sport itself, calendar order.
     sport_days: tuple[str, ...] = ()
+    #: Short weekdays -> the longest run on them (minutes): the planner keeps
+    #: every session there to it.
+    short_days: dict[str, int] = field(default_factory=dict)
     evidence: dict[str, str] = field(default_factory=dict)
     weeks: int = 0
 
@@ -102,6 +112,8 @@ def derive(activities: list[dict], *, today: date, until: date | None = None) ->
     span = f"of {n} weeks"
     run_days_per_week, run_weekdays, long_weekdays = [], Counter(), Counter()
     other_weekdays: Counter = Counter()
+    #: (weekday, minutes run that day, the week's long run?) for every run day.
+    run_day_minutes: list[tuple[int, int, bool]] = []
     for monday in running:
         acts = by_week[monday]
         runs = [a for a in acts if _is_run(a)]
@@ -111,9 +123,14 @@ def derive(activities: list[dict], *, today: date, until: date | None = None) ->
         durations = sorted((int(a.get("duration_s") or 0) for a in runs), reverse=True)
         # Against the SECOND-longest: Sat 60 and Sun 59 is no long-run day.
         typical = durations[1] if len(durations) > 1 else 0
+        long_day = None
         if durations[0] > 0 and durations[0] >= LONG_RUN_MARGIN * typical:
             longest = max(runs, key=lambda a: int(a.get("duration_s") or 0))
             long_weekdays[longest["day"].weekday()] += 1
+            long_day = longest["day"]
+        for d in days:
+            secs = sum(int(a.get("duration_s") or 0) for a in runs if a["day"] == d)
+            run_day_minutes.append((d.weekday(), -(-secs // 60), d == long_day))
         other_weekdays.update({a["day"].weekday() for a in acts
                                if not _is_run(a)
                                and not any(t in str(a.get("type") or "") for t in _NOT_TRAINING)
@@ -147,6 +164,27 @@ def derive(activities: list[dict], *, today: date, until: date | None = None) ->
         long_run_day = planning.WEEKDAYS[top]
         evidence["long"] = f"your longest run fell on {long_run_day} in {count} {span}"
 
+    # Short days: a weekday whose runs are all clearly shorter than the rest.
+    # Long runs are left out on both sides - they are long on purpose.
+    # Long runs leave the yardstick (they are long on purpose), never the day's
+    # own runs: a Saturday that held three long runs is not a 30-minute day.
+    plain = [(wd, m) for wd, m, is_long in run_day_minutes if not is_long]
+    short_days: dict[str, int] = {}
+    said = []
+    for w in range(7):
+        name = planning.WEEKDAYS[w]
+        mine = [m for wd, m, _ in run_day_minutes if wd == w]
+        others = sorted(m for wd, m in plain if wd != w)
+        if name == long_run_day or len(mine) < SHORT_DAY_RUNS or not others:
+            continue
+        typical_other = others[len(others) // 2]
+        if max(mine) <= SHORT_DAY_SHARE * typical_other:
+            short_days[name] = max(mine)
+            said.append(f"your {name} runs never went past {max(mine)} min ({len(mine)} days), "
+                        f"your other runs ~{typical_other}")
+    if said:
+        evidence["short"] = "; ".join(said)
+
     avoid: set[str] = set()
     sport_days = [w for w, c in sorted(other_weekdays.items()) if c / n >= OTHER_SPORT_SHARE]
     for w in sport_days:
@@ -157,7 +195,7 @@ def derive(activities: list[dict], *, today: date, until: date | None = None) ->
             f"{planning.WEEKDAYS[w]} ({other_weekdays[w]}/{n})" for w in sport_days)
     return Habits(days_per_week=days_per_week, long_run_day=long_run_day, preferred=preferred,
                   avoid_hard=frozenset(avoid), sport_days=tuple(planning.WEEKDAYS[w] for w in sport_days),
-                  evidence=evidence, weeks=n)
+                  short_days=short_days, evidence=evidence, weeks=n)
 
 
 def no_hard_after(sport_days) -> frozenset[str]:

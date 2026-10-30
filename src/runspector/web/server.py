@@ -25,7 +25,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote, urlparse
 
-from .. import __version__, auth, facts, garmin, onboarding, paths, snapshot
+from .. import __version__, auth, facts, garmin, onboarding, paths, snapshot, tools
 from .. import profile as profile_mod
 from ..store import Store
 from . import agent, jobs
@@ -249,6 +249,11 @@ class App:
             # `idle` / `running` / `done` / `error`: the setup checklist shows the
             # first sync as running instead of as a step still to do.
             "sync_state": self.refresh_status()["state"],
+            # When the data last moved, and how old it may get before a return
+            # to the page syncs (the MCP tools' `RUNSPECTOR_AUTOSYNC_MIN`): a page
+            # left open overnight showed yesterday until someone pressed ↻.
+            "synced_at": self.store.last_synced_at(),
+            "sync_after_min": tools.auto_sync_after_min(),
             # For the footer's "your data is here, delete it to remove all". The
             # home directory is written as `~`: the path is for the reader, and a
             # screenshot of the page should not carry an account name.

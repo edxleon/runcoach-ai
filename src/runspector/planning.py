@@ -57,6 +57,15 @@ STEADY_MIN_S = 12 * 60
 STEADY_WORK_S = 15 * 60
 #: How much faster than threshold pace a VO2max rep runs (~3-5k race pace).
 VO2MAX_PACE_FACTOR = 0.93
+#: Reps go to the watch by pace once the pace has a source (`_pace_source`):
+#: this many s/km either side of the rep pace. Heart rate lags 60-90 s behind a
+#: 3-4 minute rep, so a zone target says "too low" for a third of every rep.
+REP_PACE_BAND_S = 5
+#: A measured threshold sets the rep pace only this long: Garmin re-measures it
+#: on hard runs (often only with a chest strap), so one measured before a pause
+#: or an off-season stays the "latest" for good - and as a rep pace it was 45
+#: s/km off the athlete's 5 km pace now (review). Older, the reps keep the zone.
+LT_PACE_MAX_AGE_DAYS = 90
 #: How much slower than threshold pace the recovery jog is.
 RECOVERY_PACE_FACTOR = 1.30
 
@@ -95,6 +104,9 @@ class SessionSpec:
     estimated_seconds: int
     estimated_meters: int
     assumptions: list[str] = field(default_factory=list)
+    #: The easier option for a day this session is too much (`easier_minutes`):
+    #: an easy run of this many minutes. `None` for an easy run - it has none.
+    fallback_min: int | None = None
 
     def flat_steps(self) -> list[Step]:
         out: list[Step] = []
@@ -203,6 +215,32 @@ def _paces(zones: dict | None, *, today=None) -> tuple[int, int, int, list[str]]
     notes.append(f"no measured threshold pace and no usable Garmin race prediction - threshold "
                  f"estimated at {_mmss(lt)}/km, easy at {_mmss(easy)}/km")
     return int(lt), int(round(lt * VO2MAX_PACE_FACTOR)), easy, notes
+
+
+def _lt_too_old(z: dict, today) -> bool:
+    """Is the measured threshold too old to be a rep pace? Unknown age or an
+    unknown today counts as current, as it always did for sizing."""
+    on = z.get("lt_measured_on")
+    if not on or today is None:
+        return False
+    try:
+        return (today - _dt.date.fromisoformat(str(on)[:10])).days > LT_PACE_MAX_AGE_DAYS
+    except ValueError:
+        return False
+
+
+def _pace_source(zones: dict | None, *, today=None) -> str | None:
+    """Where a rep's pace comes from: `measured` (Garmin's lactate-threshold
+    pace, measured within `LT_PACE_MAX_AGE_DAYS`), `prediction` (its race
+    predictions, when usable and no threshold is measured) or `None` - the
+    built-in 5:00/km, which is nobody's pace, or a threshold too old to be
+    anyone's pace now: no target for a rep."""
+    z = zones or {}
+    if z.get("lt_pace_s_per_km"):
+        return None if _lt_too_old(z, today) else "measured"
+    if _prediction_usable(z.get("pred_10k_s"), z.get("pred_5k_s"), z.get("pred_day"), today):
+        return "prediction"
+    return None
 
 
 def _pick(fits: list[tuple[int, int]], variant: int) -> tuple[int, int]:
@@ -359,8 +397,17 @@ def build_session(kind: str, *, distance_km: float | None = None,
         return SessionSpec(kind, label or f"Steady threshold {work // 60} min", blocks, secs, meters, notes)
 
     # vo2max | threshold
-    work_target = hr_zone(5) if kind == "vo2max" else hr_zone(4)
     work_pace = fast if kind == "vo2max" else lt
+    source = _pace_source(zones, today=today)
+    if source:
+        # The source is already a line of its own when it is an assumption
+        # (`_paces`: the predictions); a measured pace assumes nothing.
+        work_target = pace(work_pace + REP_PACE_BAND_S, work_pace - REP_PACE_BAND_S)
+    else:
+        work_target = hr_zone(5) if kind == "vo2max" else hr_zone(4)
+        if z.get("lt_pace_s_per_km") and _lt_too_old(z, today):
+            notes.append(f"reps by heart rate: the measured threshold pace is from "
+                         f"{str(z['lt_measured_on'])[:10]}, too old to set a rep pace")
     if distance_km is not None:
         meters = int(round(distance_km * 1000))
         reps, secs_each, rec = _fit_reps(kind, meters, lt, fast, jog, variant)
@@ -397,6 +444,42 @@ def build_session(kind: str, *, distance_km: float | None = None,
     return SessionSpec(kind, label, blocks, secs, meters, notes)
 
 
+#: A hard session's easier option: the same day as an easy run this much
+#: shorter, never under the floor - the rule the calendar fit applies to a
+#: quality session it cannot keep, now on every hard session in advance.
+EASIER_SHORTER_MIN = 10
+EASIER_FLOOR_MIN = 30
+
+
+def easier_minutes(kind: str, minutes: int, *, week_easy_min: int | None = None) -> int | None:
+    """Minutes of the easy run that stands in for a session on a day it is
+    too much (heavy legs, a yellow light, no time): a hard session 10 minutes
+    shorter, at least 30 and never longer than itself; the long run one of the
+    week's easy runs (`week_easy_min`, else the built-in easy size), never
+    longer than the long run; an easy run none - it is already the easy option."""
+    if kind in HARD_KINDS:
+        return min(int(minutes), max(EASIER_FLOOR_MIN, int(minutes) - EASIER_SHORTER_MIN))
+    if kind == "long":
+        return min(int(minutes), int(week_easy_min or WEEK_MINUTES["easy"]))
+    return None
+
+
+def with_fallback(spec: SessionSpec, *, week_easy_min: int | None = None) -> SessionSpec:
+    """`spec` with its easier option set (`easier_minutes`)."""
+    spec.fallback_min = easier_minutes(spec.kind, round(spec.estimated_seconds / 60),
+                                       week_easy_min=week_easy_min)
+    return spec
+
+
+def fallback_words(spec: SessionSpec) -> str | None:
+    """The easier option as the athlete reads it - in the preview, and as the
+    workout's description on the watch, where it is there at the start of the
+    run. Kept short: a watch shows a line or two."""
+    if not spec.fallback_min:
+        return None
+    return f"If tired: {spec.fallback_min} min easy instead."
+
+
 def describe(spec: SessionSpec) -> str:
     """The preview a human confirms - and the model reads. Plain lines."""
     def tgt(t: dict | None) -> str:
@@ -425,6 +508,8 @@ def describe(spec: SessionSpec) -> str:
             lines.extend(one(s, "    ") for s in b.steps)
         else:
             lines.append(one(b, "  "))
+    if spec.fallback_min:
+        lines.append(f"  if tired: an easy run of {spec.fallback_min} min instead")
     for a in spec.assumptions:
         lines.append(f"  assumption: {a}")
     return "\n".join(lines)
@@ -439,7 +524,9 @@ def to_json(spec: SessionSpec) -> dict:
                        if isinstance(b, Repeat) else step(b) for b in spec.blocks],
             "estimated_seconds": spec.estimated_seconds,
             "estimated_meters": spec.estimated_meters,
-            "assumptions": list(spec.assumptions)}
+            "assumptions": list(spec.assumptions),
+            # Only when set: a spec without one keeps the JSON it always had.
+            **({"fallback_min": spec.fallback_min} if spec.fallback_min else {})}
 
 
 def from_json(d: dict) -> SessionSpec:
@@ -447,8 +534,10 @@ def from_json(d: dict) -> SessionSpec:
         return Step(x["kind"], x.get("seconds"), x.get("meters"), x.get("target"), x.get("note"))
     blocks = [Repeat(b["repeat"], [step(s) for s in b["steps"]]) if "repeat" in b else step(b)
               for b in d["blocks"]]
+    fb = d.get("fallback_min")
     return SessionSpec(d["kind"], d["name"], blocks, int(d["estimated_seconds"]),
-                       int(d["estimated_meters"]), list(d.get("assumptions") or []))
+                       int(d["estimated_meters"]), list(d.get("assumptions") or []),
+                       int(fb) if isinstance(fb, int | float) and fb > 0 else None)
 
 
 # ── a week, and the readiness swap ───────────────────────────────────────────
@@ -549,7 +638,8 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
                preferred: tuple[str, ...] = (),
                avoid_hard: frozenset = frozenset(),
                quality_one: str | None = None,
-               off_days: frozenset = frozenset()) -> tuple[list[tuple], list[str]]:
+               off_days: frozenset = frozenset(),
+               day_caps: dict | None = None) -> tuple[list[tuple], list[str]]:
     """Seven days from `start`: a polarised week as `[(date, SessionSpec), …]`
     sorted by day, plus the assumptions that shaped it.
 
@@ -578,7 +668,11 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
     ONE quality slot takes (three days or fewer, or a slot lost to another
     sport); without it, `quality[0]`. `off_days` are the weekdays the athlete
     cannot run on (`profile.py`): nothing is ever placed there, and a week
-    asking for more days than are left gets the days that are."""
+    asking for more days than are left gets the days that are. `day_caps`
+    (weekday -> minutes, the athlete's short days from `habits.derive`) keep
+    every session on that day to that length, never below what the kind
+    needs; a short day gets no quality session while another day can take
+    it, and the minutes it cannot hold are not moved to another day."""
     from datetime import timedelta
 
     if not 2 <= int(days_per_week) <= 7:
@@ -613,28 +707,73 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
 
     preferred = tuple(preferred or ())
     avoid = frozenset(avoid_hard or ())
-    # A quality run stays off a day off like off a gym day; the sentences
-    # about another sport only name the sport's days.
-    no_hard = avoid | off
-    blocked: list[str] = []
-    reduced: list[int] = []
+    # The long-run day is never a short day: its longest run is the long run.
+    caps = {d: int(m) for d, m in (day_caps or {}).items()
+            if d in WEEKDAYS and d != long_run_day and d not in off}
+    # A quality run stays off a day off like off a gym day, and off a short
+    # day: squeezed to the length of the day it would lose the stimulus it is
+    # for (a VO2max session of 35 minutes is 3x3, not the 5x4 the week
+    # needs). The sentences about another sport only name the sport's days.
+    short_hard = frozenset(caps)
+    no_hard = avoid | off | short_hard
+
+    def ours(c) -> int:
+        return sum(wd(o) in preferred for o in c)
+
+    def pick(k: int, nh: frozenset, short: frozenset) -> tuple[str, tuple, str]:
+        """How `k` quality sessions are placed with the weekdays `nh` kept
+        clear (`short` the short days among them): `("pair" | "reduced" |
+        "traded" | "blocked", offsets, the blocked days)`. Pure, so the notes
+        can ask what the week would have been without a constraint.
+
+        Clear of `nh`, then on as many of the athlete's days as possible; `max`
+        keeps the first of equals, and the default comes first. When no pair is
+        clear, ONE quality session that is - a gym day is not moved for the
+        plan, the plan makes room for it. When not even one is, the default
+        rhythm minus any slot on a day off."""
+        for size in range(k, 0, -1):
+            clear = [c for c in _QUALITY_ALTERNATIVES[size] if not any(wd(o) in nh for o in c)]
+            if clear:
+                best = max(clear, key=ours)
+                # A short day that pushes the pair off ALL of the athlete's days:
+                # one quality session on a day they run beats two on days they
+                # never do (synthetic `short_tuesday`: Wed and Fri for a Tue/Thu/
+                # Sat/Sun runner). Not when the pair keeps one of their days (a
+                # short Thursday: Tue and Fri), and never without a short day.
+                if short and preferred and size > 1 and ours(best) == 0:
+                    unshort = [c for c in _QUALITY_ALTERNATIVES[size]
+                               if not any(wd(o) in nh - short for o in c)]
+                    mine = [c for c in _QUALITY_ALTERNATIVES[1]
+                            if wd(c[0]) not in nh and wd(c[0]) in preferred]
+                    if unshort and ours(max(unshort, key=ours)) > 0 and mine:
+                        return "traded", mine[0], ""
+                return ("reduced" if size < k else "pair"), best, ""
+        days = ", ".join(sorted({wd(o) for c in _QUALITY_ALTERNATIVES[k] for o in c
+                                 if wd(o) in nh}))
+        return "blocked", tuple(o for o in _QUALITY_SLOTS[k] if wd(o) not in off), days
+
+    #: What the last compose did with its quality slots: `(how, k, blocked days)`.
+    placed: list[tuple] = []
 
     def quality_slots(k: int) -> tuple[int, ...]:
-        """The `k` quality offsets: clear of the avoided weekdays, then on as
-        many of the athlete's days as possible; `max` keeps the first of equals,
-        and the default comes first. When no pair is clear, ONE quality
-        session that is - a gym day is not moved for the plan, the plan makes
-        room for it. When not even one is, the default rhythm and a line."""
-        for size in range(k, 0, -1):
-            clear = [c for c in _QUALITY_ALTERNATIVES[size] if not any(wd(o) in no_hard for o in c)]
-            if clear:
-                if size < k:
-                    reduced.append(size)
-                return max(clear, key=lambda c: sum(wd(o) in preferred for o in c))
-        blocked.append(", ".join(sorted({wd(o) for c in _QUALITY_ALTERNATIVES[k]
-                                         for o in c if wd(o) in no_hard})))
-        # The usual rhythm, minus any slot on a day off: that one is simply gone.
-        return tuple(o for o in _QUALITY_SLOTS[k] if wd(o) not in off)
+        how, slots, days = pick(k, no_hard, short_hard)
+        placed.append((how, k, days))
+        return slots
+
+    def causes(k: int) -> list[str]:
+        """The constraints that changed this week's quality slots: the ones
+        without which `pick` would place them differently. A reason is named
+        because it mattered, not because it exists - a short Monday after the
+        long run is never a quality slot and is never the reason for one."""
+        actual = pick(k, no_hard, short_hard)[:2]
+        out = []
+        for name, part in (("sport", avoid), ("off", off), ("short", short_hard)):
+            if part and pick(k, no_hard - part, short_hard - part)[:2] != actual:
+                out.append(name)
+        # Several constraints that only matter together: name each one that
+        # touches a slot the week could have used.
+        return out or [name for name, part in (("sport", avoid), ("off", off), ("short", short_hard))
+                       if part and any(wd(o) in part for c in _QUALITY_ALTERNATIVES[k] for o in c)]
 
     # The athlete's days first (most frequent first), then the default order.
     # Without `preferred` this is exactly `_EASY_OFFSETS`.
@@ -647,8 +786,7 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
         session, four and more two; two days a long run and one quality
         session; one day only the long run - never a lone hard session.
         Also whether the session cap turned a kind into an easy run."""
-        blocked.clear()        # a smaller retry is a new week: only its own notes
-        reduced.clear()
+        placed.clear()         # a smaller retry is a new week: only its own notes
         days: dict = {long_date: "long" if long_run else "easy"}
         order = easy_order
         if n >= 2 and quality:
@@ -710,23 +848,32 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
         got = sum(sizes[k] for k in plan.values())
         scale_note = re.sub(r"\(~\d+ min across \d+ days\)",
                             f"(~{got} min across {len(plan)} days)", scale_note)
-    if reduced and any(k in HARD_KINDS for k in plan.values()):
-        why = []
-        if avoid:
-            why.append(f"{', '.join(sorted(avoid))} stay clear of hard running (another sport "
-                       f"that day or the day before)")
-        if off:
-            why.append(f"{', '.join(d for d in WEEKDAYS if d in off)} "
-                       f"{'is a day' if len(off) == 1 else 'are days'} off")
-        assumptions.append(f"one quality session this week: {' and '.join(why)}, and two "
-                           f"sessions 48 hours apart do not fit around them")
-    if blocked and not off:
-        assumptions.append(f"quality days could not stay clear of {blocked[-1]} (another sport "
-                           f"that day or the day before) - placed in the usual rhythm")
-    elif blocked and any(k in HARD_KINDS for k in plan.values()):
-        assumptions.append(f"quality days could not stay clear of {blocked[-1]} (another sport "
-                           f"or a day off) - placed in the usual rhythm, none on a day off")
-    elif blocked and quality:
+    how, k_used, blocked_days = placed[-1] if placed else ("pair", 0, "")
+    has_hard = any(k in HARD_KINDS for k in plan.values())
+    named = causes(k_used) if how != "pair" and k_used else []
+
+    def said(name: str) -> str:
+        if name == "sport":
+            return (f"{', '.join(sorted(avoid))} stay clear of hard running (another sport "
+                    f"that day or the day before)")
+        days = [d for d in WEEKDAYS if d in (off if name == "off" else short_hard)]
+        what = "day off" if name == "off" else "short day"
+        return f"{', '.join(days)} {'is a ' + what if len(days) == 1 else 'are ' + what + 's'}"
+
+    if how == "traded" and has_hard:
+        assumptions.append(f"one quality session this week, on a day you run: {said('short')}, "
+                           f"and two sessions 48 hours apart would land only on days you do "
+                           f"not run")
+    elif how == "reduced" and has_hard:
+        assumptions.append(f"one quality session this week: {' and '.join(said(n) for n in named)}, "
+                           f"and two sessions 48 hours apart do not fit around them")
+    elif how == "blocked" and has_hard:
+        words = {"sport": "another sport that day or the day before", "off": "a day off",
+                 "short": "your short days"}
+        assumptions.append(f"quality days could not stay clear of {blocked_days} "
+                           f"({' or '.join(words[n] for n in named)}) - placed in the usual rhythm"
+                           + (", none on a day off" if off else ""))
+    elif how == "blocked" and quality:
         assumptions.append(f"no quality session this week: the days around "
                            f"{', '.join(d for d in WEEKDAYS if d in off)} (days off) leave no room "
                            f"48 hours from the long run")
@@ -740,11 +887,21 @@ def build_week(start, *, days_per_week: int = DEFAULT_DAYS_PER_WEEK,
         assumptions.append(scale_note)
 
     sessions = []
+    kept: list[str] = []
     for day in sorted(plan):
         kind = plan[day]
-        spec = build_session(kind, duration_min=sizes[kind], zones=zones, variant=variant,
+        minutes = sizes[kind]
+        cap = caps.get(WEEKDAYS[day.weekday()])
+        if cap is not None and minutes > cap:
+            minutes = max(min_minutes(kind), cap)
+            if minutes < sizes[kind]:
+                kept.append(f"{WEEKDAYS[day.weekday()]} ~{minutes} min (not {sizes[kind]})")
+        spec = build_session(kind, duration_min=minutes, zones=zones, variant=variant,
                              today=today)
-        sessions.append((day, spec))
+        sessions.append((day, with_fallback(spec, week_easy_min=sizes["easy"])))
+    if kept:
+        assumptions.append(f"kept to your short days: {', '.join(kept)} - your runs there are "
+                           f"always short, and the minutes are not moved to another day")
     # The zone assumptions are the same for every session; say them once.
     seen: set[str] = set()
     for _, spec in sessions:
@@ -832,7 +989,7 @@ def fit_week_to_calendar(sessions: list[tuple], calendar: list[dict], *, own_kin
             elif before_long:
                 reason = "it is the day before the long run"
             if reason:
-                minutes = max(30, spec.estimated_seconds // 60 - 10)
+                minutes = easier_minutes(spec.kind, spec.estimated_seconds // 60)
                 easy = build_session("easy", duration_min=minutes, zones=zones)
                 notes.append(f"{day}: {spec.name} became {easy.name} - {reason}")
                 kept[i] = (day, easy)
@@ -872,6 +1029,24 @@ def brake(acwr: float | None, acwr_source: str | None) -> tuple[float, str | Non
         return WEEK_HOLD, (f"hold: ACWR {acwr} is elevated (> {logic.ACWR_ELEVATED}), "
                            f"so no step up this week")
     return WEEK_STEP, None
+
+
+def monotony_brake(state: dict | None) -> tuple[float, str | None]:
+    """Hold a week after seven days that were both very even and heavy: a
+    monotony above `logic.MONOTONY_HIGH` with a load at least the athlete's own
+    weekly mean of the four weeks before (`snapshot.monotony_state`). It never
+    cuts a week - the planned week already has its rest day and easy days, and
+    those ARE the variation the last seven days lacked."""
+    if not state or state.get("base") is None:
+        return WEEK_STEP, None
+    mono, load, base = state["monotony"], state["load"], state["base"]
+    if mono <= logic.MONOTONY_HIGH or load < base:
+        return WEEK_STEP, None
+    how = ("monotony: every day alike" if mono >= logic.MONOTONY_MAX
+           else f"monotony {mono}, above {logic.MONOTONY_HIGH}")
+    return WEEK_HOLD, (f"hold: your last 7 days were heavy and very even ({how}; load {load} "
+                       f"against ~{base} a week before) - no step up this week; the plan's "
+                       f"rest day and easy days are the variation that week lacked")
 
 
 #: Every fourth week is a down week (zones.md: every 3-4 weeks, -30-40 %). A

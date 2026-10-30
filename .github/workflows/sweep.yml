@@ -27,7 +27,9 @@ permissions:
 jobs:
   sweep:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Fifteen athletes x 41 seeds took 23 minutes on a laptop (v0.6); a hosted
+    # runner is slower, and a sweep cut off at the limit reports nothing.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

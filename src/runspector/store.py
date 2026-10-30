@@ -13,6 +13,7 @@ Dates leave this module as ISO strings. Week buckets are computed in Python
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 from contextlib import contextmanager
@@ -73,7 +74,8 @@ _DETAIL_COLS = (
     "hr_z1_s", "hr_z2_s", "hr_z3_s", "hr_z4_s", "hr_z5_s", "hr_z4_low", "hr_z5_low",
     "avg_cadence", "temperature_c", "humidity_pct", "performance_condition",
 )
-_PROFILE_COLS = frozenset({"race_5k_s", "race_10k_s", "race_hm_s", "race_m_s"})
+_PROFILE_COLS = frozenset({"race_5k_s", "race_10k_s", "race_hm_s", "race_m_s",
+                           "garmin_readiness", "garmin_readiness_level"})
 
 
 def _now() -> str:
@@ -243,6 +245,38 @@ class Store:
                 )
                 n += cur.rowcount or 0
         return n
+
+    def set_daily_fields(self, day: date, fields: dict) -> int:
+        """Like `update_daily_fields`, but a None CLEARS its column: for values
+        that belong together (Garmin's readiness score and its level), where
+        keeping one half of an older reading would pair it with a newer one."""
+        settable = {k: v for k, v in (fields or {}).items() if k in _PROFILE_COLS}
+        if not settable:
+            return 0
+        names = sorted(settable)
+        with self._conn() as conn:
+            cur = conn.execute(
+                f"UPDATE daily_metrics SET {', '.join(f'{k} = ?' for k in names)} WHERE day = ?",
+                [_v(settable[k]) for k in names] + [_v(day)])
+        return cur.rowcount
+
+    def replace_weights(self, start: date, end: date, weights: dict) -> None:
+        """The weigh-ins of [start, end] as Garmin answered them - a weigh-in
+        deleted there goes here too. One transaction; days outside the range
+        are left alone."""
+        now = _now()
+        with self._conn() as conn:
+            conn.execute("DELETE FROM weigh_ins WHERE day BETWEEN ? AND ?", (_v(start), _v(end)))
+            conn.executemany("INSERT INTO weigh_ins (day, weight_kg, synced_at) VALUES (?, ?, ?)",
+                             [(_v(d), float(kg), now) for d, kg in sorted(weights.items())
+                              if start <= d <= end])
+
+    def weights(self, start: date, end: date) -> list[tuple[date, float]]:
+        """`(day, kg)` of the weigh-ins in [start, end], oldest first."""
+        with self._conn() as conn:
+            rows = conn.execute("SELECT day, weight_kg FROM weigh_ins WHERE day BETWEEN ? AND ? "
+                                "ORDER BY day", (_v(start), _v(end))).fetchall()
+        return [(_d(r["day"]), float(r["weight_kg"])) for r in rows]
 
     def update_daily_fields(self, day: date, fields: dict) -> int:
         """Set profile columns on an EXISTING day row. Never INSERT (a profile
@@ -579,7 +613,8 @@ class Store:
         anchor = day or self.analysis_anchor()
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT day, hrv_status, sleep_score, body_battery_high, resting_hr, training_status "
+                "SELECT day, hrv_status, sleep_score, body_battery_high, resting_hr, training_status, "
+                "garmin_readiness, garmin_readiness_level "
                 "FROM daily_metrics WHERE day <= ? AND (hrv_status IS NOT NULL OR sleep_score IS NOT NULL "
                 "OR body_battery_high IS NOT NULL OR resting_hr IS NOT NULL) "
                 "ORDER BY day DESC LIMIT 1", (_v(anchor),)).fetchone()
@@ -629,6 +664,10 @@ class Store:
                 "acwr": tl["acwr"], "acwr_source": tl["acwr_source"],
                 "training_status": row["training_status"],
                 "days_since_hard_workout": days_since_hard,
+                # Garmin's own score: shown beside the light, read by no rule
+                # (the verdict above was decided without it).
+                "garmin_readiness": row["garmin_readiness"],
+                "garmin_readiness_level": row["garmin_readiness_level"],
             },
         }
 
@@ -754,6 +793,19 @@ class Store:
                 "SELECT workout_id, name, kind, created_at, schedule_id, scheduled_day "
                 "FROM runcoach_workouts ORDER BY created_at DESC").fetchall()
 
+    def workout_fallback(self, workout_id) -> int | None:
+        """The easier option (`planning.easier_minutes`) stored with a workout
+        this app uploaded, or `None` - a foreign workout, an easy run, or one
+        uploaded before the option existed."""
+        with self._conn() as conn:
+            row = conn.execute("SELECT spec_json FROM runcoach_workouts WHERE workout_id = ?",
+                               (workout_id,)).fetchone()
+        try:
+            fb = json.loads(row["spec_json"]).get("fallback_min") if row else None
+        except (TypeError, ValueError, AttributeError):
+            return None
+        return int(fb) if isinstance(fb, int) and not isinstance(fb, bool) and fb > 0 else None
+
     # ── Claims: who may upload which session of a proposal ─────────────────
 
     def claim_proposal_item(self, proposal_id: str, index: int) -> bool:
@@ -864,6 +916,16 @@ class Store:
             return conn.execute(
                 "SELECT proposal_id, item_index, claimed_at FROM proposal_items "
                 "WHERE state = 'unknown' ORDER BY claimed_at").fetchall()
+
+    def daily_load(self, start: date, end: date) -> dict[date, float]:
+        """Garmin's training load per local day, ALL sports - the input of the
+        monotony rule, which reads the whole training week, strength included."""
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT local_day, SUM(COALESCE(training_load, 0)) AS l FROM activities "
+                "WHERE local_day BETWEEN ? AND ? GROUP BY local_day",
+                (_v(start), _v(end))).fetchall()
+        return {_d(r["local_day"]): float(r["l"] or 0) for r in rows}
 
     def running_seconds_by_day(self, start: date, end: date) -> dict[date, int]:
         """Seconds of RUNNING per local day - the input of the week budget,

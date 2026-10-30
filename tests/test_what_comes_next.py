@@ -58,7 +58,8 @@ def test_a_long_pause_gives_a_small_return_week_without_hard_sessions(store, tod
     budget, lines = plan._week_budget(store, today)
     assert budget <= 300 and "return week" in lines[0], (budget, lines)
     out = tools.propose_week(store, days_per_week=4, long_run_day="sun")
-    assert "HR zone 5" not in out and "HR zone 4" not in out, out
+    # By kind, not by target: with a pace source the reps carry no zone at all.
+    assert not any(f"({k};" in out for k in planning.HARD_KINDS), out
     assert _session_minutes(out) <= budget * 1.2, (_session_minutes(out), budget)
 
 
@@ -422,6 +423,27 @@ def test_a_held_week_is_no_bigger_than_the_week_before_it(store, today):
     assert "no bigger than the" in lines[-1], lines
 
 
+
+def test_a_held_week_after_a_down_week_is_no_bigger_than_the_week_before_that(store, today):
+    """Found by the synthetic `daily_even` runner: held 293, then the down week,
+    then "hold" again at 353 - the comparison skipped the down week and with it
+    every check. Held means no bigger than the last regular week planned."""
+    from conftest import make_day
+
+    for k, minutes in enumerate((400, 350, 300, 250, 200, 200)):
+        _run(store, today - timedelta(days=7 * k + 1), minutes)
+    for back in (0, 7, 14):
+        store.upsert_daily(make_day(today - timedelta(days=back), hrv_status="BALANCED",
+                                    sleep_score=80, body_battery_high=80, acwr_ratio=1.35))
+    # The week before is a down week (weeks % 4 == 3), the one before it is not.
+    monday = planning.CADENCE_EPOCH + timedelta(weeks=204)
+    budget, lines, mode = plan._week_plan(store, today, monday)
+    _, _, mode_before = plan._week_plan(store, today - timedelta(days=7), monday - timedelta(days=7))
+    regular, _, mode_regular = plan._week_plan(store, today - timedelta(days=14),
+                                               monday - timedelta(days=14))
+    assert mode_before == "down" and mode_regular == "hold", (mode_before, mode_regular)
+    assert mode == "hold" and budget <= regular, (budget, regular, lines)
+
 # ── the athlete's own days (habits.py) ───────────────────────────────────────
 
 def _habit_weeks(store, today: date, n: int, runs: dict, other: dict | None = None,
@@ -567,6 +589,38 @@ def test_a_week_cut_to_one_quality_session_follows_the_next_stimulus():
     assert [s.kind for _, s in sessions if s.kind in planning.HARD_KINDS] == ["steady"]
 
 
+
+def _planned_minutes(proposal: dict) -> dict:
+    """Weekday -> (kind, minutes) of a proposal's sessions."""
+    from datetime import date as _date
+
+    out = {}
+    for it in proposal["items"]:
+        d = _date.fromisoformat(it["day"])
+        out[planning.WEEKDAYS[d.weekday()]] = (it["spec"]["kind"],
+                                               round(it["spec"]["estimated_seconds"] / 60))
+    return out
+
+
+def test_a_short_weekday_stays_as_short_as_the_athlete_runs_it(store, today):
+    """Tuesday is the athlete's short day - 35 minutes, every week, while the
+    other runs go an hour. A planner that sizes by kind put 45 there, and a
+    hard session that does not fit 35 minutes; neither is the athlete's week."""
+    _habit_weeks(store, today, 8, {1: 35, 3: 60, 5: 60, 6: 100})
+    week = _planned_minutes(plan.propose_week(store, today=today))
+    assert "tue" in week, week
+    kind, minutes = week["tue"]
+    assert minutes <= 35 and kind not in planning.HARD_KINDS, week
+
+
+def test_a_runner_whose_runs_are_all_alike_has_no_short_day(store, today):
+    """The counter-case: equal runs on every day are a rhythm, not a limit -
+    capping each day at its longest run would freeze the week for good."""
+    _habit_weeks(store, today, 8, {1: 50, 3: 50, 5: 50, 6: 90})
+    out = plan.propose_week(store, today=today)
+    assert not any("short" in a for a in out["preview"].splitlines() if "assumption:" in a), \
+        out["preview"]
+
 # ── the athlete's own settings (the You tab, profile.py) ─────────────────────
 
 def _set_profile(**values):
@@ -664,3 +718,178 @@ def test_the_runs_a_week_shown_are_the_runs_the_planner_plans(store, today):
     assert fs["days"].value == "4 a week" and "mon, wed, fri are days off" in fs["days"].evidence
     assert len(_week_days(tools.propose_week(store))) == 4
     assert habits.effective({}, plan.athlete_habits(store, today))["days_per_week"].value == 5
+
+
+# ── the shape of the load (monotony) ─────────────────────────────────────────
+
+def _loaded(store, day: date, minutes: int, load: int):
+    _AID[0] += 1
+    store.upsert_activity(make_activity(_AID[0], day, duration_s=minutes * 60, load=load,
+                                        aerobic_te=2.5, anaerobic_te=0.3))
+
+
+#: Neither this week nor the one before is a down week (every 4th week).
+_NO_DOWN_WEEK = planning.CADENCE_EPOCH + timedelta(weeks=201)
+
+
+def test_a_week_of_the_same_run_every_day_is_not_stepped_up(store, today):
+    """Five weeks of 50 minutes every single day: the ratio is a calm 1.0, the
+    median is steady - and nothing told the planner the athlete never had an
+    easier day. A heavy week with no variation is held, and the line says why."""
+    for back in range(35):
+        _loaded(store, today - timedelta(days=back), 50, 80)
+    budget, lines, mode = plan._week_plan(store, today, _NO_DOWN_WEEK)
+    assert mode == "hold", (mode, lines)
+    assert "monotony" in lines[0], lines
+
+
+def test_the_same_load_with_rest_days_between_is_stepped_up(store, today):
+    """The counter-case: the same weekly load in four runs and three rest days
+    is ordinary training - the monotony rule must not touch it."""
+    for back in range(35):
+        if (today - timedelta(days=back)).weekday() in (0, 2, 4, 6):
+            _loaded(store, today - timedelta(days=back), 87, 140)
+    budget, lines, mode = plan._week_plan(store, today, _NO_DOWN_WEEK)
+    assert mode == "step", (mode, lines)
+    assert not any("monotony" in line for line in lines), lines
+
+
+def test_an_even_but_light_week_is_not_held(store, today):
+    """Even days are not a risk on their own: a light even week after heavier
+    varied ones (a few easy jogs while busy) carries no strain."""
+    for back in range(7, 35):
+        if (today - timedelta(days=back)).weekday() in (0, 2, 4, 6):
+            _loaded(store, today - timedelta(days=back), 87, 140)
+    for back in range(7):
+        _loaded(store, today - timedelta(days=back), 30, 40)
+    budget, lines, mode = plan._week_plan(store, today, _NO_DOWN_WEEK)
+    assert not any("monotony" in line for line in lines), lines
+
+
+def test_the_coach_hears_about_an_even_heavy_week_and_only_then(store, today):
+    for back in range(35):
+        _loaded(store, today - timedelta(days=back), 50, 80)
+    _green(store, today)
+    out = tools.get_training_load(store)
+    assert "Monotony, last 7 days" in out and "does not step the next week up" in out, out
+    state = snapshot.assemble(store)["load"]["monotony"]
+    assert state["monotony"] == logic.MONOTONY_MAX and state["base"] == 560, state
+
+
+def test_a_varied_week_adds_nothing_to_the_coachs_load_text(store, today):
+    for back in range(35):
+        if (today - timedelta(days=back)).weekday() in (0, 2, 4, 6):
+            _loaded(store, today - timedelta(days=back), 87, 140)
+    _green(store, today)
+    assert "Monotony" not in tools.get_training_load(store)
+
+
+def test_the_short_day_is_on_the_you_tab_with_its_evidence(store, today):
+    from runspector import facts
+
+    _habit_weeks(store, today, 8, {1: 35, 3: 60, 5: 60, 6: 100})
+    found = {f.key: f for f in facts.learned(store, today)}
+    assert found["short_days"].value == "tue up to 35 min", found.get("short_days")
+    assert "never went past 35 min" in found["short_days"].evidence
+
+
+# ── Garmin's own readiness ───────────────────────────────────────────────────
+
+def test_garmins_readiness_never_changes_the_apps_decision(store, today):
+    """Garmin says 95, Garmin says 5 - the light, the reasons and the day's
+    decision are the app's, from the same signals either way. Shown beside
+    the light, read by no rule."""
+    from conftest import make_day
+
+    _run(store, today - timedelta(days=1), 50, z5=900)      # a hard day yesterday
+    answers = []
+    for score, level in ((95, "PRIME"), (5, "POOR"), (None, None)):
+        store.upsert_daily(make_day(today, hrv_status="BALANCED", sleep_score=82,
+                                    body_battery_high=80, garmin_readiness=score,
+                                    garmin_readiness_level=level))
+        r = store.get_readiness(today)
+        d = snapshot.assemble(store, today=today)["decision_today"]
+        answers.append((r["verdict"], tuple(r["reasons"]), d["decision"], d["sentence"]))
+    assert answers[0] == answers[1] == answers[2], answers
+
+
+def test_the_coach_sees_garmins_score_as_garmins_opinion(store, today):
+    from conftest import make_day
+
+    store.upsert_daily(make_day(today, hrv_status="BALANCED", sleep_score=82,
+                                body_battery_high=80, garmin_readiness=85,
+                                garmin_readiness_level="HIGH"))
+    out = tools.get_training_readiness(store)
+    assert "Garmin's own Training Readiness: 85 (HIGH) - its score, not this app's rule" in out
+    store.upsert_daily(make_day(today, hrv_status="BALANCED", sleep_score=82,
+                                body_battery_high=80))
+    # make_day writes None for the score: a profile column keeps what it had.
+    assert "Garmin's own Training Readiness: 85" in tools.get_training_readiness(store)
+
+
+# ── body weight ──────────────────────────────────────────────────────────────
+
+def test_the_coach_hears_how_much_of_a_vo2max_rise_the_weight_alone_explains(store, today):
+    from conftest import make_day
+
+    for back in range(40, -1, -1):
+        d = today - timedelta(days=back)
+        store.upsert_daily(make_day(d, hrv_status="BALANCED", sleep_score=80,
+                                    vo2max=50.0 if back > 10 else 51.0))
+        if back % 3 == 0:
+            store.replace_weights(d, d, {d: 73.0 if back > 20 else 71.4})
+    out = tools.get_vo2max_history(store)
+    assert "Body weight: 71.4 kg" in out and "-1.6 kg since" in out, out
+    assert "the weight alone moves it by about +1.1" in out, out
+
+
+def test_the_coach_is_told_the_hold_the_planner_will_make_on_the_same_days(store, today):
+    """Review finding: the tool read the seven days to the last day with a
+    recovery row, the planner the seven days to today - before the morning
+    sync the coach said "the planner holds the next week" and the proposal
+    stepped it up. One window, both places."""
+    from conftest import make_day
+
+    for back in range(1, 36):         # runs up to yesterday: the morning before today's
+        _loaded(store, today - timedelta(days=back), 50, 100)
+    for back in range(1, 30):        # recovery rows up to YESTERDAY only
+        store.upsert_daily(make_day(today - timedelta(days=back), hrv_status="BALANCED",
+                                    sleep_score=80))
+    said = "does not step the next week up" in tools.get_training_load(store)
+    _, lines, mode = plan._week_plan(store, today, _NO_DOWN_WEEK)
+    assert said == (mode != "step"), (said, mode, lines)
+
+
+def test_a_short_day_that_blocks_nothing_costs_the_week_no_quality_session(store, today):
+    """Planner review: a short Monday - the day after the long run, never a
+    quality slot - cut every week to one quality session, and the line said
+    two "do not fit". Only a short day that pushes the pair off the athlete's
+    days may trade it for one on their day."""
+    _habit_weeks(store, today, 8, {0: 25, 2: 50, 5: 45, 6: 90})
+    week = _planned_minutes(plan.propose_week(store, today=today))
+    hard = [d for d, (k, _) in week.items() if k in planning.HARD_KINDS]
+    assert len(hard) == 2, week
+
+
+def test_the_short_day_line_says_why_there_is_one_quality_session(store, today):
+    _habit_weeks(store, today, 8, {1: 35, 3: 60, 5: 60, 6: 100})
+    preview = plan.propose_week(store, today=today)["preview"]
+    line = next(ln for ln in preview.splitlines() if "one quality session this week" in ln)
+    assert "do not fit" not in line and "on a day you run" in line, line
+
+
+def test_a_hold_from_alike_days_does_not_blame_the_load_ratio(store, today):
+    for back in range(35):
+        _loaded(store, today - timedelta(days=back), 50, 80)
+    _, lines, mode = plan._week_plan(store, today, _NO_DOWN_WEEK)
+    assert mode == "hold" and not any("raised the ratio" in ln for ln in lines), lines
+
+
+def test_a_short_day_that_leaves_one_of_the_runners_days_keeps_both_sessions(store, today):
+    """Round 2: Tue/Thu/Sat/Sun runner, short Thursday. Tue and Fri still hold
+    two sessions 48 hours apart, one of them on a day they run - the trade to
+    a single session is for a short day that leaves NONE of their days."""
+    _habit_weeks(store, today, 8, {1: 50, 3: 30, 5: 55, 6: 100})
+    week = _planned_minutes(plan.propose_week(store, today=today))
+    hard = sorted(d for d, (k, _) in week.items() if k in planning.HARD_KINDS)
+    assert len(hard) == 2 and "thu" not in hard, week

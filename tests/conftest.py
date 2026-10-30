@@ -207,6 +207,14 @@ class FakeGarmin:
     def get_race_predictions(self, **kw):
         return self.data.get("race_predictions", {})
 
+    def get_morning_training_readiness(self, cdate):
+        """None by default: what the library answers for a watch without
+        Training Readiness - the common case, and not an error."""
+        return self.data.get("training_readiness")
+
+    def get_weigh_ins(self, startdate, enddate):
+        return self.data.get("weigh_ins", {"dailyWeightSummaries": []})
+
     def get_workout_by_id(self, workout_id):
         try:
             return self._lib()[int(workout_id)]

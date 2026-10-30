@@ -8,7 +8,7 @@ from datetime import date, timedelta
 import pytest
 
 from conftest import FakeGarmin
-from runspector import garmin, plan, planning
+from runspector import garmin, logic, plan, planning
 from runspector.planning import (
     DEFAULT_LT_PACE_S,
     HARD_KINDS,
@@ -33,6 +33,10 @@ from runspector.planning import (
 )
 
 ZONES = {"z4_low": 156, "z5_low": 176, "lthr_bpm": 168, "lt_pace_s_per_km": 285}
+#: The same athlete without a pace source: the reps keep their heart-rate zones.
+HR_ONLY = {k: v for k, v in ZONES.items() if k != "lt_pace_s_per_km"}
+#: The rep paces `ZONES` gives (`_paces`): VO2max 0.93 x threshold.
+_FAST = round(285 * planning.VO2MAX_PACE_FACTOR)
 
 
 # ── shape ────────────────────────────────────────────────────────────────────
@@ -56,7 +60,7 @@ def test_intervals_are_warmup_repeat_cooldown_and_the_route_adds_up():
     rep = spec.blocks[1]
     assert rep.iterations >= 3
     assert [s.kind for s in rep.steps] == ["interval", "recovery"]
-    assert rep.steps[0].target == {"type": "hr_zone", "zone": 5}
+    assert rep.steps[0].target == planning.pace(_FAST + 5, _FAST - 5)
     assert rep.steps[1].target is None, "a recovery step never carries a target"
     # Warm-up + cool-down in metres plus reps at their paces = the route.
     wu, cd = spec.blocks[0].meters, spec.blocks[2].meters
@@ -69,10 +73,30 @@ def test_intervals_are_warmup_repeat_cooldown_and_the_route_adds_up():
     assert abs(_route_metres(spec) - 10_000) <= 250, _route_metres(spec)
 
 
-def test_threshold_reps_are_longer_and_target_zone_4():
+def test_threshold_reps_are_longer_and_target_the_threshold_pace():
     spec = build_session("threshold", distance_km=12, zones=ZONES)
     rep = next(b for b in spec.blocks if isinstance(b, Repeat))
-    assert rep.steps[0].seconds >= 480 and rep.steps[0].target == {"type": "hr_zone", "zone": 4}
+    assert rep.steps[0].seconds >= 480 and rep.steps[0].target == planning.pace(290, 280)
+
+
+@pytest.mark.parametrize(("kind", "zone"), [("vo2max", 5), ("threshold", 4)])
+def test_without_a_pace_source_the_reps_keep_their_heart_rate_zone(kind, zone):
+    """The built-in 5:00/km is nobody's pace: a rep targeted at it would be
+    wrong for everyone who is not that runner. Heart rate stays the target."""
+    spec = build_session(kind, duration_min=50, zones=HR_ONLY)
+    rep = next(b for b in spec.blocks if isinstance(b, Repeat))
+    assert rep.steps[0].target == {"type": "hr_zone", "zone": zone}
+
+
+def test_a_usable_race_prediction_is_a_pace_source_for_the_reps():
+    from datetime import date
+
+    today = date(2026, 6, 10)
+    zones = {**HR_ONLY, "pred_5k_s": 1350, "pred_10k_s": 2820, "pred_day": "2026-06-09"}
+    spec = build_session("vo2max", duration_min=50, zones=zones, today=today)
+    rep = next(b for b in spec.blocks if isinstance(b, Repeat))
+    assert rep.steps[0].target == planning.pace(270 + 5, 270 - 5)      # 22:30 / 5 km
+    assert any("5 km prediction" in a for a in spec.assumptions), spec.assumptions
 
 
 def test_an_easy_run_is_one_capped_step_from_the_athletes_own_bounds():
@@ -131,7 +155,7 @@ def test_describe_is_readable_and_names_the_assumptions():
 # ── to Garmin and back ───────────────────────────────────────────────────────
 
 def test_the_dto_carries_the_targets_on_the_step_and_none_on_the_recovery():
-    spec = build_session("vo2max", distance_km=10, zones=ZONES)
+    spec = build_session("vo2max", distance_km=10, zones=HR_ONLY)
     dto = garmin.to_running_workout(spec).to_dict()
     steps = dto["workoutSegments"][0]["workoutSteps"]
     assert [s["stepType"]["stepTypeKey"] for s in steps] == ["warmup", "repeat", "cooldown"]
@@ -305,7 +329,7 @@ def test_verify_catches_a_target_that_arrived_with_the_wrong_number():
     """The targets ride on the vendor model as EXTRA fields; nothing in the
     library type-checks them. A zone that arrives as 2 instead of 5 passes
     every structural check - and is the whole reason the read-back exists."""
-    spec = build_session("vo2max", distance_km=10, zones=ZONES)
+    spec = build_session("vo2max", distance_km=10, zones=HR_ONLY)
     dto = garmin.to_running_workout(spec).to_dict()
     assert garmin.verify(spec, dto) == []
 
@@ -329,7 +353,7 @@ def test_verify_catches_a_pace_bound_that_came_back_different():
 
 
 def test_verify_catches_a_target_that_changed_its_kind():
-    spec = build_session("vo2max", distance_km=10, zones=ZONES)
+    spec = build_session("vo2max", distance_km=10, zones=HR_ONLY)
     dto = garmin.to_running_workout(spec).to_dict()
     work = next(s for s in _dto_steps(dto) if s.get("zoneNumber"))
     work["targetType"] = {"workoutTargetTypeId": 6, "workoutTargetTypeKey": "pace.zone",
@@ -1013,3 +1037,156 @@ def test_a_week_without_room_for_quality_says_so_instead_of_the_usual_rhythm():
     assert not any(s.kind in planning.HARD_KINDS for _, s in sessions), sessions
     assert not any("placed in the usual rhythm" in n for n in notes), notes
     assert any(n.startswith("no quality session this week") for n in notes), notes
+
+
+def test_the_monotony_brake_holds_only_an_even_and_heavy_week():
+    heavy_even = {"monotony": 2.5, "load": 500, "base": 450}
+    factor, line = planning.monotony_brake(heavy_even)
+    assert factor == planning.WEEK_HOLD and "monotony 2.5" in line and "~450" in line
+    assert planning.monotony_brake({**heavy_even, "monotony": logic.MONOTONY_HIGH}) == \
+        (planning.WEEK_STEP, None)                       # the line is "above", not "at"
+    assert planning.monotony_brake({**heavy_even, "load": 449}) == (planning.WEEK_STEP, None)
+    assert planning.monotony_brake({**heavy_even, "base": None}) == (planning.WEEK_STEP, None)
+    assert planning.monotony_brake(None) == (planning.WEEK_STEP, None)
+    # It holds; it never cuts - the factor is never below a hold.
+    assert planning.monotony_brake({**heavy_even, "monotony": 10.0})[0] == planning.WEEK_HOLD
+
+
+def test_a_short_day_is_never_planned_longer_than_the_athlete_runs_it():
+    """Over the golden grid, with every weekday in turn a short day of 25-50
+    minutes: nothing on it runs longer than the cap (or than the shortest
+    session of its kind), no quality session lands there while the week has
+    one elsewhere, the week never grows, and the line says what was kept."""
+    from datetime import date
+    from itertools import product
+
+    bad = []
+    for days, long_day, short, cap, budget in product(
+            range(3, 8), planning.WEEKDAYS, planning.WEEKDAYS, (25, 35, 50), (None, 180, 320)):
+        if short == long_day:
+            continue
+        plain, _ = planning.build_week(date(2026, 6, 15), days_per_week=days,
+                                       long_run_day=long_day, total_minutes=budget)
+        sessions, notes = planning.build_week(date(2026, 6, 15), days_per_week=days,
+                                              long_run_day=long_day, total_minutes=budget,
+                                              day_caps={short: cap})
+        on_short = [(s.kind, round(s.estimated_seconds / 60)) for d, s in sessions
+                    if planning.WEEKDAYS[d.weekday()] == short]
+        hard_elsewhere = any(s.kind in planning.HARD_KINDS for d, s in sessions
+                             if planning.WEEKDAYS[d.weekday()] != short)
+        total = sum(s.estimated_seconds for _, s in sessions)
+        for kind, minutes in on_short:
+            if minutes > max(cap, planning.min_minutes(kind)) + 1:
+                bad.append((days, long_day, short, cap, budget, "long", kind, minutes))
+            if kind in planning.HARD_KINDS and hard_elsewhere:
+                bad.append((days, long_day, short, cap, budget, "hard", kind, minutes))
+        if total > sum(s.estimated_seconds for _, s in plain) + 60:
+            bad.append((days, long_day, short, cap, budget, "grew"))
+        cut = any(planning.WEEKDAYS[d.weekday()] == short and
+                  round(s.estimated_seconds / 60) < planning.WEEK_MINUTES.get(s.kind, 0)
+                  for d, s in sessions) and on_short
+        if cut and not any(n.startswith("kept to your short days") for n in notes) and \
+                any(m < 45 for _, m in on_short) and budget is None:
+            bad.append((days, long_day, short, cap, budget, "unsaid"))
+    assert not bad, f"{len(bad)} weeks break the short day, e.g. {bad[:5]}"
+
+
+# ── the easier option ────────────────────────────────────────────────────────
+
+@pytest.mark.parametrize(("kind", "minutes", "week_easy", "want"), [
+    ("vo2max", 58, None, 48), ("threshold", 64, None, 54), ("steady", 45, None, 35),
+    ("vo2max", 35, None, 30), ("threshold", 28, None, 28),       # floor 30, never longer than itself
+    ("long", 105, 52, 52), ("long", 105, None, 45), ("long", 40, 52, 40),
+    ("easy", 45, 52, None),
+])
+def test_the_easier_option_is_an_easy_run_never_longer_than_the_session(kind, minutes, week_easy,
+                                                                         want):
+    assert planning.easier_minutes(kind, minutes, week_easy_min=week_easy) == want
+
+
+def test_every_hard_session_and_long_run_of_a_week_carries_its_easier_option():
+    """Over the golden grid: each hard session and each long run has an easier
+    option, an easy run no longer than itself; an easy run has none."""
+    from datetime import date
+    from itertools import product
+
+    bad = []
+    for days, long_day, budget, zones in product(range(3, 8), planning.WEEKDAYS,
+                                                (None, 70, 180, 320), ({}, ZONES)):
+        sessions, _ = planning.build_week(date(2026, 6, 15), days_per_week=days,
+                                          long_run_day=long_day, total_minutes=budget, zones=zones)
+        for day, spec in sessions:
+            minutes = round(spec.estimated_seconds / 60)
+            if spec.kind == "easy":
+                if spec.fallback_min is not None:
+                    bad.append((days, long_day, budget, day, spec.kind, spec.fallback_min))
+            elif spec.fallback_min is None or not 0 < spec.fallback_min <= minutes:
+                bad.append((days, long_day, budget, day, spec.kind, minutes, spec.fallback_min))
+    assert not bad, f"{len(bad)} sessions without a sound easier option, e.g. {bad[:5]}"
+
+
+def test_the_easier_option_is_in_the_preview_and_survives_the_round_trip():
+    spec = planning.with_fallback(build_session("vo2max", duration_min=58, zones=ZONES))
+    assert "if tired: an easy run of 48 min instead" in planning.describe(spec)
+    back = planning.from_json(planning.to_json(spec))
+    assert back.fallback_min == 48
+    # A spec stored before the field existed reads as one without it.
+    old = {k: v for k, v in planning.to_json(spec).items() if k != "fallback_min"}
+    assert planning.from_json(old).fallback_min is None
+    easy = build_session("easy", duration_min=40, zones=ZONES)
+    assert "fallback_min" not in planning.to_json(planning.with_fallback(easy))
+
+
+def test_the_watch_gets_the_easier_option_as_the_workouts_description():
+    hard = planning.with_fallback(build_session("threshold", duration_min=64, zones=ZONES))
+    dto = garmin.to_running_workout(hard).to_dict()
+    assert dto["description"] == "If tired: 54 min easy instead."
+    easy = planning.with_fallback(build_session("easy", duration_min=40, zones=ZONES))
+    assert "description" not in garmin.to_running_workout(easy).to_dict()
+    # Through the double: what the watch stores is what was sent, and verify agrees.
+    client = FakeGarmin()
+    wid = garmin.upload_workout(client, hard)
+    stored = client.get_workout_by_id(wid)
+    assert stored["description"] == "If tired: 54 min easy instead."
+    assert garmin.verify(hard, stored) == []
+
+
+def test_a_reason_is_named_only_when_the_week_would_differ_without_it():
+    """Round 2: the notes listed every constraint there was - a short Monday
+    (never a quality slot) as a reason for one quality session, short days
+    called "another sport". A reason is named only when the week would come
+    out different without it, under its own name."""
+    from datetime import date
+
+    sessions, notes = planning.build_week(date(2026, 6, 15), days_per_week=4, long_run_day="sun",
+                                          avoid_hard=frozenset({"tue", "wed"}),
+                                          day_caps={"mon": 25})
+    line = next((n for n in notes if "one quality session" in n), "")
+    assert line and "mon" not in line, notes
+
+    _, notes = planning.build_week(date(2026, 6, 15), days_per_week=4, long_run_day="sun",
+                                   avoid_hard=frozenset({"wed", "thu"}),
+                                   day_caps={"tue": 30, "fri": 30})
+    said = " ".join(notes)
+    assert "short" in said, notes
+    assert not any("another sport" in n and ("tue" in n or "fri" in n)
+                   and "short" not in n for n in notes), notes
+
+
+def test_an_old_threshold_measurement_is_no_pace_for_the_reps():
+    """Fresh reader: a threshold measured long ago - before a pause - became
+    the rep pace on the watch, 45 s/km faster than the athlete's 5 km pace
+    now. A rep pace needs a CURRENT source; an old one keeps the heart-rate
+    zone, as every rep had before, and says why."""
+    from datetime import date
+
+    today = date(2026, 10, 30)
+    old = {**HR_ONLY, "lt_pace_s_per_km": 270, "lt_measured_on": "2026-03-01"}
+    spec = build_session("vo2max", duration_min=50, zones=old, today=today)
+    rep = next(b for b in spec.blocks if isinstance(b, Repeat))
+    assert rep.steps[0].target == {"type": "hr_zone", "zone": 5}
+    assert any("2026-03-01" in a and "heart rate" in a for a in spec.assumptions), spec.assumptions
+    fresh = {**old, "lt_measured_on": "2026-10-01"}
+    rep = next(b for b in build_session("vo2max", duration_min=50, zones=fresh,
+                                        today=today).blocks if isinstance(b, Repeat))
+    assert rep.steps[0].target["type"] == "pace"

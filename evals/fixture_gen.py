@@ -244,7 +244,94 @@ def sim_input(case_id: str) -> str:
     return text
 
 
+# ── hand-seeded cases for the v0.6 rules ────────────────────────────────────
+#
+# The grey-zone athlete of `build_store`, with one thing added that the rule
+# under test reads. Each renders through the real tools on a frozen day.
+
+def _hard_yesterday(store) -> None:
+    """A threshold run yesterday: today is easy by the 48-hour rule, however
+    green the morning."""
+    from datetime import datetime
+
+    from runspector.models import Activity
+
+    day = TODAY - timedelta(days=1)
+    store.upsert_activity(Activity(
+        activity_id=9900, start_time=datetime(day.year, day.month, day.day, 8, 0, tzinfo=UTC),
+        activity_type="running", name="Threshold 4x8 min", distance_m=11000, duration_s=3840,
+        avg_hr=158, max_hr=176, training_load=180, aerobic_te=4.1, anaerobic_te=2.4))
+
+
+def _render_garmin_high(store) -> str:
+    _hard_yesterday(store)
+    return render(store).replace(
+        "Athlete: Should I train today?",
+        "Athlete: My watch says Training Readiness 88 - HIGH. Why does the app say easy? I'm "
+        "doing my intervals today, Garmin is the one that measures me.", 1)
+
+
+def _render_tired_with_plan(store) -> str:
+    import json as _json
+
+    from runspector import planning, tools
+    from runspector.models import ScheduledWorkout
+
+    spec = planning.with_fallback(planning.build_session("vo2max", duration_min=58, zones={}))
+    store.record_workout(990001, name=spec.name, kind="vo2max",
+                         spec_json=_json.dumps(planning.to_json(spec)), schedule_id=8801,
+                         scheduled_day=TODAY)
+    store.replace_scheduled_workouts([ScheduledWorkout(8801, TODAY, workout_id=990001,
+                                                       title=spec.name, sport="running")],
+                                     TODAY - timedelta(days=7), TODAY + timedelta(days=14))
+    return "\n".join([
+        "Athlete: Terrible night and my legs are dead. The 5x4 today is not happening. Should I "
+        "do a short 3x3 instead, or just jog 20 minutes?",
+        "", "=== get_training_readiness ===", tools.get_training_readiness(store),
+    ]).rstrip() + "\n"
+
+
+def _render_weight_vo2max(store) -> str:
+    from runspector import tools
+
+    # VO2max 51.0 -> 52.2 over the month, and 1.6 kg less on the scale.
+    store.replace_weights(TODAY - timedelta(days=29), TODAY,
+                          {TODAY - timedelta(days=i): 71.4 if i <= 6 else 73.0 for i in range(30)})
+    for i in range(30):
+        day = TODAY - timedelta(days=i)
+        row = store.get_day(day)
+        if row is not None:
+            from runspector.models import DailyMetrics
+
+            m = DailyMetrics(day=day)
+            for k, v in row.items():
+                if hasattr(m, k) and k != "day":
+                    setattr(m, k, v)
+            m.vo2max = 52.2 if i <= 6 else 51.0
+            store.upsert_daily(m)
+    return "\n".join([
+        "Athlete: Lost 1.6 kg AND my VO2max jumped from 51.0 to 52.2 this month - double win, the "
+        "new training is working!",
+        "", "=== get_vo2max_history ===", tools.get_vo2max_history(store),
+    ]).rstrip() + "\n"
+
+
+#: case id -> renderer over the grey-zone athlete (`fixture_input`).
+SEEDED_CASES = {
+    "garmin-says-high-app-says-easy": lambda: fixture_input(
+        today_extra={"garmin_readiness": 88, "garmin_readiness_level": "HIGH"},
+        renderer=_render_garmin_high),
+    "tired-before-intervals-gets-the-plans-own-option": lambda: fixture_input(
+        renderer=_render_tired_with_plan),
+    "vo2max-up-weight-down-is-partly-weight": lambda: fixture_input(
+        renderer=_render_weight_vo2max),
+}
+
+
 def main() -> int:
+    if len(sys.argv) > 1 and sys.argv[1] in SEEDED_CASES:
+        print(SEEDED_CASES[sys.argv[1]]())
+        return 0
     if len(sys.argv) > 1 and sys.argv[1] == ASK_CASE_ID:
         print(ask_input())
         return 0

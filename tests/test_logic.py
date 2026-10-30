@@ -589,3 +589,22 @@ def test_decide_today_carries_the_stimulus_only_on_a_hard_day():
     easy = decide_today("EASY", days_since_hard=5, hard_min=0, target_min=0, stimulus=s)
     assert "stimulus" not in easy
     assert "stimulus" not in decide_today("GO", days_since_hard=5, hard_min=0, target_min=0)
+
+
+# ── monotony (Foster) ────────────────────────────────────────────────────────
+
+def test_monotony_is_mean_over_spread_with_rest_days_as_zero():
+    assert logic_mod.monotony([60] * 6 + [0]) == {"monotony": 2.45, "load": 360, "strain": 882}
+    assert logic_mod.monotony([0, 100, 0, 100, 0, 100, 0]) == \
+        {"monotony": 0.87, "load": 300, "strain": 260}
+
+
+def test_identical_days_are_the_most_monotonous_week_not_an_error():
+    m = logic_mod.monotony([80] * 7)
+    assert m == {"monotony": logic_mod.MONOTONY_MAX, "load": 560,
+                 "strain": int(560 * logic_mod.MONOTONY_MAX)}
+
+
+@pytest.mark.parametrize("loads", [[], [50] * 6, [50] * 8, [0] * 7])
+def test_no_monotony_without_seven_days_or_without_any_load(loads):
+    assert logic_mod.monotony(loads) is None

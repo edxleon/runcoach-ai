@@ -436,8 +436,9 @@ def propose(store: Store, kind: str, *, distance_km: float | None = None,
     anchor = today or paths.today()
     _check_day(day or anchor, today=anchor)
     zones = snapshot.assemble(store, today=anchor).get("zones") or {}
-    spec = planning.build_session(kind, distance_km=distance_km, duration_min=duration_min,
-                                  zones=zones, name=name, today=anchor)
+    spec = planning.with_fallback(planning.build_session(
+        kind, distance_km=distance_km, duration_min=duration_min, zones=zones, name=name,
+        today=anchor))
     target = day or anchor
     return _file([_item(target, spec)],
                  replaces=_calendar_entries(store, list(replaces or []), today=anchor),
@@ -510,7 +511,10 @@ def propose_week(store: Store, *, start: date | None = None, days_per_week: int 
                                           today=anchor, max_session_min=cap,
                                           quality_one=quality_one if quality else None,
                                           preferred=week.preferred, avoid_hard=week.avoid_hard,
-                                          off_days=week.off_days)
+                                          off_days=week.off_days,
+                                          day_caps=known.short_days if mode != "return" else None)
+    if any(n.startswith("kept to your short days") for n in notes) and known.evidence.get("short"):
+        notes.append(known.evidence["short"])
     if cap_line and any(n.startswith("sessions capped") for n in notes):
         notes = [cap_line if n.startswith("sessions capped") else n for n in notes]
     # Fitted to the calendar, never stacked on it: the athlete's plan wins.
@@ -691,6 +695,9 @@ def _week_plan(store: Store, today: date, start: date | None = None, *,
     rules: list[tuple[float, str, str]] = []
     if brake_line:
         rules.append((f_brake, brake_line, "unload" if f_brake < planning.WEEK_HOLD else "hold"))
+    f_mono, mono_line = planning.monotony_brake(snapshot.monotony_state(store, today))
+    if mono_line:
+        rules.append((f_mono, mono_line, "hold"))
     due, line = planning.down_week_due(monday)
     if due and not rebuilding:
         rules.append((planning.WEEK_DOWN, line, "down"))
@@ -735,13 +742,24 @@ def _week_plan(store: Store, today: date, start: date | None = None, *,
     # what raised the ratio - so holding the median grew the plan (424 -> 448
     # for the synthetic overreacher). The week before is recomputed, not
     # stored: the same rules on the history as it stood a week ago.
+    # A down week is not the yardstick - it is smaller on purpose - so the week
+    # before it is: skipping the comparison instead let a held week jump past
+    # the last regular one (293 -> down 240 -> "hold" 353, synthetic `daily_even`).
+    # Down weeks never come two in a row, so one more week back is enough.
     if mode in ("hold", "unload") and _depth < LOOKBACK_WEEKS:
-        before, _, before_mode = _week_plan(store, today - timedelta(days=7),
-                                            start - timedelta(days=7), _depth=_depth + 1)
+        for back in (1, 2):
+            before, _, before_mode = _week_plan(store, today - timedelta(days=7 * back),
+                                                start - timedelta(days=7 * back),
+                                                _depth=_depth + 1)
+            if before_mode != "down":
+                break
         if before and before_mode not in ("down", "return", "default") and budget > before:
             budget = before
-            lines.append(f"no bigger than the ~{before} min planned a week ago: the weeks run "
-                         f"above plan raised the median, and they are what raised the ratio")
+            ago = "a week ago" if back == 1 else "two weeks ago, before the down week"
+            why = (", and they are what raised the ratio" if brake_line and rules
+                   and rules[0][1] == brake_line else "")
+            lines.append(f"no bigger than the ~{before} min planned {ago}: the weeks run "
+                         f"above plan raised the median{why}")
     return budget, lines, mode
 
 

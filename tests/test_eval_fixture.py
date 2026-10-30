@@ -140,3 +140,18 @@ def test_the_open_question_case_matches_the_live_tool_output():
         "regenerate with `uv run python evals/fixture_gen.py open-question-biggest-lever-first`")
     assert "=== get_athlete_profile ===" in case["input"]
 
+
+
+@pytest.mark.parametrize("case_id", ["garmin-says-high-app-says-easy",
+                                     "tired-before-intervals-gets-the-plans-own-option",
+                                     "vo2max-up-weight-down-is-partly-weight"])
+def test_a_seeded_v06_case_matches_the_live_tool_output(case_id):
+    """The cases for Garmin's readiness, the plan's easier option and the body
+    weight: rendered from the grey-zone athlete through the real tools."""
+    import fixture_gen
+
+    data = yaml.safe_load((ROOT / "evals" / "cases.yaml").read_text(encoding="utf-8"))
+    case = next((c for c in data["cases"] if c["id"] == case_id), None)
+    assert case is not None, f"{case_id} is gone from cases.yaml"
+    assert fixture_gen.SEEDED_CASES[case_id]().strip() == case["input"].strip(), (
+        f"regenerate with `uv run python evals/fixture_gen.py {case_id}`")

@@ -121,3 +121,41 @@ def test_a_half_in_the_median_of_run_days_rounds_up_either_way():
                                                             end_weeks_ago=5)
     assert habits.derive(two_three, today=TODAY).days_per_week == 3
     assert habits.derive(three_four, today=TODAY).days_per_week == 4
+
+
+# ── short days ───────────────────────────────────────────────────────────────
+
+def test_a_weekday_clearly_shorter_than_the_others_is_a_short_day():
+    h = habits.derive(_weeks(8, {1: 35, 3: 60, 5: 60, 6: 100}), today=TODAY)
+    assert h.short_days == {"tue": 35}
+    assert h.evidence["short"] == "your tue runs never went past 35 min (8 days), your other runs ~60"
+
+
+def test_the_longest_run_of_a_short_day_is_its_limit_not_the_typical_one():
+    runs = _weeks(7, {1: 30, 3: 60, 5: 60, 6: 100}) + _weeks(1, {1: 45, 3: 60, 5: 60, 6: 100},
+                                                            end_weeks_ago=8)
+    assert habits.derive(runs, today=TODAY).short_days == {"tue": 45}
+
+
+def test_equal_runs_and_a_long_run_are_no_short_day():
+    # The long run is long on purpose: the other days are not "short" against it.
+    assert habits.derive(_weeks(8, {1: 50, 3: 50, 5: 50, 6: 100}), today=TODAY).short_days == {}
+
+
+def test_a_day_just_under_the_others_is_no_short_day():
+    # 50 against 60 is 83 %: a little shorter is a rhythm, not a limit.
+    assert habits.derive(_weeks(8, {1: 50, 3: 60, 5: 60, 6: 100}), today=TODAY).short_days == {}
+
+
+def test_a_short_day_needs_enough_runs_on_it():
+    runs = _weeks(8, {3: 60, 5: 60, 6: 100}) + _weeks(3, {1: 30})
+    assert habits.derive(runs, today=TODAY).short_days == {}
+
+
+def test_a_weekday_that_holds_long_runs_too_is_no_short_day():
+    """Planner review: Saturdays of 30 minutes before a Sunday long run, and
+    three Saturday long runs of 90 - "your sat runs never went past 30 min"
+    was false. A day's own long runs are its runs."""
+    runs = _weeks(5, {1: 45, 3: 45, 5: 30, 6: 100}) + \
+        _weeks(3, {1: 45, 3: 45, 5: 90}, end_weeks_ago=6)
+    assert "sat" not in habits.derive(runs, today=TODAY).short_days

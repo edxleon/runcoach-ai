@@ -454,6 +454,77 @@ export function carryForward(days, hist, key) {
   return out;
 }
 
+/** Garmin's own Training Readiness beside the app's light, or "" when the
+ *  watch has none (most older watches do not compute it). Garmin's opinion:
+ *  the light was decided without it, from the signals the card lists. */
+export function garminReadinessLine(signals) {
+  const s = signals || {};
+  if (s.garmin_readiness == null) return "";
+  const level = s.garmin_readiness_level
+    ? ` (${String(s.garmin_readiness_level).toLowerCase().replace(/_/g, " ")})` : "";
+  return `Garmin's own Training Readiness: ${s.garmin_readiness}${level} - its score; ` +
+    "the call above is this app's, from the signals it lists";
+}
+
+/** The body weight under the VO2max chart (`vo2max.weight` from the server),
+ *  or "" without a recent weigh-in. VO2max is per kilogram: the server says
+ *  how much the weight ALONE moves it, once the change is a kilogram or more. */
+export function weightLine(w) {
+  if (!w || w.kg == null) return "";
+  let out = `Body weight ${w.kg} kg`;
+  if (w.change_kg != null) {
+    out += ` (${w.change_kg > 0 ? "+" : ""}${w.change_kg} kg since ${w.since})`;
+  }
+  if (w.vo2max_effect != null) {
+    out += ` - VO2max is per kilogram, so the weight alone moves it by about ` +
+      `${w.vo2max_effect > 0 ? "+" : ""}${w.vo2max_effect}`;
+  }
+  return out;
+}
+
+/** Does coming back to the page sync with Garmin, not just re-read? Only
+ *  when the data is older than the server's threshold (`sync_after_min`,
+ *  the MCP tools' `RUNSPECTOR_AUTOSYNC_MIN`), there is a session to sync
+ *  with, it is not the demo and no sync runs already. A page left open
+ *  overnight showed yesterday until someone pressed ↻; a sync on every
+ *  glance would hammer a rate-limited account. */
+export function syncOnReturn(state, nowMs) {
+  const s = state || {};
+  if (s.demo || s.garmin_session === false || !s.synced_at) return false;
+  if (s.sync_state === "running") return false;
+  const after = Number.isFinite(s.sync_after_min) ? s.sync_after_min : 30;
+  if (after <= 0) return false;                    // 0 is "off", as for the MCP tools
+  // A failed sync moves no data, so `synced_at` stays old: without counting
+  // the failed attempt, every glance started another login into an account
+  // Garmin was already throttling.
+  const last = s.last_sync && s.last_sync.ok === false ? Date.parse(s.last_sync.at) : NaN;
+  const since = Math.max(Date.parse(s.synced_at), Number.isFinite(last) ? last : -Infinity);
+  const age = nowMs - since;
+  return Number.isFinite(age) && age > after * 60_000;
+}
+
+/* ── Monotony ─────────────────────────────────────────────────────────────
+   A COPY of `logic.MONOTONY_HIGH` / `MONOTONY_MAX` - pinned against the Python
+   by tests/test_js_python_contract.py. The page only words what the server
+   computed (`load.monotony`); the rule that holds a week is Python's. */
+export const MONOTONY_HIGH = 2.0;
+export const MONOTONY_MAX = 10.0;
+
+/** The Trend tab's line for `load.monotony` ({monotony, load, base, end}),
+ *  or "" without one. Plain text; the caller escapes. */
+export function monotonyLine(m) {
+  if (!m || m.monotony == null) return "";
+  // As the Python prints it (up to two decimals): 2.04 rounded to "2.0" read
+  // as not above the 2.0 line the sentence then says it is above.
+  const v = m.monotony >= MONOTONY_MAX ? "every day alike" : String(Math.round(m.monotony * 100) / 100);
+  if (m.monotony <= MONOTONY_HIGH) {
+    return `Monotony, last 7 days: ${v} - enough difference between the days`;
+  }
+  const heavy = m.base != null && m.load >= m.base;
+  return `Monotony, last 7 days: ${v} - the days were much alike` +
+    (heavy ? "; with a week this heavy the planner does not step the next one up" : "");
+}
+
 /** Garmin's load focus as rows: each band's 4-week load against the target
  *  range Garmin sets for this athlete, and where it sits - `below`, `within`
  *  or `above` (null without a range). Garmin's opinion, drawn beside the

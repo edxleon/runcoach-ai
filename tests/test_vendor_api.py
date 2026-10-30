@@ -125,3 +125,15 @@ def test_the_web_sign_in_still_finds_the_two_step_login_in_the_library():
     # library failed: the client already holds a token.
     assert client.client.is_authenticated is False
     inspect.signature(garminconnect.Garmin.resume_login).bind(client, {"state": 1}, "123456")
+
+
+def test_the_readiness_keys_the_sync_reads_are_the_librarys_own():
+    """No account here computes Garmin's Training Readiness (a fenix 6S does not),
+    so the keys come from the library's typed model, not a recording. Pinned:
+    a renamed field there is a silently empty column here."""
+    from garminconnect.typed import TrainingReadiness
+
+    aliases = {f.alias or name for name, f in TrainingReadiness.model_fields.items()}
+    assert {"score", "level", "calendarDate"} <= aliases
+    inspect.signature(garminconnect.Garmin.get_morning_training_readiness).bind(object(), "2026-10-30")
+    inspect.signature(garminconnect.Garmin.get_weigh_ins).bind(object(), "2026-09-01", "2026-10-30")
