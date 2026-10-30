@@ -794,7 +794,8 @@ class Handler(BaseHTTPRequestHandler):
         # nothing. The bootstrap works without it: `serve()` prints the URL with
         # the token for the person to open once, and `ui.js` moves it into
         # localStorage from there.
-        given = self.headers.get("X-Runspector-Token") or ""
+        # The v0.4 name, kept: a page left open across the upgrade still sends it.
+        given = self.headers.get("X-Runcoach-Token") or ""
         ok = hmac.compare_digest(given.encode(), token.encode())
         if not ok:   # global brake against guessing; capped so it cannot stall the UI
             self.app._token_fails += 1
@@ -1108,23 +1109,11 @@ def _take_home_lock():
     return path
 
 
-#: How long a lock may sit before a live pid in it is presumed to be somebody
-#: else's process. Long enough that a real, long-running server is never evicted
-#: (the app is a personal tool that runs for a day at a time, not a service),
-#: short enough that a crash on Monday does not block Tuesday.
-LOCK_MAX_AGE_S = 36 * 3600
-
-
-def _lock_looks_recycled(parts: list[str]) -> bool:
-    """Is this lock too old for its pid to still mean what it says?"""
-    if len(parts) < 2:
-        return False                    # no timestamp: trust the pid, as before
-    try:
-        taken = datetime.fromisoformat(parts[1])
-    except ValueError:
-        return False
-    age = (datetime.now().astimezone() - taken).total_seconds()
-    return age > LOCK_MAX_AGE_S
+# The liveness of a lock lives in `paths`: the move from runcoach-ai asks the
+# same question of the old directory's lock before it moves anything.
+LOCK_MAX_AGE_S = paths.LOCK_MAX_AGE_S
+_lock_looks_recycled = paths.lock_looks_recycled
+_pid_alive = paths.pid_alive
 
 
 #: How often a running server renews its lock - far inside `LOCK_MAX_AGE_S`.
@@ -1155,23 +1144,3 @@ def _release_home_lock(path) -> None:
             path.unlink()
     except (OSError, IndexError):
         pass
-
-
-def _pid_alive(pid: int) -> bool:
-    if os.name != "nt":
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return False
-        except PermissionError:
-            return True          # exists, owned by someone else
-        return True
-    import ctypes
-
-    # SYNCHRONIZE (0x00100000) is the least privilege that still opens a handle
-    # to a foreign process; PROCESS_QUERY_INFORMATION is denied across accounts.
-    handle = ctypes.windll.kernel32.OpenProcess(0x00100000, False, pid)
-    if not handle:
-        return False
-    ctypes.windll.kernel32.CloseHandle(handle)
-    return True

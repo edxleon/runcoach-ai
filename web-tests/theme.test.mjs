@@ -18,7 +18,7 @@ test("the cycle closes", () => {
 });
 
 test("the pre-paint boot script reads the same storage key", () => {
-  assert.equal(THEME_KEY, "runspector-theme");
+  assert.equal(THEME_KEY, "runcoach-theme");
   const dir = new URL("../src/runspector/web/static/", import.meta.url);
   const boot = readFileSync(new URL("theme-boot.js", dir), "utf8");
   assert.ok(boot.includes(`localStorage.getItem("${THEME_KEY}")`),

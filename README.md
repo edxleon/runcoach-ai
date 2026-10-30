@@ -1,6 +1,6 @@
 # Runspector
 
-<sub>Formerly <b>runcoach-ai</b>: same project, renamed in v0.5.0. Old links redirect here.</sub>
+<sub>Formerly <b>runcoach-ai</b>: same project, renamed in v0.5.0. Old links redirect here. Coming from it: <a href="docs/releases/v0.5.0.md">three steps to switch over</a>, and your data moves by itself.</sub>
 
 [![ci](https://github.com/edxleon/runspector/actions/workflows/ci.yml/badge.svg)](https://github.com/edxleon/runspector/actions/workflows/ci.yml)
 [![evals 32/32](https://img.shields.io/badge/evals-32%2F32-brightgreen)](evals/RESULTS.md)
@@ -31,7 +31,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-973 tests, 77 frontend tests and that gate on three operating systems and two Python versions, with every
+988 tests, 80 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -79,8 +79,9 @@ runspector serve        # first start: asks for the Garmin login (e-mail, passwo
 **Claude is not connected inside runspector.** Coach cards run on the
 [Claude Code](https://claude.com/claude-code) CLI on your machine, with your own sign-in - a Claude plan is
 enough: install it and run `claude auth login` once. `runspector serve` checks that at start (and offers the login when
-it is missing), the Coach tab says what is missing, and no API key is needed (to use Claude Code's API-key
-sign-in for the cards instead, set `RUNSPECTOR_ALLOW_API_KEY=1`). Garmin can be
+it is missing), the Coach tab says what is missing, and no API key is needed. A key or a cloud provider set up in
+Claude Code itself is used by the cards too, and billed there; one only exported in the environment
+is stripped unless you set `RUNSPECTOR_ALLOW_API_KEY=1`. Garmin can be
 signed into from the page itself (Setup → *Sign in to Garmin*, or *Sign in again* when the session has
 expired) - e-mail, password and Garmin's code if your account uses one, and the sync starts right after.
 `runspector login` does the same from any terminal, and a running app picks it up on ↻ - no restart.
@@ -177,8 +178,9 @@ the part rules are bad at: weighing a conflict, phrasing a plan, answering a fol
 **Your own Claude Code sign-in, not a key in the app.** Coach jobs run `claude --print` as a subprocess,
 signed in the way you signed Claude Code in. On a Claude plan there is no key to leak, no per-token bill,
 nothing to configure. API-key variables exported for other work are stripped from the card runs by
-default, so they never bill a card unasked; `RUNSPECTOR_ALLOW_API_KEY=1` keeps them for anyone who wants
-Claude Code's API-key sign-in. If your quota is exhausted the job *waits* for the next
+default, so they never bill a card unasked; `RUNSPECTOR_ALLOW_API_KEY=1` keeps them. A key or a cloud
+provider configured in Claude Code itself is beyond any variable: the cards use it, and the setup check
+says so - it asks Claude Code in the same environment and the same kind of empty directory the cards run in. If your quota is exhausted the job *waits* for the next
 window instead of failing.
 
 **The agent gets an allowlist, not a denylist.** Workout titles are attacker-controlled text that ends
@@ -291,7 +293,7 @@ network you do not control.
 | `RUNSPECTOR_AUTOSYNC_MIN` | `30` | in a Claude Code / Desktop chat, `get_training_readiness` syncs first when the last sync is older than this; `0` turns it off |
 | `RUNSPECTOR_QUOTA_WAIT_S` | `3600` | how long a job waits for subscription quota |
 | `RUNSPECTOR_JOB_TIMEOUT_S` | `600` | hard timeout for a single coach job |
-| `RUNSPECTOR_ALLOW_API_KEY` | unset | `1` keeps `ANTHROPIC_*` (and Bedrock/Vertex) for coach cards, so they can use Claude Code's API-key sign-in, billed per token; unset, the cards strip them |
+| `RUNSPECTOR_ALLOW_API_KEY` | unset | `1` keeps exported `ANTHROPIC_*` (and Bedrock/Vertex) variables for coach cards, billed per token; unset, the cards strip them. A sign-in configured in Claude Code itself is used either way |
 | `RUNSPECTOR_ACTIVITY_BACKFILL_DAYS` | `182` | minimum window of the workout list a sync fetches (your habits look back 26 weeks; zone detail is fetched for the last 35 days) |
 | `RUNSPECTOR_LT_HISTORY_DAYS` | `180` | how far back the lactate-threshold history is fetched |
 | `RUNSPECTOR_LOG` | `WARNING` | log level — set `INFO` or `DEBUG` to watch a sync. `INFO` and `DEBUG` also log every HTTP request of the web app |

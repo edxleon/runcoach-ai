@@ -134,9 +134,11 @@ jobs:
 
   # PyPI through a trusted publisher: no token exists anywhere, PyPI trusts the
   # OIDC identity of this workflow in the `pypi` environment. Like `release`, it
-  # runs no project code and uploads the files `build` made - the attested ones.
+  # runs no project code and uploads the files `build` made. After `release`, not
+  # beside it: a version on PyPI can never be replaced, so it goes out only once
+  # the attestation and the GitHub release for exactly these files exist.
   pypi:
-    needs: [build, test]
+    needs: [release]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: pypi

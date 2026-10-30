@@ -375,7 +375,7 @@ def test_the_query_token_works_only_for_the_page_itself(tmp_path, monkeypatch):
         # The API may not: a token in a URL ends up in proxy logs and shared links.
         assert _raw(httpd, "GET", "/api/state?token=s3cret")[0] == 403
         assert _raw(httpd, "GET", "/api/state",
-                    headers={"X-Runspector-Token": "s3cret"})[0] == 200
+                    headers={"X-Runcoach-Token": "s3cret"})[0] == 200
     finally:
         httpd.shutdown()
         httpd.server_close()
@@ -448,16 +448,18 @@ def test_doctor_is_green_on_a_fresh_database(today, capsys, monkeypatch, tmp_pat
     assert "0 day(s) behind" in out and code == 0
 
 
-@pytest.mark.parametrize(("status", "named"), [("signed_out", False), ("other", True)])
-def test_doctor_names_the_api_key_switch_only_to_an_api_key_sign_in(status, named, capsys,
-                                                                     monkeypatch):
-    """To someone not signed in at all, "use this sign-in" points at nothing."""
+@pytest.mark.parametrize("status", ["signed_out", "other"])
+def test_doctors_claude_line_never_sends_anyone_to_the_api_key_switch(status, capsys,
+                                                                      monkeypatch):
+    """`other` is measured in the cards' environment, so the cards already run on
+    it; to a plan user the switch only adds a per-token bill, and to someone not
+    signed in it points at nothing. The billing check names it, when it applies."""
     monkeypatch.setattr("runspector.cli.shutil.which", lambda _n: "claude")
     monkeypatch.setattr("runspector.cli.subprocess.run",
                         lambda *a, **k: type("R", (), {"returncode": 0, "stdout": "2.0", "stderr": ""})())
     monkeypatch.setattr("runspector.onboarding.claude_status", lambda **_k: status)
     _code, out = _doctor(capsys)
-    assert ("RUNSPECTOR_ALLOW_API_KEY" in out) is named, out
+    assert "RUNSPECTOR_ALLOW_API_KEY" not in out, out
 
 
 def test_doctor_hints_at_the_week_profile_without_failing(today, capsys, monkeypatch, tmp_path):

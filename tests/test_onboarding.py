@@ -25,6 +25,9 @@ def _claude(monkeypatch, answer: dict | None, *, rc: int = 0):
 @pytest.mark.parametrize("answer,status", [
     ({"loggedIn": True, "authMethod": "claude.ai"}, "subscription"),
     ({"loggedIn": True, "authMethod": "apiKey"}, "other"),
+    # CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`: a plan's token, and not
+    # one the cards strip - they run on the plan (CLI 2.1.314 reports it so).
+    ({"loggedIn": True, "authMethod": "oauth_token"}, "subscription"),
     ({"loggedIn": False}, "signed_out"),
     (None, "unknown"),
 ])
@@ -87,11 +90,11 @@ def test_a_signed_out_claude_is_offered_its_login(monkeypatch, tmp_path):
     assert "Garmin   signed in" in out
 
 
-def test_an_api_key_sign_in_is_offered_the_plan_login_and_the_switch(monkeypatch, tmp_path):
+def test_an_api_key_sign_in_is_offered_the_plan_login(monkeypatch, tmp_path):
     _claude(monkeypatch, {"loggedIn": True, "authMethod": "apiKey"})
-    calls, out = _first_start(monkeypatch, tmp_path, interactive=True, answers=["n"],
+    calls, out = _first_start(monkeypatch, tmp_path, interactive=True, answers=["y"],
                               signed_in_garmin=True)
-    assert calls["claude"] == 0 and "RUNSPECTOR_ALLOW_API_KEY=1" in out
+    assert calls["claude"] == 1, out
 
 
 def test_an_allowed_api_key_sign_in_is_a_choice_not_a_gap(monkeypatch, tmp_path):
@@ -103,6 +106,43 @@ def test_an_allowed_api_key_sign_in_is_a_choice_not_a_gap(monkeypatch, tmp_path)
                               signed_in_garmin=True)
     assert calls["claude"] == 0
     assert "coach cards use it" in out
+
+
+def test_the_login_is_read_in_the_environment_the_cards_run_in(monkeypatch):
+    """A plan login with an API key exported for other work: the CLI reports the
+    key, but the cards strip it and run on the plan. The status has to say what
+    the cards will see - otherwise the page sends the athlete to the one switch
+    that makes every card bill that key."""
+    program = ("import json, os; print(json.dumps({'loggedIn': True, 'authMethod': "
+               "'api_key' if os.environ.get('ANTHROPIC_API_KEY') else 'claude.ai'}))")
+    monkeypatch.setenv("RUNSPECTOR_CLAUDE_CMD", json.dumps([sys.executable, "-c", program]))
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-for-other-work")
+    assert onboarding.claude_status(fresh=True) == "subscription"
+    monkeypatch.setenv("RUNSPECTOR_ALLOW_API_KEY", "1")
+    assert onboarding.claude_status(fresh=True) == "other"
+
+
+def test_the_login_is_read_where_the_cards_run_not_where_serve_was_started(monkeypatch, tmp_path):
+    """Project settings in the directory `serve` was started from can hold a
+    sign-in (an apiKeyHelper, say); the cards run in an empty directory."""
+    program = ("import json, os; print(json.dumps({'loggedIn': True, 'authMethod': "
+               "'api_key' if os.path.exists('.claude/settings.json') else 'claude.ai'}))")
+    monkeypatch.setenv("RUNSPECTOR_CLAUDE_CMD", json.dumps([sys.executable, "-c", program]))
+    project = tmp_path / "project"
+    (project / ".claude").mkdir(parents=True)
+    (project / ".claude" / "settings.json").write_text("{}", encoding="utf-8")
+    monkeypatch.chdir(project)
+    assert onboarding.claude_status(fresh=True) == "subscription"
+
+
+def test_a_stored_api_key_sign_in_is_named_as_billed(monkeypatch, tmp_path):
+    """A key or a cloud provider in Claude Code's own settings is beyond the
+    stripping: the cards run on it, switch or no switch, and are billed there."""
+    _claude(monkeypatch, {"loggedIn": True, "authMethod": "apiKey"})
+    _calls, out = _first_start(monkeypatch, tmp_path, interactive=False, answers=[],
+                               signed_in_garmin=True)
+    assert "billed there" in out
+    assert "only with" not in out
 
 
 def test_the_first_sync_of_an_empty_store_takes_a_month(tmp_path, monkeypatch):

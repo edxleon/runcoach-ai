@@ -116,6 +116,22 @@ export function signInHere(hostname) {
   return ["127.0.0.1", "localhost", "::1", "[::1]"].includes(String(hostname || "").toLowerCase());
 }
 
+/** Said where the coach buttons are, because that is where the questions come
+ *  up: does this cost extra, what does Claude get, can it touch my watch. "No
+ *  bill per card" holds on a plan only: an `other` sign-in - a key or a cloud
+ *  provider - bills every card, whether or not RUNSPECTOR_ALLOW_API_KEY let it. */
+export function coachReassurance(s) {
+  const status = (s || {}).claude_status;
+  // Only a sign-in the CLI confirmed as a plan gets the promise; `unknown` (the
+  // check timed out, said nothing) gets the plain fact.
+  return (status === "other"
+    ? "A second tap starts it. It runs on your Claude Code sign-in, billed per token on that account. "
+    : status === "subscription"
+      ? "A second tap starts it. It runs on your Claude subscription - no API key, no bill per card. "
+      : "A second tap starts it. It runs on your Claude Code sign-in. ")
+    + "Claude gets the numbers this app shows, never your Garmin password, and an analysis never changes anything on your watch.";
+}
+
 export function setupSteps(s, { signInHere = false } = {}) {
   const st = s || {};
   if (st.demo) return [];
@@ -127,9 +143,11 @@ export function setupSteps(s, { signInHere = false } = {}) {
     unknown: "Claude Code is installed (its sign-in could not be read - <code>claude auth status</code> shows it).",
     missing: "for the coach cards. Install Claude Code (<a href=\"https://claude.com/claude-code\" target=\"_blank\" rel=\"noopener\">claude.com/claude-code</a>), then in a terminal: <code>claude auth login</code> and sign in with your Claude plan. That is the whole connection: no API key, nothing to enter here. Reload this page afterwards.",
     signed_out: "Claude Code is installed but not signed in. In a terminal: <code>claude auth login</code>, sign in with your Claude plan, then reload this page.",
+    // The server measures the sign-in in the cards' own environment, so `other`
+    // is what the cards will run on - and be billed on - either way.
     other: st.claude_api_key_allowed
       ? "signed in with an API key or a cloud provider - coach cards use it (RUNSPECTOR_ALLOW_API_KEY=1), billed there."
-      : "signed in, but not with a Claude plan. In a terminal: <code>claude auth login</code> and choose your Claude account, then reload - or start runspector with <code>RUNSPECTOR_ALLOW_API_KEY=1</code> to use this sign-in for the cards.",
+      : "signed in with an API key or a cloud provider, not a Claude plan - coach cards run on it and are billed there. For your plan: <code>claude auth login</code> in a terminal, then reload.",
   }[claude] || "";
   return [
     { key: "garmin", done: garmin, title: "Garmin",

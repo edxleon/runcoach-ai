@@ -580,8 +580,23 @@ test("setup: an API-key sign-in counts as done only when the athlete allowed it"
   const base = { garmin_session: true, claude_status: "other", counts: {} };
   const refused = setupSteps(base)[1];
   assert.equal(refused.done, false);
-  assert.match(refused.text, /RUNSPECTOR_ALLOW_API_KEY=1/, "the way to keep that sign-in is named");
+  assert.match(refused.text, /billed there/, "the cards already run on it, and say so");
+  assert.doesNotMatch(refused.text, /RUNSPECTOR_ALLOW_API_KEY/,
+                      "the switch would only add a per-token bill for anyone with a plan");
   const allowed = setupSteps({ ...base, claude_api_key_allowed: true })[1];
   assert.equal(allowed.done, true);
   assert.match(allowed.text, /billed there/);
+});
+
+import { coachReassurance } from "../src/runspector/web/static/logic.js";
+
+test("the note under the coach buttons promises no bill only on a plan", () => {
+  assert.match(coachReassurance({ claude_status: "subscription" }), /no bill per card/);
+  for (const allowed of [false, true]) {
+    const note = coachReassurance({ claude_status: "other", claude_api_key_allowed: allowed });
+    assert.doesNotMatch(note, /no bill per card/, "a key or cloud sign-in bills every card");
+    assert.match(note, /billed per token/);
+  }
+  assert.doesNotMatch(coachReassurance({ claude_status: "unknown" }), /no bill per card/,
+                      "a check that said nothing confirms no plan");
 });

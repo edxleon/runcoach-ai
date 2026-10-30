@@ -44,6 +44,15 @@ def _isolated_env(tmp_path, monkeypatch):
     # the developer's shell (`RUNCOACH_DB`, say) would point a test at real data.
     for name in [n for n in os.environ if n.startswith(paths.LEGACY_ENV_PREFIX)]:
         monkeypatch.delenv(name)
+    # The developer's own Claude billing setup: an exported ANTHROPIC_API_KEY
+    # changes what doctor says and what a card run would be handed.
+    from runspector.onboarding import strips_billing
+    for name in [n for n in os.environ if strips_billing(n)]:
+        monkeypatch.delenv(name)
+    monkeypatch.delenv("RUNSPECTOR_ALLOW_API_KEY", raising=False)
+    # Not whatever `runcoach` the developer's own PATH holds: it would make the
+    # move from runcoach-ai refuse in one test run and not in the next.
+    monkeypatch.setattr(paths, "legacy_program", lambda: None)
 
 @pytest.fixture(autouse=True)
 def _no_worker_outlives_its_test():

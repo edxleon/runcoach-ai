@@ -11,7 +11,8 @@
    This module applies it once more afterwards (meta colour, button state).
    ═══════════════════════════════════════════════════════════════════════════ */
 
-export const THEME_KEY = "runspector-theme";
+// The name of runcoach-ai, kept: see TOKEN_KEY in ui.js.
+export const THEME_KEY = "runcoach-theme";
 export const THEMES = ["auto", "light", "dark"];
 const LABEL = { auto: "Auto", light: "Light", dark: "Dark" };
 const ICON = {

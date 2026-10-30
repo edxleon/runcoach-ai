@@ -21,7 +21,7 @@ import {
 } from "./ui.js";
 import { mountApp } from "./chassis.js";
 import {
-  addDays, axisX, bandSplit, barLabel, barScale, carryForward, chartPoints, chartScale, dataAge as ageOf, groupRunsByWeek, hardSessionToday as hardSessionOf, hasNoData, lastHardLabel, setupSteps, signInHere, intensityHits, intensitySeries, isFirstRun, showSyncFailure, isRunning, isStrength, lightAddendum as lightAddendumOf, loadFocusPhrase, loadFocusRows, NO_DATE, shortTitle, stepMarks, stepPath, todayIso, volumeAverageKm, volumeComparison, weekdayShort, weekIncomplete, weekLabel, weeksBetween, weekStart, zoneTimeParts,
+  addDays, axisX, bandSplit, barLabel, barScale, carryForward, chartPoints, chartScale, dataAge as ageOf, groupRunsByWeek, hardSessionToday as hardSessionOf, hasNoData, lastHardLabel, setupSteps, signInHere, coachReassurance as reassuranceFor, intensityHits, intensitySeries, isFirstRun, showSyncFailure, isRunning, isStrength, lightAddendum as lightAddendumOf, loadFocusPhrase, loadFocusRows, NO_DATE, shortTitle, stepMarks, stepPath, todayIso, volumeAverageKm, volumeComparison, weekdayShort, weekIncomplete, weekLabel, weeksBetween, weekStart, zoneTimeParts,
 } from "./logic.js";
 import { mountCards, mountJobs, jobPoller, todayCard, handle409,
          setCardContext } from "./cards.js";
@@ -393,17 +393,6 @@ function hasActiveJob() {
   return (D().jobs || []).some(j => j.status === "queued" || j.status === "running");
 }
 
-/* Said where the buttons are, because that is where the questions come up:
-   does this cost extra, what does Claude get, can it touch my watch. */
-const COACH_REASSURANCE_TAIL = "Claude gets the numbers this app shows, never your " +
-  "Garmin password, and an analysis never changes anything on your watch.";
-/* "no bill per card" is true on a plan, and false for the API-key sign-in an
-   athlete allowed with RUNSPECTOR_ALLOW_API_KEY=1 - there each card is billed. */
-const coachReassurance = () => (D().claude_status === "other" && D().claude_api_key_allowed === true
-  ? "A second tap starts it. It runs on your Claude Code sign-in, billed per token on that account. "
-  : "A second tap starts it. It runs on your Claude subscription - no API key, no bill per card. ")
-  + COACH_REASSURANCE_TAIL;
-
 /* The setup checklist: all three steps on an empty page, only what is still
    missing once there is data (a Claude that was never signed in must not hide
    behind a full Today tab). Empty when everything is done. */
@@ -480,7 +469,7 @@ function renderActions() {
                     : "Nothing to analyse yet — sync first.")
       : coachUnavailable()
         ? claudeHint()
-        : coachReassurance()}</div>`;
+        : reassuranceFor(D())}</div>`;
 
   document.getElementById("coach-hint").innerHTML = noData()
     ? `<div class="coach-hint">No data to analyse yet — the coach reads what a sync
@@ -511,7 +500,7 @@ function renderActions() {
     <div class="subhead" style="margin-top:14px">Start an analysis</div>
     <div class="btn-row">${tpls.filter(t => !(t.params || []).length)
       .map(t => tplButton(t)).join("")}</div>
-    ${coachUnavailable() || noData() ? "" : `<div class="note">${coachReassurance()}</div>`}
+    ${coachUnavailable() || noData() ? "" : `<div class="note">${reassuranceFor(D())}</div>`}
     ${plan ? `
     <div class="subhead" style="margin-top:14px">Plan a session for a route</div>
     <div class="btn-row plan-form" data-plan-form>

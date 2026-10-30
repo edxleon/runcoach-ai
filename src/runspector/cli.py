@@ -141,11 +141,25 @@ def cmd_doctor(args) -> int:
         check(f"data directory writable ({home})", True)
         # Left over when both existed at the move: the new one won, and a
         # second copy of the athlete's health data should not linger unnoticed.
+        if (program := paths.legacy_program()) is not None:
+            check(f"runcoach-ai is still installed ({program})", False,
+                  "it keeps its own data apart from runspector's: `uv tool uninstall "
+                  "runcoach-ai`, and point Claude Code / Desktop and cron jobs at runspector",
+                  fatal=False)
         left = paths.legacy_home()
-        if "RUNSPECTOR_HOME" not in os.environ and left.is_dir():
+        if not os.environ.get("RUNSPECTOR_HOME") and left.is_dir():
+            # Which one holds a database decides the advice: "delete it" about
+            # the directory that has all the data would be the worst sentence
+            # this command could print.
+            if any((left / name).exists() for name in (paths.LEGACY_DB, "runspector.db")):
+                hint = (f"it still holds a database. If runspector shows none of your data, "
+                        f"stop it, move {paths.display_path(home)} aside and start again - "
+                        f"the old directory is moved in then")
+            else:
+                hint = (f"runspector uses {paths.display_path(home)}; delete the old one once "
+                        f"you no longer need it")
             check(f"the old data directory {paths.display_path(left)} is still there", False,
-                  f"runspector uses {paths.display_path(home)}; delete the old one once you "
-                  f"no longer need it", fatal=False)
+                  hint, fatal=False)
     except OSError as exc:
         where = os.environ.get("RUNSPECTOR_HOME") or "~/.runspector"
         check(f"data directory unusable ({where}: {exc.strerror or exc})", False,
@@ -181,22 +195,21 @@ def cmd_doctor(args) -> int:
         except Exception as exc:  # noqa: BLE001 — reported as a failed check, not a traceback
             check(f"claude --version ({type(exc).__name__})", False, fatal=False)
         # The subscription is the CLI's own login - the one thing to "connect".
-        from .onboarding import CLAUDE_LINES, api_key_allowed, claude_status
+        from .onboarding import api_key_allowed, claude_line, claude_status
 
         status = claude_status(fresh=True)
-        check(f"Claude: {CLAUDE_LINES[status]}",
+        # No switch in this hint: `other` is measured in the cards' environment,
+        # so it is a sign-in the cards already use - the switch would not change
+        # that, and for anyone with a plan it only adds a per-token bill.
+        check(f"Claude: {claude_line(status)}",
               status in ("subscription", "unknown") or (status == "other" and api_key_allowed()),
-              # The switch only means something to a sign-in that exists.
-              "run `claude auth login` and sign in with your Claude plan"
-              + (", or set RUNSPECTOR_ALLOW_API_KEY=1 to use this sign-in for the cards"
-                 if status == "other" else ""), fatal=False)
+              "run `claude auth login` and sign in with your Claude plan", fatal=False)
 
     # The app strips these before spawning the agent unless the athlete allowed
     # them. Without a word here that is a trap with no way out: the CLI works in
     # the user's own terminal, every coach card fails in the app, and doctor
     # said [ok] twice.
-    from .onboarding import api_key_allowed
-    from .web.agent import strips_billing
+    from .onboarding import api_key_allowed, strips_billing
 
     stripped = sorted(n for n in os.environ if strips_billing(n))
     if stripped and api_key_allowed():

@@ -574,14 +574,26 @@ def test_serve_refuses_a_non_loopback_host_without_a_token(capsys):
     assert "RUNSPECTOR_TOKEN" in capsys.readouterr().err
 
 
+def test_a_page_of_runcoach_ai_left_open_across_the_upgrade_is_still_answered(monkeypatch):
+    """A phone tab still running the v0.4 page sends its token as
+    X-Runcoach-Token when it comes back to the foreground. A 403 there makes
+    that old page forget the stored token: the phone is signed out."""
+    monkeypatch.setattr(server.time, "sleep", lambda s: None)
+    srv = _serve(server.App(demo=False, token="s3cret-token"))
+    try:
+        assert call(srv, "GET", "/api/state", headers={"X-Runcoach-Token": "s3cret-token"})[0] == 200
+    finally:
+        srv.shutdown()
+
+
 def test_token_guards_the_api(monkeypatch):
     monkeypatch.setattr(server.time, "sleep", lambda s: None)          # the guessing brake
     srv = _serve(server.App(demo=False, token="s3cret-token"))
     try:
         assert call(srv, "GET", "/api/state")[0] == 403
-        assert call(srv, "GET", "/api/state", headers={"X-Runspector-Token": "wrong"})[0] == 403
+        assert call(srv, "GET", "/api/state", headers={"X-Runcoach-Token": "wrong"})[0] == 403
         assert call(srv, "POST", "/api/refresh", {})[0] == 403
-        status, data, _ = call(srv, "GET", "/api/state", headers={"X-Runspector-Token": "s3cret-token"})
+        status, data, _ = call(srv, "GET", "/api/state", headers={"X-Runcoach-Token": "s3cret-token"})
         assert status == 200 and data["demo"] is False and data["data_through"] is None
         # The token in the query is accepted ONLY for the page itself, which is
         # how it gets into localStorage; on the API it would only end up in proxy

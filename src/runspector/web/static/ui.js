@@ -9,8 +9,13 @@
    (otherwise it ends up in the server log).
    ═══════════════════════════════════════════════════════════════════════════ */
 
-export const TOKEN_KEY = "runspector_token";
-export const TOKEN_HEADER = "X-Runspector-Token";
+// The storage keys and the header keep the names of runcoach-ai: nobody sees
+// them, and a renamed one signs a phone out at the upgrade - a stored token the
+// new page cannot find, or an old page left open whose request the new server
+// refuses, after which that page forgets the token (web-tests/stored-before-the-rename,
+// test_web: a page left open across the upgrade).
+export const TOKEN_KEY = "runcoach_token";
+export const TOKEN_HEADER = "X-Runcoach-Token";
 
 /** One locale for every number and date on the page: 24 h, day before month,
  *  decimal point. */

@@ -20,6 +20,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable
 
@@ -40,12 +41,48 @@ def api_key_allowed() -> bool:
     return os.environ.get("RUNSPECTOR_ALLOW_API_KEY") == "1"
 
 
+#: Everything that moves `claude` off the signed-in plan and onto a metered
+#: account. Inheriting the parent environment made "no per-token bill" a hope
+#: rather than a rule: anyone with `ANTHROPIC_API_KEY` exported for other work
+#: was billed per token by an app that says it never bills - and since the cost
+#: card was removed, with nothing on screen to notice it by. So the default
+#: strips them, and `RUNSPECTOR_ALLOW_API_KEY=1` keeps them (`api_key_allowed`).
+#:
+#: A PREFIX, not a list of names. The first version named seven variables and
+#: was already incomplete when it was written (`ANTHROPIC_CUSTOM_HEADERS` can
+#: carry an `x-api-key` header; profile and workload-identity variables point at
+#: an org account). An enumeration has to be re-checked against every CLI
+#: release, a prefix does not — and this app needs no `ANTHROPIC_*` variable in
+#: the child at all.
+BILLING_ENV_PREFIXES = ("ANTHROPIC_",)
+BILLING_ENV = ("CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX")
+
+
+def strips_billing(name: str) -> bool:
+    return name in BILLING_ENV or name.startswith(BILLING_ENV_PREFIXES)
+
+
+def child_env() -> dict:
+    """The environment the agent runs in: the parent's, minus everything that
+    would redirect billing unless `api_key_allowed()`. All the rest is passed
+    through — the CLI needs PATH, HOME/USERPROFILE, SYSTEMROOT and its own
+    config directory."""
+    if api_key_allowed():
+        return dict(os.environ)
+    return {k: v for k, v in os.environ.items() if not strips_billing(k)}
+
+
 def claude_command() -> list[str] | None:
     override = os.environ.get("RUNSPECTOR_CLAUDE_CMD")   # JSON array; lets tests stub the CLI
     if override:
         return json.loads(override)
     found = shutil.which("claude")
     return [found] if found else None
+
+
+#: What `claude auth status` reports for a Claude plan: the browser login, and the
+#: long-lived token `claude setup-token` makes for a machine without a browser.
+PLAN_SIGN_INS = ("claude.ai", "oauth_token")
 
 
 def claude_status(*, fresh: bool = False) -> str:
@@ -68,16 +105,25 @@ def claude_status(*, fresh: bool = False) -> str:
         status = "missing"
     else:
         try:
-            out = subprocess.run([*cmd, "auth", "status"],  # noqa: S603 — claude_command(), fixed args
-                                 capture_output=True, text=True,
-                                 timeout=20, encoding="utf-8", errors="replace")
+            # Asked in the environment the cards run in: with a plan login and a
+            # key exported for other work the CLI reports the key, while the
+            # cards - which strip it - run on the plan.
+            # And in an empty directory, as the cards are: project settings in
+            # whatever directory `serve` was started from can carry a sign-in.
+            with tempfile.TemporaryDirectory(prefix="runspector-auth-") as empty:
+                out = subprocess.run([*cmd, "auth", "status"],  # noqa: S603 — claude_command(), fixed args
+                                     capture_output=True, text=True, env=child_env(), cwd=empty,
+                                     timeout=20, encoding="utf-8", errors="replace")
             info = json.loads(out.stdout or "{}")
             if not isinstance(info, dict) or "loggedIn" not in info:
                 status = "unknown"
             elif not info["loggedIn"]:
                 status = "signed_out"
             else:
-                status = "subscription" if info.get("authMethod") == "claude.ai" else "other"
+                # `oauth_token` is CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`:
+                # a plan's token, which the cards keep (it is no ANTHROPIC_* key).
+                status = ("subscription" if info.get("authMethod") in PLAN_SIGN_INS
+                          else "other")
         except (OSError, ValueError, subprocess.SubprocessError):
             status = "unknown"
     _cache.update(at=now, status=status, key=key)
@@ -89,11 +135,22 @@ CLAUDE_LINES = {
                "(install it, then run `claude auth login` once)",
     "subscription": "signed in with your Claude subscription - coach cards run on it, "
                     "nothing to set up in runspector",
-    "other": "signed in, but not with a Claude plan (API key or cloud provider) - coach cards "
-             "use it only with RUNSPECTOR_ALLOW_API_KEY=1; with a plan: `claude auth login`",
+    # Measured in the cards' own environment, so this is what they will run on:
+    # a key or a cloud provider kept in Claude Code's settings, which no
+    # stripping of variables reaches.
+    "other": "signed in with an API key or a cloud provider, not a Claude plan - coach cards "
+             "run on it and are billed there; for your plan: `claude auth login`",
     "signed_out": "installed, not signed in - run `claude auth login`",
     "unknown": "installed (its login could not be checked - `claude auth status` tells you)",
 }
+
+
+def claude_line(status: str) -> str:
+    """The one sentence about the Claude sign-in, for doctor and the first start."""
+    if status == "other" and api_key_allowed():
+        return ("signed in with an API key or a cloud provider - coach cards use it "
+                "(RUNSPECTOR_ALLOW_API_KEY=1) and are billed there")
+    return CLAUDE_LINES[status]
 
 
 def first_start(*, interactive: bool, ask: Callable[[str], str] = input,
@@ -135,12 +192,10 @@ def first_start(*, interactive: bool, ask: Callable[[str], str] = input,
                 "no restart needed")
 
     status = claude_status(fresh=True)
+    say(f"  Claude   {claude_line(status)}")
     # An API-key sign-in the athlete allowed for the cards is a choice, not a gap.
-    allowed = status == "other" and api_key_allowed()
-    line = ("signed in with an API key or a cloud provider - coach cards use it"
-            if allowed else CLAUDE_LINES[status])
-    say(f"  Claude   {line}")
-    if status in ("signed_out", "other") and not allowed and (cmd := claude_command()) is not None:
+    chosen = status == "other" and api_key_allowed()
+    if status in ("signed_out", "other") and not chosen and (cmd := claude_command()) is not None:
         if yes("           Sign in to Claude now (opens your browser)?"):
             claude_login(cmd)
             status = claude_status(fresh=True)
