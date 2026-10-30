@@ -1188,7 +1188,7 @@ wheels = [
 ]
 
 [[package]]
-name = "runcoach-ai"
+name = "runspector"
 version = "0.4.1"
 source = { editable = "." }
 dependencies = [

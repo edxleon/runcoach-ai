@@ -1,6 +1,6 @@
-# Regression cases for the coach prompts (src/runcoach/skills/coach.md + zones.md).
+# Regression cases for the coach prompts (src/runspector/skills/coach.md + zones.md).
 #
-# The harness runs tool-free: whatever the runcoach tools would return is printed
+# The harness runs tool-free: whatever the runspector tools would return is printed
 # INLINE in `input`. What is tested is the coach's rule behaviour on that data -
 # the places where a fluent, plausible answer is the wrong one.
 #
@@ -28,7 +28,7 @@ defaults:
   judge_model: sonnet
   timeout_sec: 180
   preamble: |
-    This is an offline evaluation: the runcoach tools cannot be called in this run.
+    This is an offline evaluation: the runspector tools cannot be called in this run.
     Everything they would return has already been fetched and is printed below -
     work only from it, and answer the athlete in chat form.
     Today is {weekday}, {today}. That date is the one this scenario runs on:
@@ -133,7 +133,7 @@ cases:
 
   # 3. Stale data and a failed sync: today is UNKNOWN, which is not "no run today".
   - id: stale-data-sync-failed-conservative
-    description: "Readiness is from yesterday, sync_garmin fails on login -> name it, point to `runcoach login`, no blind hard session"
+    description: "Readiness is from yesterday, sync_garmin fails on login -> name it, point to `runspector login`, no blind hard session"
     today: 2026-06-17
     input: |
       Athlete: Should I do a hard tempo session today?
@@ -146,7 +146,7 @@ cases:
       NOTE: latest data is from 2026-06-16, not today - treat the verdict as stale.
 
       === sync_garmin ===
-      Garmin login failed (GarminConnectAuthenticationError) - the stored session has probably expired. Ask the user to run `runcoach login`.
+      Garmin login failed (GarminConnectAuthenticationError) - the stored session has probably expired. Ask the user to run `runspector login`.
 
       === get_recent_activities ===
       Workouts 2026-06-04 .. 2026-06-17
@@ -157,12 +157,12 @@ cases:
       - 2026-06-15 running (Easy): 7.0 km/41m / load 66 TE 2.1/0.0 / 139 bpm
       - 2026-06-14 running (Long Run): 19.0 km/1h 50m / load 204 TE 3.8/0.3 / 147 bpm
     expect:
-      must_contain: ["runcoach login"]
+      must_contain: ["runspector login"]
       judge_question: >
         Context: a runner asks whether to do a hard tempo session today. The
         coach's data is STALE: the readiness verdict (GO) is from yesterday, and
         the attempt to sync with Garmin failed because the login expired (the fix
-        is for the athlete to run `runcoach login`). So last night's recovery and
+        is for the athlete to run `runspector login`). So last night's recovery and
         whether a run already happened today are UNKNOWN. The coach's rule: a
         failed sync means "unknown", which is different from "no run today"; a
         hard session is only recommended on a day the coach can see - otherwise
@@ -1077,7 +1077,7 @@ cases:
       NOTE: latest data is from 2026-06-12, not today - treat the verdict as stale.
 
       === sync_garmin(days=7) ===
-      Garmin login failed (GarminConnectAuthenticationError) - the stored session has probably expired. Ask the user to run `runcoach login`.
+      Garmin login failed (GarminConnectAuthenticationError) - the stored session has probably expired. Ask the user to run `runspector login`.
 
       === get_training_load ===
       Training load 2026-05-16 .. 2026-06-12
@@ -1085,11 +1085,11 @@ cases:
       - Status: DETRAINING
       - ACWR (acute:chronic): 0.62 [garmin] / LOW - acute 7d 260, chronic ~420/week, 2 workouts/7d
     expect:
-      must_contain: ["runcoach login"]
+      must_contain: ["runspector login"]
       judge_question: >
         Context: a runner asks how their training load looks. The latest synced
         data is from 2026-06-12, five days ago, and the attempt to sync failed
-        because the Garmin login expired (fix: run `runcoach login`). As of
+        because the Garmin login expired (fix: run `runspector login`). As of
         2026-06-12 the ACWR was 0.62 and Garmin's status DETRAINING. The days
         since then are UNKNOWN - not empty: runs on them are simply not in the
         data. The coach's rule: quote ACWR and status as of their date, never

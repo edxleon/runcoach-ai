@@ -41,8 +41,8 @@ globalThis.document = {
 };
 globalThis.addEventListener = () => {};
 
-const ui = await import("../src/runcoach/web/static/ui.js");
-const { mountRefresh } = await import("../src/runcoach/web/static/chassis.js");
+const ui = await import("../src/runspector/web/static/ui.js");
+const { mountRefresh } = await import("../src/runspector/web/static/chassis.js");
 
 const stripText = () => el.querySelector("#progress-text").textContent;
 

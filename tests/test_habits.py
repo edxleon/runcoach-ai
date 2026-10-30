@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from runcoach import habits
+from runspector import habits
 
 TODAY = date(2026, 6, 10)                       # a Wednesday
 MONDAY = TODAY - timedelta(days=TODAY.weekday())
@@ -102,9 +102,9 @@ def test_without_a_history_the_default_lines_are_the_ones_they_always_were():
                                            habits=habits.NONE)
     assert (days, long_day) == (4, "sun")
     assert lines == ["4 running days - no days_per_week in the profile "
-                     "(runcoach profile --days-per-week N)",
+                     "(runspector profile --days-per-week N)",
                      "long run on sun - no long_run_day in the profile "
-                     "(runcoach profile --long-run-day sun)"]
+                     "(runspector profile --long-run-day sun)"]
 
 
 def test_two_runs_of_almost_the_same_length_are_no_long_run_day():

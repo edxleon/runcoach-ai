@@ -14,8 +14,8 @@ name: evals
 #
 # Renew the token:
 #   claude setup-token
-#   gh secret set CLAUDE_CODE_OAUTH_TOKEN --env evals -R edxleon/runcoach-ai
-#   gh variable set CLAUDE_TOKEN_CREATED --body YYYY-MM-DD -R edxleon/runcoach-ai
+#   gh secret set CLAUDE_CODE_OAUTH_TOKEN --env evals -R edxleon/runspector
+#   gh variable set CLAUDE_TOKEN_CREATED --body YYYY-MM-DD -R edxleon/runspector
 
 on:
   schedule:
@@ -111,7 +111,7 @@ jobs:
           fi
           if ! out=$(echo "Reply with the single word OK." |
                      claude --print --safe-mode --tools "" --model sonnet 2>&1); then
-            echo "::error::Claude refused the token (expired, revoked or out of quota) - renew: claude setup-token, then gh secret set CLAUDE_CODE_OAUTH_TOKEN --env evals -R edxleon/runcoach-ai"
+            echo "::error::Claude refused the token (expired, revoked or out of quota) - renew: claude setup-token, then gh secret set CLAUDE_CODE_OAUTH_TOKEN --env evals -R edxleon/runspector"
             echo "$out" | tail -n 3
             exit 1
           fi

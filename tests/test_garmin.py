@@ -13,8 +13,8 @@ from datetime import date, timedelta
 import pytest
 
 from conftest import FakeGarmin
-from runcoach import garmin, models
-from runcoach.garmin import (
+from runspector import garmin, models
+from runspector.garmin import (
     _clean_text,
     _coerce,
     _f_to_c,
@@ -25,7 +25,7 @@ from runcoach.garmin import (
     fetch_activities,
     fetch_day,
 )
-from runcoach.models import DailyMetrics
+from runspector.models import DailyMetrics
 
 DAY = date(2026, 6, 8)
 
@@ -375,7 +375,7 @@ _ZONES = [
 
 
 def test_detail_keys_match_the_store_columns():
-    from runcoach import store
+    from runspector import store
 
     assert tuple(garmin.DETAIL_KEYS) == tuple(store._DETAIL_COLS)
 

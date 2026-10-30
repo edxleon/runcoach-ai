@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 from conftest import make_activity
-from runcoach import facts
+from runspector import facts
 
 
 def test_a_change_is_reported_only_when_the_new_value_held():
@@ -69,7 +69,7 @@ def test_days_that_were_not_fixed_before_say_so(store, today):
 
 
 def test_what_the_athlete_set_wins_and_the_history_is_named_beside_it(store, today):
-    from runcoach import profile
+    from runspector import profile
 
     monday = today - timedelta(days=today.weekday())
     aid = 7_200_000_000

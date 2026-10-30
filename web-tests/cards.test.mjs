@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import {
   truncate, modelShort, metaParts, avgDurationSec, fmtExpectation, groupCards,
   classify409, todayCard, splitBullets, textPlain, jobsForStrip, isActive, renderCard,
-} from "../src/runcoach/web/static/cards.js";
+} from "../src/runspector/web/static/cards.js";
 
 test("truncate", () => {
   assert.equal(truncate("short", 10), "short");
@@ -175,7 +175,7 @@ test("renderCard escapes everything that comes from a model, a user or Garmin", 
 });
 
 test("renderProposal: the preview is escaped, the button is the only write, and it says why it is off", async () => {
-  const { renderProposal } = await import("../src/runcoach/web/static/cards.js");
+  const { renderProposal } = await import("../src/runspector/web/static/cards.js");
   const p = { id: "p-20260922-101010-abcd", day: "2026-09-24", status: "open",
               preview: "VO2max 4x4 min <img src=x onerror=alert(1)>\n  warmup  2.6 km  no target",
               warnings: [] };
@@ -218,7 +218,7 @@ test("renderProposal: a half-applied week can still come back off", async () => 
   // A package with two of four sessions on Garmin showed only "put the
   // remaining 2 on watch": the two that were already there had no way back
   // from the app, only from Claude Code.
-  const { renderProposal } = await import("../src/runcoach/web/static/cards.js");
+  const { renderProposal } = await import("../src/runspector/web/static/cards.js");
   const p = { id: "p-20260921-090000-ab12", status: "applied", days: 4, pending: 2,
               day: "2026-09-21", preview: "…", workouts: [900001, 900002] };
   const html = renderProposal(p, {});
@@ -227,7 +227,7 @@ test("renderProposal: a half-applied week can still come back off", async () => 
 });
 
 test("renderProposal: the button that writes says what changes and that it can be undone", async () => {
-  const { renderProposal } = await import("../src/runcoach/web/static/cards.js");
+  const { renderProposal } = await import("../src/runspector/web/static/cards.js");
   const open = renderProposal({ id: "p-20260921-090000-ab12", status: "open", days: 1,
                                 day: "2026-09-21", preview: "…" }, {});
   assert.match(open, /nothing else on your calendar changes/);

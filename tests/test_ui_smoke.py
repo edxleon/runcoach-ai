@@ -63,10 +63,10 @@ pytestmark = pytest.mark.skipif(_unusable_browser() is not None,
 
 @pytest.fixture(scope="module")
 def base_url(tmp_path_factory):
-    from runcoach.web import server
+    from runspector.web import server
 
-    old_home = os.environ.get("RUNCOACH_HOME")
-    os.environ["RUNCOACH_HOME"] = str(tmp_path_factory.mktemp("home"))
+    old_home = os.environ.get("RUNSPECTOR_HOME")
+    os.environ["RUNSPECTOR_HOME"] = str(tmp_path_factory.mktemp("home"))
     app = server.App(demo=True, token=None)
     httpd = server.make_server("127.0.0.1", 0, app)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
@@ -74,9 +74,9 @@ def base_url(tmp_path_factory):
     httpd.shutdown()
     httpd.server_close()
     if old_home is None:
-        os.environ.pop("RUNCOACH_HOME", None)
+        os.environ.pop("RUNSPECTOR_HOME", None)
     else:
-        os.environ["RUNCOACH_HOME"] = old_home
+        os.environ["RUNSPECTOR_HOME"] = old_home
 
 
 def render(url: str, profile: Path, *extra: str, size: str = "430,1400") -> tuple[str, str]:
@@ -102,7 +102,7 @@ def test_tab_renders_without_errors(base_url, tmp_path, tab):
     console_errors = [line for line in log.splitlines()
                       if "CONSOLE" in line and any(w in line for w in bad)]
     assert not console_errors, console_errors[:3]
-    assert 'data-area="runcoach"' in dom, "the page module never ran"
+    assert 'data-area="runspector"' in dom, "the page module never ran"
     assert "Page error" not in dom
     assert "demo" in dom.lower()
 
@@ -118,11 +118,11 @@ def test_the_coach_tab_offers_a_way_to_delete_a_card(base_url, tmp_path):
     own successors — `cleanup_cards()` pins the newest card of each kind forever
     and feeds it back into the next run of that kind. The server route and the
     README sentence both existed for a full review round while the button did
-    not, and the only remedy was to find `~/.runcoach/cards/` in a file manager.
+    not, and the only remedy was to find `~/.runspector/cards/` in a file manager.
 
     This renders the real page, so a renamed CSS class or a handler that never
     binds shows up here and not in a unit test asserting a string."""
-    from runcoach.web import jobs
+    from runspector.web import jobs
 
     jobs.write_card("j-train-today-2026-09-16", {
         "kind": "train-today", "headline": "Green light, intervals today",
@@ -142,10 +142,10 @@ def first_run_url(tmp_path_factory):
     """A server with NO demo data and no Garmin session — the state every
     stranger from GitHub meets first, and the one this harness could not reach:
     `base_url` runs `demo=True`, and demo short-circuits both predicates."""
-    from runcoach.web import server
+    from runspector.web import server
 
-    old_home = os.environ.get("RUNCOACH_HOME")
-    os.environ["RUNCOACH_HOME"] = str(tmp_path_factory.mktemp("first-run-home"))
+    old_home = os.environ.get("RUNSPECTOR_HOME")
+    os.environ["RUNSPECTOR_HOME"] = str(tmp_path_factory.mktemp("first-run-home"))
     app = server.App(demo=False, token=None)
     httpd = server.make_server("127.0.0.1", 0, app)
     threading.Thread(target=httpd.serve_forever, daemon=True).start()
@@ -153,9 +153,9 @@ def first_run_url(tmp_path_factory):
     httpd.shutdown()
     httpd.server_close()
     if old_home is None:
-        os.environ.pop("RUNCOACH_HOME", None)
+        os.environ.pop("RUNSPECTOR_HOME", None)
     else:
-        os.environ["RUNCOACH_HOME"] = old_home
+        os.environ["RUNSPECTOR_HOME"] = old_home
 
 
 def test_the_first_screen_guides_instead_of_reporting_an_error(first_run_url, tmp_path,
@@ -165,20 +165,20 @@ def test_the_first_screen_guides_instead_of_reporting_an_error(first_run_url, tm
     GarminConnectAuthenticationError. Nothing there was wrong, and all of it
     read as a broken app."""
     # Stub the CLI here, not in the fixture: `conftest._isolated_env` deletes
-    # RUNCOACH_CLAUDE_CMD before every test, so a module-scoped stub is gone by
+    # RUNSPECTOR_CLAUDE_CMD before every test, so a module-scoped stub is gone by
     # the time this runs. Without it the coach buttons are disabled for want of
     # a `claude` on PATH - true on every CI runner - and the lock assertion
     # below would hold whatever the empty-database lock actually does. Measured:
     # with the lock removed the test stayed green.
-    monkeypatch.setenv("RUNCOACH_CLAUDE_CMD", '["python", "-c", "pass"]')
+    monkeypatch.setenv("RUNSPECTOR_CLAUDE_CMD", '["python", "-c", "pass"]')
     dom, log = render(first_run_url, tmp_path / "profile")
     console_errors = [ln for ln in log.splitlines() if "CONSOLE" in ln
                       and any(w in ln for w in ("Uncaught", "SyntaxError",
                                                 "Content Security Policy", "Refused to"))]
     assert not console_errors, console_errors[:3]
-    assert 'data-area="runcoach"' in dom, "the page module never ran"
+    assert 'data-area="runspector"' in dom, "the page module never ran"
 
-    # Opened on the computer runcoach runs on, the first step is the page's own
+    # Opened on the computer runspector runs on, the first step is the page's own
     # sign-in, and it says the sync follows by itself - no ↻, no restart.
     assert "data-signin" in dom and "Sign in to Garmin" in dom, "the first step is not on the page"
     assert "first sync starts right after" in dom
@@ -203,9 +203,9 @@ def test_with_data_the_coach_buttons_are_live(base_url, tmp_path, monkeypatch):
     Stubs the CLI rather than relying on one being installed. The first version
     did rely on it and went red on every CI runner while passing on a developer
     machine - the same confound it exists to rule out, one level up. The server
-    reads `RUNCOACH_CLAUDE_CMD` per request, so setting it here reaches the
+    reads `RUNSPECTOR_CLAUDE_CMD` per request, so setting it here reaches the
     module-scoped server thread."""
-    monkeypatch.setenv("RUNCOACH_CLAUDE_CMD", '["python", "-c", "pass"]')
+    monkeypatch.setenv("RUNSPECTOR_CLAUDE_CMD", '["python", "-c", "pass"]')
     dom, _ = render(f"{base_url}#coach", tmp_path / "profile-live")
     chunks = dom.split('data-tpl')[1:]
     assert chunks, "no coach buttons rendered at all"
@@ -224,7 +224,7 @@ def test_the_desktop_layout_keeps_the_reload_button_reachable(base_url, tmp_path
                       and any(w in ln for w in ("Uncaught", "SyntaxError",
                                                 "Content Security Policy", "Refused to"))]
     assert not console_errors, console_errors[:3]
-    assert 'data-area="runcoach"' in dom, "the page module never ran at desktop width"
+    assert 'data-area="runspector"' in dom, "the page module never ran at desktop width"
     assert 'id="refresh"' in dom
 
     css = (Path(server_static()) / "tokens.css").read_text(encoding="utf-8")
@@ -238,7 +238,7 @@ def test_the_desktop_layout_keeps_the_reload_button_reachable(base_url, tmp_path
 
 
 def server_static() -> str:
-    from runcoach.web import server as _s
+    from runspector.web import server as _s
 
     return str(Path(_s.__file__).resolve().parent / "static")
 
@@ -246,13 +246,13 @@ def server_static() -> str:
 def test_a_proposal_card_shows_the_button_and_the_demo_keeps_it_off(base_url, tmp_path, monkeypatch):
     """The one write action on the page, rendered in a real browser: present on
     a card that proposed a session, disabled in the demo with the reason
-    beside it. (The demo home is the process's RUNCOACH_HOME once the demo app
+    beside it. (The demo home is the process's RUNSPECTOR_HOME once the demo app
     resolved it, so the proposal and the card land where the server reads.)"""
-    from runcoach import paths, plan
-    from runcoach.store import Store
-    from runcoach.web import jobs as jobs_mod
+    from runspector import paths, plan
+    from runspector.store import Store
+    from runspector.web import jobs as jobs_mod
 
-    monkeypatch.setenv("RUNCOACH_CLAUDE_CMD", '["python", "-c", "pass"]')
+    monkeypatch.setenv("RUNSPECTOR_CLAUDE_CMD", '["python", "-c", "pass"]')
     p = plan.propose(Store(paths.db_path()), "vo2max", distance_km=10)
     job = jobs_mod.new_job("x", title="t", kind="plan-session")
     jobs_mod.write_card(job["id"], {"kind": "plan-session", "headline": "Four by four",

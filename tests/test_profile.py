@@ -8,7 +8,7 @@ import os
 
 import pytest
 
-from runcoach import paths, profile
+from runspector import paths, profile
 
 
 def test_a_setting_is_saved_and_none_hands_it_back_to_the_history():
@@ -59,7 +59,7 @@ def test_the_note_is_kept_as_written_minus_control_characters():
 
 
 def test_the_cli_refuses_a_long_run_on_a_day_off_and_keeps_the_rest():
-    from runcoach import cli
+    from runspector import cli
 
     profile.save({"off_days": ["sat"]})
     assert cli.main(["profile", "--long-run-day", "sat"]) == 2

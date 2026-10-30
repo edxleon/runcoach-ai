@@ -8,10 +8,10 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 
 from conftest import DETAIL, FakeGarmin, make_activity, make_day, make_split, own_ids
-from runcoach import demo, garmin, sync, tools
-from runcoach.models import ScheduledWorkout
-from runcoach.store import CLAIM_STALE_MINUTES, Store
-from runcoach.tools import _hm
+from runspector import demo, garmin, sync, tools
+from runspector.models import ScheduledWorkout
+from runspector.store import CLAIM_STALE_MINUTES, Store
+from runspector.tools import _hm
 
 
 @pytest.fixture(autouse=True)
@@ -23,7 +23,7 @@ def _reset_sync_cooldown():
     Here rather than in `conftest.py`: reaching into one production module's
     private state from a fixture shared by sixteen files made every test file
     depend on `tools`, whether it used it or not."""
-    from runcoach import tools
+    from runspector import tools
 
     tools._last_sync[0] = None
     yield
@@ -420,7 +420,7 @@ def test_sync_garmin_login_failure_returns_hint_no_raise(store, monkeypatch):
 
     monkeypatch.setattr(garmin, "login", boom)
     out = tools.sync_garmin(store, days=1)
-    assert "Garmin login failed (RuntimeError)" in out and "runcoach login" in out
+    assert "Garmin login failed (RuntimeError)" in out and "runspector login" in out
 
 
 def test_sync_garmin_reports_a_rate_limit_without_losing_the_report(store, today, monkeypatch):
@@ -455,7 +455,7 @@ def test_sync_garmin_runs_a_small_window(store, today, monkeypatch):
 
 
 def test_sync_garmin_is_disabled_on_demo_data(store, monkeypatch):
-    monkeypatch.setenv("RUNCOACH_DEMO", "1")
+    monkeypatch.setenv("RUNSPECTOR_DEMO", "1")
     monkeypatch.setattr(garmin, "login", lambda tokenstore=None: (_ for _ in ()).throw(AssertionError))
     out = tools.sync_garmin(store)
     assert "synthetic demo athlete" in out
@@ -467,7 +467,7 @@ def test_sync_garmin_is_disabled_on_demo_data(store, monkeypatch):
 # ── MCP transport ────────────────────────────────────────────────────────────
 
 def test_mcp_server_registers_exactly_the_expected_tools():
-    from runcoach import mcp_server
+    from runspector import mcp_server
 
     registered = asyncio.run(mcp_server.mcp.list_tools())
     assert {t.name for t in registered} == EXPECTED_MCP_TOOLS
@@ -477,7 +477,7 @@ def test_mcp_server_registers_exactly_the_expected_tools():
 
 def _initialize(env: dict) -> dict:
     """What a client is told on connect: the `initialize` answer of a real
-    `runcoach mcp` process over stdio, the way Claude Code receives it."""
+    `runspector mcp` process over stdio, the way Claude Code receives it."""
     import json
     import subprocess
     import sys
@@ -485,7 +485,7 @@ def _initialize(env: dict) -> dict:
     req = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
            "params": {"protocolVersion": "2025-06-18", "capabilities": {},
                       "clientInfo": {"name": "test", "version": "0"}}}
-    out = subprocess.run([sys.executable, "-c", "from runcoach.mcp_server import main; main()"],
+    out = subprocess.run([sys.executable, "-c", "from runspector.mcp_server import main; main()"],
                          input=json.dumps(req) + "\n", capture_output=True, text=True,
                          timeout=60, env=env, encoding="utf-8")
     return json.loads(out.stdout.splitlines()[0])["result"]
@@ -516,11 +516,11 @@ def test_a_chat_client_is_handed_the_coaching_rules(tmp_path):
     `get_coaching_reference` for the rest. A card run is told nothing twice."""
     import os
 
-    from runcoach import mcp_server
-    from runcoach.web.agent import SKILLS
+    from runspector import mcp_server
+    from runspector.web.agent import SKILLS
 
-    env = {**os.environ, "RUNCOACH_HOME": str(tmp_path), "PYTHONUTF8": "1"}
-    env.pop("RUNCOACH_UNATTENDED", None)
+    env = {**os.environ, "RUNSPECTOR_HOME": str(tmp_path), "PYTHONUTF8": "1"}
+    env.pop("RUNSPECTOR_UNATTENDED", None)
     told = _initialize(env).get("instructions") or ""
     assert told == mcp_server.CHAT_INSTRUCTIONS
     assert len(told) <= mcp_server.INSTRUCTIONS_CAP, f"{len(told)} characters - the client cuts the rest"
@@ -537,26 +537,26 @@ def test_a_chat_client_is_handed_the_coaching_rules(tmp_path):
     for skill in SKILLS:
         assert skill.read_text(encoding="utf-8").strip() in reference, f"{skill.name} is missing"
 
-    card_run = _initialize({**env, "RUNCOACH_UNATTENDED": "1"})
+    card_run = _initialize({**env, "RUNSPECTOR_UNATTENDED": "1"})
     assert not card_run.get("instructions"), "a card run carries the rules on STDIN already"
 
 
-def test_the_server_reports_runcoach_s_version_not_the_library_s(tmp_path):
+def test_the_server_reports_runspector_s_version_not_the_library_s(tmp_path):
     """`serverInfo.version` was the `mcp` package's own version (1.30.0)."""
     import os
 
-    import runcoach
+    import runspector
 
-    info = _initialize({**os.environ, "RUNCOACH_HOME": str(tmp_path)})["serverInfo"]
-    assert info["name"] == "runcoach" and info["version"] == runcoach.__version__, info
+    info = _initialize({**os.environ, "RUNSPECTOR_HOME": str(tmp_path)})["serverInfo"]
+    assert info["name"] == "runspector" and info["version"] == runspector.__version__, info
 
 
 def test_a_card_run_is_not_sent_for_the_reference_it_already_has(monkeypatch):
     """The tool description says "call it once per conversation" to every
     client, card runs included - and a card run has the same 25 KB on STDIN."""
-    from runcoach import mcp_server
+    from runspector import mcp_server
 
-    monkeypatch.setenv("RUNCOACH_UNATTENDED", "1")
+    monkeypatch.setenv("RUNSPECTOR_UNATTENDED", "1")
     out = mcp_server.get_coaching_reference()
     assert len(out) < 400 and "already" in out, out
 
@@ -564,9 +564,9 @@ def test_a_card_run_is_not_sent_for_the_reference_it_already_has(monkeypatch):
 def test_a_missing_skill_file_is_an_error_not_a_shorter_rule_set(monkeypatch, tmp_path):
     """`if p.is_file()` dropped a missing file in silence: a broken package
     handed the model half the rules and nobody would ever know."""
-    from runcoach import mcp_server
+    from runspector import mcp_server
 
-    monkeypatch.delenv("RUNCOACH_UNATTENDED", raising=False)
+    monkeypatch.delenv("RUNSPECTOR_UNATTENDED", raising=False)
     monkeypatch.setattr(mcp_server, "SKILLS", (*mcp_server.SKILLS, tmp_path / "gone.md"))
     with pytest.raises(FileNotFoundError):
         mcp_server.get_coaching_reference()
@@ -585,7 +585,7 @@ def _seed_zones(store, today):
 
 
 def test_propose_files_a_preview_and_writes_nothing_to_garmin(store, today, monkeypatch):
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     logins = []
@@ -600,7 +600,7 @@ def test_propose_files_a_preview_and_writes_nothing_to_garmin(store, today, monk
 
 
 def test_apply_uploads_schedules_pushes_verifies_and_refreshes_the_mirror(store, today, monkeypatch):
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     fake = FakeGarmin()
@@ -654,23 +654,23 @@ def test_apply_reports_a_mismatch_instead_of_hiding_it(store, today, monkeypatch
 def test_the_write_tool_the_agent_is_denied_really_exists():
     """`agent.WRITE_TOOL` is a string on a command line. If the tool were renamed,
     the flag would deny nothing and every card run could write to Garmin."""
-    from runcoach import mcp_server
-    from runcoach.web import agent
+    from runspector import mcp_server
+    from runspector.web import agent
 
     registered = {t.name for t in asyncio.run(mcp_server.mcp.list_tools())}
-    assert agent.WRITE_TOOL == "mcp__runcoach__apply_workout"
+    assert agent.WRITE_TOOL == "mcp__runspector__apply_workout"
     assert agent.WRITE_TOOL.split("__")[-1] in registered
 
 
 def test_apply_in_demo_mode_refuses(store, monkeypatch):
-    monkeypatch.setenv("RUNCOACH_DEMO", "1")
+    monkeypatch.setenv("RUNSPECTOR_DEMO", "1")
     assert "Demo mode" in tools.apply_workout(store, "p-20260101-000000-dead")
 
 
 # ── a week as one package, and the readiness swap ───────────────────────────
 
 def test_propose_week_files_one_package_and_writes_nothing(store, today, monkeypatch):
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     logins = []
@@ -685,7 +685,7 @@ def test_propose_week_files_one_package_and_writes_nothing(store, today, monkeyp
 
 
 def test_propose_week_reads_the_profile_and_names_what_it_had_to_assume(store, today, tmp_path):
-    from runcoach import paths
+    from runspector import paths
 
     _seed_zones(store, today)
     out = tools.propose_week(store)
@@ -703,7 +703,7 @@ def test_propose_week_refuses_a_start_outside_the_calendar_mirror(store, today):
 
 
 def test_apply_puts_the_whole_week_on_garmin_after_one_yes(store, today, monkeypatch):
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     fake = FakeGarmin()
@@ -723,7 +723,7 @@ def test_apply_puts_the_whole_week_on_garmin_after_one_yes(store, today, monkeyp
 
 
 def test_a_package_whose_first_upload_fails_stays_open_and_owns_nothing(store, today, monkeypatch):
-    from runcoach import plan
+    from runspector import plan
 
     class Down(FakeGarmin):
         def upload_running_workout(self, _w):
@@ -746,7 +746,7 @@ def test_the_readiness_tool_prints_the_schedule_id_the_swap_needs(store, today):
 
 
 def test_a_swap_proposal_unschedules_the_old_entry_when_applied(store, today, monkeypatch):
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     fake = FakeGarmin(schedule={777: {"workoutId": 4242, "date": today.isoformat()}})
@@ -783,7 +783,7 @@ def test_two_applies_at_the_same_moment_upload_the_session_once(store, today, mo
     about one. The claim decides the race; the loser says so."""
     import threading
 
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     fake = FakeGarmin()
@@ -838,7 +838,7 @@ def test_two_applies_at_the_same_moment_upload_the_session_once(store, today, mo
 def test_a_claim_is_given_back_when_the_upload_created_nothing(store, today, monkeypatch):
     """The claim serialises two applies; it is not an idempotency key against
     Garmin. A refused upload created nothing, so the proposal stays retryable."""
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     p = plan.propose(store, "vo2max", distance_km=10, today=today)
@@ -860,7 +860,7 @@ def test_a_half_applied_week_is_finished_by_applying_it_again(store, today, monk
     """Three of four sessions on Garmin used to be the end of the road: the
     proposal counted as applied, and the only way to the fourth was proposing
     the week again - which would have uploaded the first three a second time."""
-    from runcoach import plan
+    from runspector import plan
 
     class Flaky(FakeGarmin):
         def upload_running_workout(self, w):
@@ -889,7 +889,7 @@ def test_a_swap_is_checked_again_at_apply_time_not_only_when_proposed(store, tod
     """A proposal may sit for a week. Garmin hands calendar ids out again, so
     unscheduling one on the strength of a days-old check is how the app would
     delete an entry the athlete made in the meantime."""
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     fake = FakeGarmin(schedule={777: {"workoutId": 4242, "date": today.isoformat()}})
@@ -989,7 +989,7 @@ def _age_proposal(proposal_id: str, *, days: int) -> None:
     import json as _json
     from datetime import timedelta as _td
 
-    from runcoach import plan as _plan
+    from runspector import plan as _plan
 
     f = _plan._path(proposal_id)
     d = _json.loads(f.read_text(encoding="utf-8"))
@@ -1061,7 +1061,7 @@ def test_the_summary_drops_the_claim_whose_step_failed(store, today, monkeypatch
 
 
 def test_the_summary_drops_the_removal_claim_when_the_unschedule_failed(store, today, monkeypatch):
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     fake = _UnscheduleRefused(schedule={777: {"workoutId": 4242, "date": today.isoformat()}})
@@ -1081,7 +1081,7 @@ def test_an_unschedule_that_happened_is_not_attempted_twice(store, today, monkey
     """The entry is gone after the first apply. A resume that tried again would
     aim a delete at a calendar id Garmin may have handed to something else -
     and the early exit on a failed upload used to throw the record of it away."""
-    from runcoach import plan
+    from runspector import plan
 
     class Flaky(FakeGarmin):
         def upload_running_workout(self, w):
@@ -1120,7 +1120,7 @@ def test_a_claim_from_a_crashed_apply_is_reaped_so_the_session_can_be_written(st
     nothing completes. Without a reaper the session is unappliable for good and
     the card keeps offering a button that reports 'another apply is handling
     it' - about a process that no longer exists."""
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     p = plan.propose(store, "vo2max", distance_km=10, today=today)
@@ -1136,7 +1136,7 @@ def test_an_upload_whose_answer_was_lost_keeps_its_claim_and_is_reported(store, 
     """A read timeout does not prove Garmin created nothing. Handing the claim
     back would let the next apply upload the same session again - so it stays,
     out of the reaper's reach, and `doctor` asks the human."""
-    from runcoach import plan
+    from runspector import plan
 
     class LostAnswer(FakeGarmin):
         def upload_running_workout(self, w):
@@ -1159,7 +1159,7 @@ def test_an_upload_whose_answer_was_lost_keeps_its_claim_and_is_reported(store, 
 # ── the lifecycle of a proposal file ────────────────────────────────────────
 
 def test_a_proposal_expires_and_is_swept_but_what_it_wrote_is_kept(store, today, monkeypatch):
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     fake = FakeGarmin()
@@ -1176,7 +1176,7 @@ def test_a_proposal_expires_and_is_swept_but_what_it_wrote_is_kept(store, today,
 
 
 def test_an_expired_proposal_is_no_longer_offered_and_an_open_one_is(store, today):
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     fresh = plan.propose(store, "easy", duration_min=40, today=today)
@@ -1189,8 +1189,8 @@ def test_a_proposal_file_that_is_not_a_proposal_is_ignored_not_crashed_on(store,
     """A file that parses but has no sessions must cost its own card, never the
     page: `server.App.state` reads these, and one KeyError there is a 500 for
     every request the dashboard makes."""
-    from runcoach import paths as paths_mod
-    from runcoach import plan
+    from runspector import paths as paths_mod
+    from runspector import plan
 
     (paths_mod.proposals_dir() / "p-20260101-000000-dead.json").write_text(
         '{"id": "p-20260101-000000-dead"}', encoding="utf-8")
@@ -1204,13 +1204,13 @@ def test_a_card_run_is_refused_by_the_server_itself(store, today, monkeypatch):
     """`--disallowedTools` is a CLI argument and holds only while that flag
     keeps its name and keeps beating the prefix allow. This is the half that
     lives in the process that owns the tool."""
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     logins = []
     monkeypatch.setattr(garmin, "login", lambda tokenstore=None: logins.append(1))
     pid = tools.propose_workout(store, "vo2max", distance_km=10).split("proposal ")[1].split()[0]
-    monkeypatch.setenv("RUNCOACH_UNATTENDED", "1")
+    monkeypatch.setenv("RUNSPECTOR_UNATTENDED", "1")
     out = tools.apply_workout(store, pid)
     assert "unattended card run" in out and "click" in out
     assert logins == [], "it does not even reach Garmin"
@@ -1226,7 +1226,7 @@ def test_a_swap_touches_nothing_the_mirror_cannot_still_confirm(store, today, mo
     id - an entry that fell out of the window, or one Garmin lists without a
     workout id, fell through and was unscheduled on trust. That is the recycled
     -id case the whole guard exists for."""
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     fake = FakeGarmin(schedule={777: {"workoutId": 4242, "date": today.isoformat()}})
@@ -1255,7 +1255,7 @@ def test_an_unschedule_survives_the_process_that_did_it(store, today, monkeypatc
     process that dies between the two leaves Garmin without the entry and the
     app without any record of having taken it - and the next apply aims a
     delete at the same calendar id."""
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     fake = FakeGarmin(schedule={777: {"workoutId": 4242, "date": today.isoformat()}})
@@ -1281,7 +1281,7 @@ def test_a_proposal_older_than_a_week_is_swept_and_a_days_old_one_is_not(store, 
     """ABSOLUTE ages, not `TTL_DAYS ± 1`: a test that ages a file relative to
     the constant it is testing moves with it, and setting the TTL to a hundred
     thousand days left this suite green."""
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     young = plan.propose(store, "easy", duration_min=40, today=today)
@@ -1299,7 +1299,7 @@ def test_a_week_that_stops_in_the_middle_is_not_reported_as_done(store, today, m
     """The error field is only set when the FIRST pending session fails, so a
     package that stopped at session two carried `error: None` - and the HTTP
     route turned that into 200 {"ok": true} for a week that is half written."""
-    from runcoach import plan
+    from runspector import plan
 
     class FailsOnTheSecond(FakeGarmin):
         """The second session, once - the ones after it go through, so the hole
@@ -1324,8 +1324,8 @@ def test_a_week_that_stops_in_the_middle_is_not_reported_as_done(store, today, m
 def test_the_click_reports_a_half_written_week_as_half_written(tmp_path, monkeypatch, today):
     """The HTTP answer is what the page believes. A package that stopped in the
     middle used to come back 200 {"ok": true}."""
-    from runcoach import plan
-    from runcoach.web import server
+    from runspector import plan
+    from runspector.web import server
 
     class FailsOnTheSecond(FakeGarmin):
         def upload_running_workout(self, w):
@@ -1334,7 +1334,7 @@ def test_the_click_reports_a_half_written_week_as_half_written(tmp_path, monkeyp
                 raise ConnectionError("garmin is down")
             return super().upload_running_workout(w)
 
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     app = server.App.__new__(server.App)
     app.db_path = str(tmp_path / "t.db")
     app.store = Store(app.db_path)
@@ -1359,7 +1359,7 @@ def test_two_applies_race_for_the_calendar_step_and_only_one_unschedules(store, 
     freed, and then overwrote the record of it."""
     import threading
 
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     fake = FakeGarmin(schedule={777: {"workoutId": 4242, "date": today.isoformat()}})
@@ -1400,7 +1400,7 @@ def test_a_proposal_whose_apply_died_before_saving_is_not_reported_as_waiting(st
     """The claim table knows the session went up; the file still says "open".
     Every surface that reports on proposals passes the store, so none of them
     tells the athlete it is waiting for a yes it already had."""
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     p = plan.propose(store, "vo2max", distance_km=10, today=today)
@@ -1421,9 +1421,9 @@ def test_a_proposal_whose_apply_died_before_saving_is_not_reported_as_waiting(st
 
 
 def _web_app(tmp_path, monkeypatch, today):
-    from runcoach.web import server
+    from runspector.web import server
 
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     app = server.App.__new__(server.App)
     app.db_path = str(tmp_path / "t.db")
     app.store = Store(app.db_path)
@@ -1441,7 +1441,7 @@ def test_the_click_answers_502_when_nothing_reached_garmin(tmp_path, monkeypatch
     in `tools.apply_workout` are tested; these two were not, so either branch
     could be deleted and the suite stayed green - one of them by turning into
     an uncaught exception, i.e. a 500 with a traceback in the log."""
-    from runcoach import plan
+    from runspector import plan
 
     app = _web_app(tmp_path, monkeypatch, today)
     p = plan.propose(app.store, "vo2max", distance_km=10, today=today)
@@ -1469,7 +1469,7 @@ def test_a_partial_write_carries_no_error_field_over_http(tmp_path, monkeypatch,
     FIRST pending session fails. A package that got three of four up must not
     set it - otherwise the page cannot tell "nothing happened" from "not
     everything happened", and both answers look the same to the athlete."""
-    from runcoach import plan
+    from runspector import plan
 
     class FailsOnTheSecond(FakeGarmin):
         def upload_running_workout(self, w):
@@ -1494,7 +1494,7 @@ def test_a_hard_session_too_close_to_the_last_one_says_so_on_the_proposal(store,
     moved session went through `propose_workout`, where the same rule was a
     sentence asking the model to do the arithmetic - and a red morning uses
     exactly that path."""
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     store.upsert_activity(make_activity(9_000_000_888, today, aerobic_te=3.8))
@@ -1507,7 +1507,7 @@ def test_a_hard_session_too_close_to_the_last_one_says_so_on_the_proposal(store,
 
 
 def test_the_day_before_the_long_run_says_so_and_a_guessed_one_says_it_is_a_guess(store, today):
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     long_day = today + timedelta(days=3)
@@ -1533,7 +1533,7 @@ def test_the_day_before_the_long_run_says_so_and_a_guessed_one_says_it_is_a_gues
 def test_an_easy_session_is_not_lectured_about_spacing(store, today):
     """The rules are about hard stimuli. An easy run the day before the long
     run is the normal shape of a week, not a warning."""
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     store.upsert_activity(make_activity(9_000_000_889, today, aerobic_te=3.8))
@@ -1543,7 +1543,7 @@ def test_an_easy_session_is_not_lectured_about_spacing(store, today):
 
 def test_a_second_click_on_a_finished_proposal_does_not_open_a_garmin_session(tmp_path,
                                                                               monkeypatch, today):
-    from runcoach import plan
+    from runspector import plan
 
     app = _web_app(tmp_path, monkeypatch, today)
     p = plan.propose(app.store, "vo2max", distance_km=10, today=today)
@@ -1563,7 +1563,7 @@ def test_a_hard_session_on_a_red_day_carries_the_days_own_decision(store, today)
     That is a sentence in a prompt; the spacing rule two lines further down is
     annotated in code. Same promise, so this one is annotated too - the preview
     says what the app decided, whatever the coach concluded."""
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     store.upsert_daily(make_day(today, hrv_status="POOR", sleep_score=48, resting_hr=57))
@@ -1580,9 +1580,9 @@ def test_the_decision_note_appears_exactly_when_the_day_decided_against_it(tmp_p
     """If and only if: the note is tied to the app's own DECISION, not to the
     readiness light. A GO morning whose week has had its hard share already
     decides EASY - and the note belongs there too."""
-    from runcoach import plan, tools
+    from runspector import plan, tools
 
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     store = Store(tmp_path / f"{day_kind}.db")
     if day_kind == "red":
         _seed_zones(store, today)
@@ -1600,7 +1600,7 @@ def test_the_decision_note_appears_exactly_when_the_day_decided_against_it(tmp_p
 def test_the_week_shows_the_weeks_it_was_sized_from(store, today):
     """A median hides a down week or a taper, and nothing in here can tell one
     from a normal week - so the athlete sees the weeks themselves."""
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     monday = today - timedelta(days=today.weekday())
@@ -1618,8 +1618,8 @@ def test_uploaded_but_never_scheduled_is_not_done_and_is_finished_by_a_resume(st
     """Uploaded alone is a workout in the library that no watch will show.
     Counting it as finished put the green "On Garmin" pill on the card for a
     session that never reached the calendar - and the only place the athlete
-    could have learned that was `runcoach doctor`."""
-    from runcoach import plan
+    could have learned that was `runspector doctor`."""
+    from runspector import plan
 
     class NoCalendar(FakeGarmin):
         def schedule_workout(self, workout_id, date_str):
@@ -1656,7 +1656,7 @@ def _race(store, fake, proposal_id, today, monkeypatch, threads=2):
     """Run `plan.apply` twice at once, both held until the other has arrived."""
     import threading
 
-    from runcoach import plan
+    from runspector import plan
 
     gate = threading.Barrier(threads, timeout=60)
     seen, lock, real_items = [], threading.Lock(), store.proposal_items
@@ -1691,7 +1691,7 @@ def _race(store, fake, proposal_id, today, monkeypatch, threads=2):
 def test_every_claimed_step_of_an_apply_happens_exactly_once(store, today, monkeypatch, step):
     import time as _time
 
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     calls: list = []
@@ -1745,7 +1745,7 @@ def test_undo_takes_the_session_off_the_calendar_and_leaves_the_workout(store, t
     """The counterpart the write path was missing. Without it the first real
     write is a one-way door - and a one-way door is the reason a first real
     write does not get made."""
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     fake = FakeGarmin()
@@ -1767,7 +1767,7 @@ def test_undo_takes_the_session_off_the_calendar_and_leaves_the_workout(store, t
 def test_undo_puts_the_proposal_back_within_reach_of_a_second_apply(store, today, monkeypatch):
     """Undo releases the scheduling claim, otherwise applying again would be
     refused by the table for the very day it just freed."""
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     fake = FakeGarmin()
@@ -1786,7 +1786,7 @@ def test_undo_leaves_alone_what_this_app_did_not_upload(store, today, monkeypatc
     """`runcoach_workouts` is the record. A calendar id whose workout is not
     ours - the athlete's own, or one Garmin has since given to something else -
     is reported, not removed."""
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     fake = FakeGarmin()
@@ -1806,7 +1806,7 @@ def test_undo_leaves_alone_what_this_app_did_not_upload(store, today, monkeypatc
 
 
 def test_undo_on_something_that_was_never_applied_says_so(store, today, monkeypatch):
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     monkeypatch.setattr(garmin, "login", lambda tokenstore=None: FakeGarmin())
@@ -1821,7 +1821,7 @@ def test_undo_is_refused_in_a_card_run_like_every_other_write(store, today, monk
     _seed_zones(store, today)
     logins = []
     monkeypatch.setattr(garmin, "login", lambda tokenstore=None: logins.append(1))
-    monkeypatch.setenv("RUNCOACH_UNATTENDED", "1")
+    monkeypatch.setenv("RUNSPECTOR_UNATTENDED", "1")
     out = tools.undo_workout(store, "p-20260101-000000-dead")
     assert "unattended card run" in out
     assert logins == [], "it does not even reach Garmin"
@@ -1829,15 +1829,15 @@ def test_undo_is_refused_in_a_card_run_like_every_other_write(store, today, monk
 
 def test_every_registered_tool_is_classified_as_reading_or_writing():
     """The mechanism, not a third remembered list. `--allowedTools
-    mcp__runcoach` is a PREFIX allow: a tool nobody classified is allowed, and
+    mcp__runspector` is a PREFIX allow: a tool nobody classified is allowed, and
     an unattended card run would be able to call it. Adding a tool without
     deciding what it does makes this red."""
     import asyncio
     import pathlib
     import tempfile
 
-    from runcoach import mcp_server
-    from runcoach.web import agent
+    from runspector import mcp_server
+    from runspector.web import agent
 
     registered = {t.name for t in asyncio.run(mcp_server.mcp.list_tools())}
     writes = set(tools.WRITE_TOOLS)
@@ -1851,7 +1851,7 @@ def test_every_registered_tool_is_classified_as_reading_or_writing():
     with tempfile.TemporaryDirectory() as d:
         cmd = agent.command(pathlib.Path(d), db=None)
     denied = set(cmd[cmd.index("--disallowedTools") + 1].split(","))
-    assert denied == {f"mcp__runcoach__{n}" for n in writes}, (
+    assert denied == {f"mcp__runspector__{n}" for n in writes}, (
         f"the card run denies {sorted(denied)}, the write tools are {sorted(writes)}")
 
 
@@ -1890,7 +1890,7 @@ def test_a_lost_answer_to_scheduling_never_schedules_the_session_twice(store, to
 
 def test_a_refused_scheduling_call_is_still_retried(store, today, monkeypatch):
     """The counterpart: a 4xx placed nothing, so the next apply may try again."""
-    from runcoach import plan
+    from runspector import plan
 
     class Refusing(FakeGarmin):
         calls = 0
@@ -1922,7 +1922,7 @@ def test_a_proposal_for_a_day_that_has_passed_is_not_applied(store, today, monke
     Monday, and reported as applied: a session the athlete can never run."""
     from datetime import timedelta
 
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     fake = FakeGarmin()
@@ -1950,7 +1950,7 @@ def _age_last_sync(store, minutes: int) -> None:
 def chat(store, today, monkeypatch):
     """The MCP server as a chat client reaches it, on the test store, with a
     Garmin double that counts logins."""
-    from runcoach import mcp_server
+    from runspector import mcp_server
 
     store.upsert_daily(make_day(today))
     calls = {"login": 0}
@@ -1962,7 +1962,7 @@ def chat(store, today, monkeypatch):
     monkeypatch.setattr(garmin, "login", login)
     monkeypatch.setattr(mcp_server, "_store", store)
     monkeypatch.setattr(tools, "_last_sync", [None])
-    for var in ("RUNCOACH_UNATTENDED", "RUNCOACH_DEMO", "RUNCOACH_AUTOSYNC_MIN"):
+    for var in ("RUNSPECTOR_UNATTENDED", "RUNSPECTOR_DEMO", "RUNSPECTOR_AUTOSYNC_MIN"):
         monkeypatch.delenv(var, raising=False)
     return mcp_server, calls
 
@@ -1985,8 +1985,8 @@ def test_recent_data_is_read_without_a_sync(chat, store):
     assert calls["login"] == 0
 
 
-@pytest.mark.parametrize("env", [{"RUNCOACH_UNATTENDED": "1"}, {"RUNCOACH_DEMO": "1"},
-                                 {"RUNCOACH_AUTOSYNC_MIN": "0"}])
+@pytest.mark.parametrize("env", [{"RUNSPECTOR_UNATTENDED": "1"}, {"RUNSPECTOR_DEMO": "1"},
+                                 {"RUNSPECTOR_AUTOSYNC_MIN": "0"}])
 def test_card_runs_demo_and_an_opt_out_never_auto_sync(chat, store, monkeypatch, env):
     """A card run lives next to the app's own sync thread in another process:
     two syncs at once are two logins on one rate-limited account."""
@@ -2000,14 +2000,14 @@ def test_card_runs_demo_and_an_opt_out_never_auto_sync(chat, store, monkeypatch,
 
 def test_the_first_auto_sync_of_an_empty_home_takes_a_week(tmp_path, monkeypatch):
     """One day is enough to catch up; it is not enough to start from."""
-    from runcoach import mcp_server
-    from runcoach.store import Store
+    from runspector import mcp_server
+    from runspector.store import Store
 
     empty = Store(tmp_path / "empty.db")
     asked = []
     monkeypatch.setattr(tools, "sync_garmin", lambda store, days=1: asked.append(days) or "[OK]")
     monkeypatch.setattr(mcp_server, "_store", empty)
-    for var in ("RUNCOACH_UNATTENDED", "RUNCOACH_DEMO", "RUNCOACH_AUTOSYNC_MIN"):
+    for var in ("RUNSPECTOR_UNATTENDED", "RUNSPECTOR_DEMO", "RUNSPECTOR_AUTOSYNC_MIN"):
         monkeypatch.delenv(var, raising=False)
     mcp_server.get_training_readiness()
     assert asked == [7]
@@ -2018,10 +2018,10 @@ def test_the_first_auto_sync_of_an_empty_home_takes_a_week(tmp_path, monkeypatch
 def test_no_server_log_line_carries_the_token(caplog):
     """`redact_token` covered the request log only. An exception while serving
     `/?token=...` went through `log.exception` with the raw path, at ERROR
-    level, whatever RUNCOACH_LOG said. The filter sits on the logger itself."""
+    level, whatever RUNSPECTOR_LOG said. The filter sits on the logger itself."""
     import logging
 
-    from runcoach.web import server
+    from runspector.web import server
 
     with caplog.at_level(logging.ERROR, logger=server.log.name):
         server.log.error("%s %s failed", "GET", "/?token=SECRET123")
@@ -2040,7 +2040,7 @@ def test_a_failed_sync_does_not_make_the_next_one_say_the_data_is_current(store,
 
     monkeypatch.setattr(garmin, "login", login)
     monkeypatch.setattr(tools, "_last_sync", [None])
-    monkeypatch.delenv("RUNCOACH_DEMO", raising=False)
+    monkeypatch.delenv("RUNSPECTOR_DEMO", raising=False)
     first = tools.sync_garmin(store)
     second = tools.sync_garmin(store)
     assert "login failed" in first and "login failed" in second, second
@@ -2050,7 +2050,7 @@ def test_a_failed_sync_does_not_make_the_next_one_say_the_data_is_current(store,
 def test_a_card_run_without_its_skill_files_fails_loudly(monkeypatch, tmp_path):
     """The MCP tool raises on a missing skill file; the card run's own copy of
     the rules still skipped it and coached on half the reference."""
-    from runcoach.web import agent
+    from runspector.web import agent
 
     monkeypatch.setattr(agent, "SKILLS", (*agent.SKILLS, tmp_path / "gone.md"))
     with pytest.raises(FileNotFoundError):
@@ -2062,7 +2062,7 @@ def test_a_request_that_was_being_sent_when_the_process_died_is_never_reaped(sto
     sent anything. One that died while the upload was on the wire - Claude
     Desktop closed mid-apply takes the stdio server down - may have created
     the session; deleting that claim after 30 minutes invited a second one."""
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     p = plan.propose(store, "vo2max", distance_km=10, today=today)
@@ -2082,7 +2082,7 @@ def test_apply_again_is_never_advised_for_what_cannot_be_added(store, today):
     second write, the second is skipped again by the next apply."""
     from datetime import timedelta
 
-    from runcoach import plan
+    from runspector import plan
 
     yesterday, tomorrow = (today - timedelta(days=1)).isoformat(), (today + timedelta(days=1)).isoformat()
     p = {"items": [{"day": tomorrow, "upload_unknown": True},
@@ -2098,7 +2098,7 @@ def test_a_week_package_names_the_day_of_every_session(store, today):
     on any of them. The athlete was asked to agree to a week they could not see."""
     from datetime import date as _date
 
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     p = plan.propose_week(store, start=today, days_per_week=4, long_run_day="sun", today=today)
@@ -2168,7 +2168,7 @@ def test_a_swap_undone_and_applied_again_swaps_again(store, today, monkeypatch):
 # did several of the guards below. mutation.yml found each of them.
 
 def _week(store, today) -> dict:
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     p = plan.propose_week(store, start=today, days_per_week=4, long_run_day="sun", today=today)
@@ -2179,7 +2179,7 @@ def _week(store, today) -> dict:
 def _swap(store, today, *entries, client=FakeGarmin):
     """A proposal for today that replaces `entries` - (schedule id, workout id,
     title) - on Garmin's calendar and in the mirror."""
-    from runcoach import plan
+    from runspector import plan
 
     _seed_zones(store, today)
     fake = client(schedule={sid: {"workoutId": wid, "date": today.isoformat()}
@@ -2195,7 +2195,7 @@ def test_a_week_with_a_day_gone_by_still_writes_the_days_ahead(store, today):
     """The past-day rule is for a proposal that has NOTHING left to write. A
     week clicked on its second day must still put the rest of it on the watch;
     only the day that is gone is skipped, and said to be."""
-    from runcoach import plan
+    from runspector import plan
 
     p = _week(store, today)
     days = sorted(date.fromisoformat(it["day"]) for it in p["items"])
@@ -2211,7 +2211,7 @@ def test_sessions_another_apply_holds_are_skipped_and_the_rest_go_up(store, toda
     """Session 1 may already be on Garmin (its answer was lost), session 2 is
     being written by a second apply right now. Neither is uploaded here, each
     is named - and sessions 3 and 4 go up all the same."""
-    from runcoach import plan
+    from runspector import plan
 
     p = _week(store, today)
     pid = p["id"]
@@ -2234,7 +2234,7 @@ def test_an_apply_killed_while_the_upload_was_on_the_wire_never_uploads_it_again
     """The claim is marked "sending" before the request goes out, so a process
     that dies mid-request leaves a question for `doctor`, not a claim the
     reaper hands back after half an hour for a second upload."""
-    from runcoach import plan
+    from runspector import plan
 
     class _ProcessKilled(BaseException):     # what `except Exception` does not catch
         pass
@@ -2256,7 +2256,7 @@ def test_an_apply_killed_while_the_upload_was_on_the_wire_never_uploads_it_again
 
 
 def test_a_resume_gives_every_uploaded_session_its_day(store, today):
-    from runcoach import plan
+    from runspector import plan
 
     class NoCalendar(FakeGarmin):
         def schedule_workout(self, workout_id, date_str):
@@ -2274,7 +2274,7 @@ def test_a_resume_gives_every_uploaded_session_its_day(store, today):
 
 
 def test_a_calendar_step_another_apply_holds_is_left_to_it(store, today):
-    from runcoach import plan
+    from runspector import plan
 
     fake, p = _swap(store, today, (777, 4242, "VO2max 5x3"))
     store.claim_proposal_item(p["id"], plan.REPLACES_CLAIM_INDEX)
@@ -2287,7 +2287,7 @@ def test_a_swap_entry_that_changed_is_left_and_the_next_one_is_still_removed(sto
     """Two entries to replace; between the proposal and the yes, the first
     calendar id came to hold another workout. That one is left alone and
     named, and the second is still taken off."""
-    from runcoach import plan
+    from runspector import plan
 
     fake, p = _swap(store, today, (777, 4242, "VO2max 5x3"), (778, 4343, "Tempo 3x10"))
     store.replace_scheduled_workouts(
@@ -2304,7 +2304,7 @@ def test_undo_finds_a_session_whose_apply_never_saved_the_file(store, today):
     and `runcoach_workouts` know the session is on the calendar, the file does
     not. Undo reads the record, not the file, or it answers "nothing to take
     back" about a session that is on the watch."""
-    from runcoach import paths, plan
+    from runspector import paths, plan
 
     _seed_zones(store, today)
     p = plan.propose(store, "vo2max", distance_km=10, today=today)
@@ -2320,7 +2320,7 @@ def test_undoing_a_swap_whose_removal_failed_does_not_put_the_entry_on_twice(sto
     """Garmin refused to take the old entry off, so it never left the calendar.
     Undo puts back only what the swap removed - "putting back" this one was a
     second copy of the athlete's session on the same day."""
-    from runcoach import plan
+    from runspector import plan
 
     class KeepsThatOne(FakeGarmin):
         def unschedule_workout(self, scheduled_workout_id):
@@ -2346,7 +2346,7 @@ def test_undo_of_a_week_leaves_the_one_session_it_must_and_takes_off_the_rest(st
     the calendar with a reason, the other three come off."""
     import sqlite3
 
-    from runcoach import plan
+    from runspector import plan
 
     p = _week(store, today)
     fake = FakeGarmin()
@@ -2381,7 +2381,7 @@ def test_undo_of_a_week_leaves_the_one_session_it_must_and_takes_off_the_rest(st
 
 
 def test_undo_a_day_later_does_not_put_back_a_session_whose_day_has_passed(store, today):
-    from runcoach import plan
+    from runspector import plan
 
     fake, p = _swap(store, today, (777, 4242, "VO2max 5x3"))
     plan.apply(store, fake, p["id"], today=today)
@@ -2393,7 +2393,7 @@ def test_undo_a_day_later_does_not_put_back_a_session_whose_day_has_passed(store
 def test_a_mirror_that_cannot_be_refreshed_is_said_not_hidden(store, today, monkeypatch):
     """The write happened; only the Today tab is behind. Both directions say
     so instead of leaving the tab to show a calendar that is no longer true."""
-    from runcoach import plan
+    from runspector import plan
 
     def down(client, start, end):
         raise ConnectionError("calendar is down")
@@ -2416,7 +2416,7 @@ def test_a_mirror_that_cannot_be_refreshed_is_said_not_hidden(store, today, monk
 def test_training_readiness_names_the_goal_only_when_the_profile_has_one(store, today):
     import json
 
-    from runcoach import paths
+    from runspector import paths
 
     store.upsert_daily(make_day(today, hrv_status="BALANCED", sleep_score=85))
     assert "Goal" not in tools.get_training_readiness(store)
@@ -2513,7 +2513,7 @@ def test_propose_week_alternates_the_structure_by_week(store, today):
 
 
 def test_garmins_load_focus_is_one_line_said_as_its_opinion(store, today):
-    from runcoach.models import DailyMetrics
+    from runspector.models import DailyMetrics
 
     store.upsert_activity(make_activity(9_100_000_001, today - timedelta(days=2)))
     before = tools.get_training_load(store)
@@ -2531,7 +2531,7 @@ def test_garmins_load_focus_is_one_line_said_as_its_opinion(store, today):
 
 
 def test_the_athlete_profile_tool_carries_their_note_and_how_to_read_it(store):
-    from runcoach import profile
+    from runspector import profile
 
     assert "note to the coach" not in tools.get_athlete_profile(store)
     profile.save({"note": "Less time until December - keep weekday runs short."})

@@ -3,7 +3,7 @@ tree. Runs in CI and before every publish. Patterns are deliberately blunt —
 a false positive costs a minute, a leak cannot be taken back.
 
     python scripts/pii_gate.py            # exit 0 = clean
-    RUNCOACH_PII_EXTRA="name1|name2" ...  # add private terms without committing them
+    RUNSPECTOR_PII_EXTRA="name1|name2" ...  # add private terms without committing them
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ _STRINGS = re.compile(r"[ -~]{6,}")
 
 #: ...and only the patterns that need several characters to match.
 BINARY_PATTERNS = ("e-mail address", "home path", "IBAN",
-                   "private term (RUNCOACH_PII_EXTRA)")
+                   "private term (RUNSPECTOR_PII_EXTRA)")
 
 PATTERNS = {
     "e-mail address": re.compile(r"[\w.+-]+@(?!example\.|users\.noreply\.|anthropic\.)[\w-]+\.[a-z]{2,}",
@@ -74,7 +74,7 @@ _DOI = re.compile(r"doi:10\.\d{4,}/\S+")
 
 
 def extra() -> re.Pattern | None:
-    terms = os.environ.get("RUNCOACH_PII_EXTRA", "").strip()
+    terms = os.environ.get("RUNSPECTOR_PII_EXTRA", "").strip()
     return re.compile(terms, re.I) if terms else None
 
 
@@ -111,7 +111,7 @@ def commit_identities() -> int:
 def main() -> int:
     patterns = dict(PATTERNS)
     if (e := extra()) is not None:
-        patterns["private term (RUNCOACH_PII_EXTRA)"] = e
+        patterns["private term (RUNSPECTOR_PII_EXTRA)"] = e
     hits = 0
     for path in sorted(ROOT.rglob("*")):
         if not path.is_file() or path.name in SKIP_FILES:

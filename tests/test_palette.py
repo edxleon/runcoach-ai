@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-STATIC = Path(__file__).resolve().parent.parent / "src" / "runcoach" / "web" / "static"
+STATIC = Path(__file__).resolve().parent.parent / "src" / "runspector" / "web" / "static"
 TOKENS = STATIC / "tokens.css"
 
 #: Below this, two adjacent bars in the same chart are not reliably separable.

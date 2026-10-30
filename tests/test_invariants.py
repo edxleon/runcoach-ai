@@ -31,9 +31,9 @@ from pathlib import Path
 import pytest
 
 from conftest import make_activity, make_day
-from runcoach import cli, garmin, logic, paths, snapshot, tools
-from runcoach.store import _HARD_SQL, Store
-from runcoach.web import agent, jobs, server
+from runspector import cli, garmin, logic, paths, snapshot, tools
+from runspector.store import _HARD_SQL, Store
+from runspector.web import agent, jobs, server
 
 
 @pytest.fixture(autouse=True)
@@ -45,7 +45,7 @@ def _reset_sync_cooldown():
     Here rather than in `conftest.py`: reaching into one production module's
     private state from a fixture shared by sixteen files made every test file
     depend on `tools`, whether it used it or not."""
-    from runcoach import tools
+    from runspector import tools
 
     tools._last_sync[0] = None
     yield
@@ -236,7 +236,7 @@ def test_the_worker_survives_a_failing_cleanup(tmp_path, monkeypatch):
     Windows sharing violation was enough to end the worker thread for good: jobs
     stayed queued forever, nothing in /api/state said so, and the queue cap turned
     every later card into "queue full"."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     app = server.App.__new__(server.App)          # no demo seeding, we only need the loop
     app.db_path = str(tmp_path / "t.db")
     app.store = Store(app.db_path)
@@ -263,7 +263,7 @@ def test_the_worker_survives_a_failing_cleanup(tmp_path, monkeypatch):
         assert app.worker_error and "PermissionError" in app.worker_error
     finally:
         # A worker that survives everything also survives this test - and then
-        # polls RUNCOACH_HOME, which every later test points somewhere new, with
+        # polls RUNSPECTOR_HOME, which every later test points somewhere new, with
         # the real `agent.run` restored. That leaked thread was the "queue_full
         # expected, got 200" failure in test_web, once every N runs on CI and
         # never in isolation. The guard in conftest.py fails any test that
@@ -278,7 +278,7 @@ def test_a_slow_sync_is_never_presumed_gone(tmp_path, monkeypatch):
     """A sync past the timeout used to be treated as dead: a second one started
     while the first was still talking to Garmin, and the abandoned thread then
     stamped its own verdict onto the new run's status."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     app = server.App.__new__(server.App)
     app.demo = False
     app._refresh_lock = threading.Lock()
@@ -296,12 +296,12 @@ def test_a_slow_sync_is_never_presumed_gone(tmp_path, monkeypatch):
 
 
 def test_an_abandoned_sync_cannot_stamp_a_newer_one(tmp_path, monkeypatch):
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     app = server.App.__new__(server.App)
     app._refresh_lock = threading.Lock()
     app._refresh = {"started": time.monotonic(), "finished": None, "ok": None, "generation": 7}
-    monkeypatch.setattr("runcoach.garmin.login", lambda *a, **k: object())
-    monkeypatch.setattr("runcoach.sync.run", lambda *a, **k: type("R", (), {"errors": 0})())
+    monkeypatch.setattr("runspector.garmin.login", lambda *a, **k: object())
+    monkeypatch.setattr("runspector.sync.run", lambda *a, **k: type("R", (), {"errors": 0})())
     app.store = None
 
     app._sync(generation=6)                    # the older run reports late
@@ -314,7 +314,7 @@ def test_an_abandoned_sync_cannot_stamp_a_newer_one(tmp_path, monkeypatch):
 
 @pytest.fixture()
 def live(tmp_path, monkeypatch):
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     app = server.App.__new__(server.App)
     app.demo, app.token, app._token_fails = True, None, 0
     app.db_path = str(tmp_path / "t.db")
@@ -360,7 +360,7 @@ def test_a_negative_content_length_is_refused(live):
 
 
 def test_the_query_token_works_only_for_the_page_itself(tmp_path, monkeypatch):
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     app = server.App.__new__(server.App)
     app.demo, app.token, app._token_fails = True, "s3cret", 0
     app.db_path = str(tmp_path / "t.db")
@@ -375,7 +375,7 @@ def test_the_query_token_works_only_for_the_page_itself(tmp_path, monkeypatch):
         # The API may not: a token in a URL ends up in proxy logs and shared links.
         assert _raw(httpd, "GET", "/api/state?token=s3cret")[0] == 403
         assert _raw(httpd, "GET", "/api/state",
-                    headers={"X-Runcoach-Token": "s3cret"})[0] == 200
+                    headers={"X-Runspector-Token": "s3cret"})[0] == 200
     finally:
         httpd.shutdown()
         httpd.server_close()
@@ -403,8 +403,8 @@ def test_the_home_directory_is_not_world_readable(tmp_path, monkeypatch):
 
     if os.name == "nt":
         pytest.skip("POSIX permissions only")
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path / "fresh"))
-    from runcoach import paths
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path / "fresh"))
+    from runspector import paths
 
     mode = stat.S_IMODE(paths.home().stat().st_mode)
     assert mode & (stat.S_IRWXG | stat.S_IRWXO) == 0
@@ -419,7 +419,7 @@ def _fake_tokens() -> None:
 
 
 def _doctor(capsys, **env) -> tuple[int, str]:
-    from runcoach import cli
+    from runspector import cli
 
     code = cli.main(["doctor", "--offline"])
     return code, capsys.readouterr().out
@@ -428,8 +428,8 @@ def _doctor(capsys, **env) -> tuple[int, str]:
 def test_doctor_is_red_on_a_stale_database(today, capsys, monkeypatch, tmp_path):
     """It used to check that a token FILE existed and that the database had EVER
     held data — so an installation whose nightly sync died months ago answered
-    "all green, exit 0", and `runcoach doctor || alert` never fired."""
-    monkeypatch.setattr("runcoach.cli.shutil.which", lambda _n: None)
+    "all green, exit 0", and `runspector doctor || alert` never fired."""
+    monkeypatch.setattr("runspector.cli.shutil.which", lambda _n: None)
     _fake_tokens()
     Store(paths.db_path()).upsert_daily(make_day(today - timedelta(days=95), resting_hr=44))
 
@@ -439,8 +439,8 @@ def test_doctor_is_red_on_a_stale_database(today, capsys, monkeypatch, tmp_path)
 
 
 def test_doctor_is_green_on_a_fresh_database(today, capsys, monkeypatch, tmp_path):
-    monkeypatch.setattr("runcoach.cli.shutil.which", lambda _n: "claude")
-    monkeypatch.setattr("runcoach.cli.subprocess.run",
+    monkeypatch.setattr("runspector.cli.shutil.which", lambda _n: "claude")
+    monkeypatch.setattr("runspector.cli.subprocess.run",
                         lambda *a, **k: type("R", (), {"returncode": 0, "stdout": "2.0", "stderr": ""})())
     _fake_tokens()
     Store(paths.db_path()).upsert_daily(make_day(today, resting_hr=44))
@@ -451,9 +451,9 @@ def test_doctor_is_green_on_a_fresh_database(today, capsys, monkeypatch, tmp_pat
 def test_doctor_hints_at_the_week_profile_without_failing(today, capsys, monkeypatch, tmp_path):
     """The week planner runs on defaults and says so - doctor points at the two
     fields, but a cron running `doctor || alert` must not page for them."""
-    from runcoach import cli
+    from runspector import cli
 
-    monkeypatch.setattr("runcoach.cli.shutil.which", lambda _n: None)
+    monkeypatch.setattr("runspector.cli.shutil.which", lambda _n: None)
     _fake_tokens()
     Store(paths.db_path()).upsert_daily(make_day(today, resting_hr=44))
     code, out = _doctor(capsys)
@@ -472,10 +472,10 @@ def test_doctor_reports_the_write_path_instead_of_falling_silent(today, capsys, 
     a yes, one that stopped half way, and an upload that never answered. They
     were invisible - doctor knew nothing about the write path and said `[ok]`
     through all of it."""
-    from runcoach import plan
-    from runcoach.store import Store as _Store
+    from runspector import plan
+    from runspector.store import Store as _Store
 
-    monkeypatch.setattr("runcoach.cli.shutil.which", lambda _n: None)
+    monkeypatch.setattr("runspector.cli.shutil.which", lambda _n: None)
     _fake_tokens()
     store = _Store(paths.db_path())
     store.upsert_daily(make_day(today, resting_hr=44))
@@ -508,23 +508,23 @@ def test_doctor_reports_the_write_path_instead_of_falling_silent(today, capsys, 
 def test_sync_does_not_blame_the_login_for_a_rate_limit(capsys, monkeypatch):
     """Reporting every failure as a login failure sent the athlete into an
     interactive password-and-MFA re-login that cannot fix a rate limit."""
-    from runcoach import cli
+    from runspector import cli
 
     def rate_limited(_days):
         raise garmin._FATAL[-1]("429 Too Many Requests")
 
-    monkeypatch.setattr("runcoach.sync.sync_now", rate_limited)
+    monkeypatch.setattr("runspector.sync.sync_now", rate_limited)
     code = cli.main(["sync"])
     err = capsys.readouterr().err
     assert code == 2
-    assert "rate limit" in err and "runcoach login" not in err
+    assert "rate limit" in err and "runspector login" not in err
 
     def logged_out(_days):
         raise garmin._FATAL[0]("session expired")
 
-    monkeypatch.setattr("runcoach.sync.sync_now", logged_out)
+    monkeypatch.setattr("runspector.sync.sync_now", logged_out)
     cli.main(["sync"])
-    assert "runcoach login" in capsys.readouterr().err
+    assert "runspector login" in capsys.readouterr().err
 
 
 # ── the one tool that reaches outside has a brake ────────────────────────────
@@ -536,7 +536,7 @@ def test_sync_garmin_is_rate_limited(store, monkeypatch):
     one actually driven by untrusted text — had none, so "call sync_garmin again"
     repeated in a prompt meant tens of fresh logins per job."""
     from conftest import FakeGarmin
-    from runcoach import sync as sync_mod
+    from runspector import sync as sync_mod
 
     logins = []
     monkeypatch.setattr(garmin, "login",
@@ -561,8 +561,8 @@ def test_the_token_never_reaches_the_browser_url(tmp_path, monkeypatch, capsys):
     """`webbrowser.open` records the URL in the browser's persistent history and,
     on Linux, in a world-readable /proc/<pid>/cmdline — handing the token to
     exactly the other local account that the 0700 home directory keeps out."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
-    monkeypatch.setenv("RUNCOACH_TOKEN", "s3cret-token")
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_TOKEN", "s3cret-token")
     opened: list[str] = []
     monkeypatch.setattr(server.webbrowser, "open", opened.append)
     monkeypatch.setattr(server.threading, "Timer",
@@ -620,7 +620,7 @@ def test_a_failed_endpoint_keeps_the_stored_value(store, today):
 
 
 def test_the_sync_reports_the_fields_it_could_not_retrieve(store, today, monkeypatch):
-    from runcoach import sync as sync_mod
+    from runspector import sync as sync_mod
 
     monkeypatch.setattr(sync_mod.time, "sleep", lambda s: None)
     lines: list[str] = []
@@ -646,7 +646,7 @@ def test_a_child_that_never_reads_the_prompt_still_times_out(tmp_path, monkeypat
     marker and pinned the only worker thread for good."""
     stub = tmp_path / "slow_stub.py"
     stub.write_text(_SLOW_STUB, encoding="utf-8")
-    monkeypatch.setenv("RUNCOACH_CLAUDE_CMD", json.dumps([sys.executable, str(stub)]))
+    monkeypatch.setenv("RUNSPECTOR_CLAUDE_CMD", json.dumps([sys.executable, str(stub)]))
     monkeypatch.setattr(agent, "TIMEOUT_S", 3)
 
     job = jobs.new_job("x", title="t", kind="week-review")
@@ -664,7 +664,7 @@ def test_a_child_that_never_reads_the_prompt_still_times_out(tmp_path, monkeypat
 def test_worker_health_is_reported_in_the_state(tmp_path, monkeypatch):
     """A stalled runner otherwise looks like nothing at all: jobs stay `queued`,
     the queue cap turns later cards into "queue full", and no surface says why."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     app = server.App.__new__(server.App)
     app.reset_runtime_state()
     assert app.worker_health() == {"ok": True, "reason": ""}
@@ -694,7 +694,7 @@ def test_a_soft_endpoint_failure_does_not_delete_hr_zones_forever(store, today):
     zones, stamp `detail_synced_at` (so it was never retried) and report exit 0.
     The zone-less run then counted towards `with_detail`, which is the coverage
     guard `get_intensity_distribution` trusts before it judges an 80/20 split."""
-    from runcoach import sync as sync_mod
+    from runspector import sync as sync_mod
 
     aid = 4711
     store.upsert_activity(make_activity(aid, today, activity_type="running"))
@@ -773,7 +773,7 @@ def test_the_stall_watchdog_is_bounded_in_both_directions(tmp_path, monkeypatch)
     they were waiting for), then the fix suppressed it for the whole duration -
     removing the false positive by removing the detector. A running job gets a
     LONGER bound, not no bound."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     app = server.App.__new__(server.App)
     app.reset_runtime_state()
 
@@ -801,7 +801,7 @@ def test_a_second_instance_does_not_take_over_a_live_data_directory(tmp_path, mo
     second instance's `recover_stale()` rewrote the live one's running job to
     `failed`, and the `already_running` check (job files carry no owner) then let
     the same template be started twice - two paid runs."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     first = server._take_home_lock()
     assert first is not None and first.exists()
 
@@ -821,8 +821,8 @@ def test_a_second_instance_does_not_take_over_a_live_data_directory(tmp_path, mo
 def test_doctor_reports_a_corrupt_database_instead_of_tracebacking(tmp_path, monkeypatch, capsys):
     """A diagnostic command must never answer with a traceback: that looks like
     the tool is the bug, exactly when the user is trying to find out what is."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
-    (tmp_path / "runcoach.db").write_bytes(b"not a database at all")
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
+    (tmp_path / "runspector.db").write_bytes(b"not a database at all")
     rc = cli.main(["doctor", "--offline"])
     out = capsys.readouterr().out
     assert rc == 1
@@ -830,10 +830,10 @@ def test_doctor_reports_a_corrupt_database_instead_of_tracebacking(tmp_path, mon
 
 
 def test_doctors_exit_code_ignores_the_optional_claude_cli(tmp_path, monkeypatch, capsys):
-    """`runcoach doctor || alert` should page on a dead Garmin session, not on a
+    """`runspector doctor || alert` should page on a dead Garmin session, not on a
     machine that simply never had Claude Code - the app reads, charts and syncs
     without it."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     monkeypatch.setattr(cli.shutil, "which", lambda _n: None)
     (tmp_path / "garmin").mkdir()
     (tmp_path / "garmin" / "oauth1_token.json").write_text("{}", encoding="utf-8")
@@ -893,7 +893,7 @@ def test_one_unreadable_table_degrades_one_card_not_the_page(store, monkeypatch,
     one of eight reads, so `degraded` could only ever name
     `latest_lactate_threshold` and everything else was still a 500 with an empty
     screen behind it — which is what a user sees as "the app is gone"."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     with store._conn() as conn:
         conn.execute("DROP TABLE activities")
 
@@ -927,7 +927,7 @@ def test_an_exhausted_quota_waits_and_retries_instead_of_failing(tmp_path, monke
     feature ("an exhausted subscription means wait, not fail"). It had no test at
     all — so nothing checked that the job stays visible as `running` while it
     waits, or that it ever retries, or that it eventually gives up."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     monkeypatch.setattr(agent, "QUOTA_SLICE_S", 5)     # one 5-second slice per wait
     monkeypatch.setattr(time, "sleep", lambda _s: None)
 
@@ -955,9 +955,9 @@ def test_an_exhausted_quota_waits_and_retries_instead_of_failing(tmp_path, monke
 
 
 def test_the_quota_wait_gives_up_eventually(tmp_path, monkeypatch):
-    """A wait without a bound is a hung job that looks alive. `RUNCOACH_QUOTA_WAIT_S`
+    """A wait without a bound is a hung job that looks alive. `RUNSPECTOR_QUOTA_WAIT_S`
     is that bound, and it has to actually end the run."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     monkeypatch.setattr(agent, "QUOTA_SLICE_S", 5)
     monkeypatch.setattr(agent, "QUOTA_WAIT_S", 10)      # two slices, then stop
     monkeypatch.setattr(time, "sleep", lambda _s: None)
@@ -975,7 +975,7 @@ def test_the_quota_wait_gives_up_eventually(tmp_path, monkeypatch):
 def test_a_cancel_during_the_quota_wait_is_noticed_without_another_spawn(tmp_path, monkeypatch):
     """The wait is sliced precisely so a cancel does not have to sit out the full
     interval — and, more importantly, so it cannot spend another run first."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     monkeypatch.setattr(agent, "QUOTA_SLICE_S", 60)
     monkeypatch.setattr(time, "sleep", lambda _s: None)
 
@@ -1038,7 +1038,7 @@ def test_a_broken_split_write_does_not_stamp_the_workout_as_detailed(store, toda
     it has to be the LAST write. Stamped first, one transient "database is
     locked" on the split insert left the run marked as detailed with zero
     intervals — and out of `activities_missing_detail` for good."""
-    from runcoach import sync as sync_mod
+    from runspector import sync as sync_mod
 
     aid = 5150
     store.upsert_activity(make_activity(aid, today, activity_type="running"))
@@ -1087,7 +1087,7 @@ def test_the_busy_watchdog_outlasts_the_longest_legitimate_job():
     """The bound called itself derived and was not: `TIMEOUT_S + QUOTA_WAIT_S`
     ignores that the quota loop retries `_run_once` up to thirteen times, each
     one able to run the full timeout. A healthy job waiting out a usage limit
-    then tripped an alarm whose advice — "restarting runcoach clears it" — would
+    then tripped an alarm whose advice — "restarting runspector clears it" — would
     have killed it."""
     worst = (agent.QUOTA_WAIT_S // agent.QUOTA_SLICE_S) * agent.TIMEOUT_S + agent.QUOTA_WAIT_S
     assert worst < server.WORKER_BUSY_STALL_S
@@ -1095,11 +1095,11 @@ def test_the_busy_watchdog_outlasts_the_longest_legitimate_job():
 
 
 def test_a_recycled_pid_does_not_lock_the_athlete_out(tmp_path, monkeypatch):
-    """`_pid_alive` proves a pid EXISTS, not that it is runcoach. Pids recycle,
+    """`_pid_alive` proves a pid EXISTS, not that it is runspector. Pids recycle,
     quickly on Windows, so a lock left behind by a crash comes to name somebody
     else's editor — and then the owner of the data is locked out by a process
     that has nothing to do with this app."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     lock = paths.home_lock()
     now = datetime.now().astimezone()
 
@@ -1112,12 +1112,12 @@ def test_a_recycled_pid_does_not_lock_the_athlete_out(tmp_path, monkeypatch):
 
 
 def test_demo_mode_locks_its_own_directory_not_the_real_one(tmp_path, monkeypatch):
-    """`App.__init__` moves `RUNCOACH_HOME` to `<home>/demo`. Taking the lock
+    """`App.__init__` moves `RUNSPECTOR_HOME` to `<home>/demo`. Taking the lock
     before that made `serve --demo` claim the REAL data directory, so "look
     around without any account" — step 2 of the README — could not run beside a
-    live `runcoach serve`, and the refusal claimed they shared jobs they do not
+    live `runspector serve`, and the refusal claimed they shared jobs they do not
     share."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     server.App(demo=True, token=None)
     lock = server._take_home_lock()
     assert lock.parent.name == "demo"
@@ -1133,7 +1133,7 @@ def test_a_failed_split_endpoint_does_not_delete_the_interval_structure(store, t
     `details += 1`, exit 0. `update_activity_detail` honoured `unknown` from the
     start; the split write did not, which left the same silent permanent loss
     one layer down, in the path the previous round had just opened."""
-    from runcoach import sync as sync_mod
+    from runspector import sync as sync_mod
 
     aid = 7007
     store.upsert_activity(make_activity(aid, today, activity_type="running"))
@@ -1200,16 +1200,16 @@ def test_partial_means_the_same_thing_on_both_surfaces(store, today):
 def test_doctor_reports_an_unusable_home_instead_of_tracebacking(tmp_path, monkeypatch, capsys):
     """`paths.home()` does the `mkdir`, so printing "data in {paths.home()}" as
     a banner put the very call that fails AHEAD of the guard — and a
-    `RUNCOACH_HOME` pointing at an existing FILE still ended in a raw
+    `RUNSPECTOR_HOME` pointing at an existing FILE still ended in a raw
     `FileExistsError`, in the version whose comment said it would not."""
     blocker = tmp_path / "not-a-directory"
     blocker.write_text("hi", encoding="utf-8")
-    monkeypatch.setenv("RUNCOACH_HOME", str(blocker))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(blocker))
     rc = cli.main(["doctor", "--offline"])
     out = capsys.readouterr().out
     assert rc == 1
     assert "data directory unusable" in out
-    assert "RUNCOACH_HOME" in out
+    assert "RUNSPECTOR_HOME" in out
 
 
 def test_demo_mode_never_reseeds_a_directory_it_does_not_own(tmp_path, monkeypatch):
@@ -1218,7 +1218,7 @@ def test_demo_mode_never_reseeds_a_directory_it_does_not_own(tmp_path, monkeypat
     RUNNING instance's data on its way to being refused — and with a connection
     open on that file the unlink raises `PermissionError` outside `serve()`'s
     try, so the user got a traceback instead of the friendly message."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     server.resolve_home(True)
     assert paths.home().name == "demo", "the home resolves without touching any data"
     assert not paths.db_path().exists() and not (paths.home() / "demo.db").exists()
@@ -1229,7 +1229,7 @@ def test_demo_mode_never_reseeds_a_directory_it_does_not_own(tmp_path, monkeypat
     # docstring: it passes for any refactor that keeps the words in that order.
     # So this runs the thing and watches what it touches.
     seeded: list = []
-    monkeypatch.setattr("runcoach.demo.seed",
+    monkeypatch.setattr("runspector.demo.seed",
                         lambda *a, **k: seeded.append(paths.home()) or Store(paths.db_path()))
 
     # `serve_forever` must never be reached here — and if the guard regresses it
@@ -1305,7 +1305,7 @@ def test_the_invisible_filter_does_not_depend_on_the_python_version(store):
 
 
 def test_doctor_and_the_web_app_agree_on_when_data_is_stale(tmp_path, capsys):
-    """`app.js` points the athlete at `runcoach doctor` to explain the staleness
+    """`app.js` points the athlete at `runspector doctor` to explain the staleness
     banner. The banner appeared at 2 days and doctor said `[ok]` until 3 — so the
     documented next step contradicted the thing it was meant to explain."""
     chassis = (Path(server.__file__).parent / "static" / "chassis.js").read_text(encoding="utf-8")
@@ -1326,7 +1326,7 @@ def test_doctor_and_the_web_app_agree_on_when_data_is_stale(tmp_path, capsys):
         home.mkdir()
         day = paths.today() - timedelta(days=behind)
         with pytest.MonkeyPatch.context() as mp:
-            mp.setenv("RUNCOACH_HOME", str(home))
+            mp.setenv("RUNSPECTOR_HOME", str(home))
             s = Store(str(paths.db_path()))
             s.upsert_daily(make_day(day, resting_hr=44, sleep_score=80))
             s.upsert_activity(make_activity(1, day, load=100))
@@ -1356,7 +1356,7 @@ def test_two_writers_of_one_job_do_not_share_a_temp_file(tmp_path, monkeypatch):
     final `os.replace` sat outside the retry loop, unguarded, so a reader
     holding the file for a moment surfaced as a raw `PermissionError` out of a
     background thread — seen once in three suite runs on Windows."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     target = paths.jobs_dir() / "j-x.json"
 
     seen: list[str] = []
@@ -1395,7 +1395,7 @@ def test_two_threads_of_one_process_do_not_share_a_temp_file(tmp_path, monkeypat
     swap while writer B runs start to finish."""
     import threading
 
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     target = paths.jobs_dir() / "j-x.json"
     a_ready, b_done = threading.Event(), threading.Event()
     real = os.replace
@@ -1440,7 +1440,7 @@ def test_the_readme_screenshots_cannot_drift_from_the_app(tmp_path, monkeypatch)
     sys.path.insert(0, str(Path(server.__file__).parents[3] / "scripts"))
     import screenshots
 
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     # Whatever day it is, the demo athlete is seeded on the card's day.
     day = screenshots.card_day()
     screenshots.freeze_today(day)
@@ -1513,12 +1513,12 @@ def test_the_readme_only_promises_commands_that_exist():
     comment that outlives its code — and it is the first thing a visitor runs."""
     root = Path(server.__file__).parents[3]
     readme = (root / "README.md").read_text(encoding="utf-8")
-    import runcoach.cli as cli_mod
+    import runspector.cli as cli_mod
 
     parser_src = Path(cli_mod.__file__).read_text(encoding="utf-8")
     for sub in ("login", "sync", "serve", "mcp", "doctor", "profile"):
-        if f"runcoach {sub}" in readme:
-            assert f'add_parser("{sub}"' in parser_src, f"README promises `runcoach {sub}`"
+        if f"runspector {sub}" in readme:
+            assert f'add_parser("{sub}"' in parser_src, f"README promises `runspector {sub}`"
 
 
 def test_a_busy_file_never_makes_a_queued_job_invisible(tmp_path, monkeypatch):
@@ -1530,7 +1530,7 @@ def test_a_busy_file_never_makes_a_queued_job_invisible(tmp_path, monkeypatch):
     cap let a fourth job through, and the job strip lost a row. It surfaced as
     an unreproducible flake in `test_spawn_queues_a_job_and_dedups` - reported
     three times by three observers, always under load, never isolated."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     for i in range(3):
         jobs.new_job("p", title=f"t{i}", kind="analyze-run", ctx={"activity_id": str(i)})
     assert jobs.count_active() == 3
@@ -1665,8 +1665,8 @@ def test_the_thresholds_that_change_an_answer_are_all_pinned(store, today):
     baseline floor, the snapshot's series window and the sync's default depth.
     Each of them changes what the athlete is told, and each was explained in a
     comment with nothing on the side that matters."""
-    from runcoach import store as store_mod
-    from runcoach import sync as sync_mod
+    from runspector import store as store_mod
+    from runspector import sync as sync_mod
 
     # The VALUES first, as literals with their reason. The behavioural checks
     # below build their fixtures from the constants, so a changed constant
@@ -1730,7 +1730,7 @@ def test_shutdown_really_kills_the_child_it_promises_to_kill(tmp_path, monkeypat
 
     The number was guarded, the WIRING was not. That is the pattern this file
     exists to close."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     killed: list = []
     monkeypatch.setattr(agent, "stop_running", lambda: killed.append(True))
 
@@ -1829,7 +1829,7 @@ def test_the_first_sync_after_a_reboot_is_not_refused(store, monkeypatch):
     sentinel worked by accident. CI's runners boot per job and found it in the
     first green-to-red minute."""
     from conftest import FakeGarmin
-    from runcoach import sync as sync_mod
+    from runspector import sync as sync_mod
 
     logins: list = []
     monkeypatch.setattr(garmin, "login",
@@ -1918,11 +1918,11 @@ def test_the_front_end_avoids_the_constructs_a_linter_would_ban():
 # ── login says what it needs instead of tracing back ─────────────────────────
 
 def test_login_without_a_terminal_says_so(monkeypatch, capsys):
-    """`runcoach login < /dev/null` - or from a cron, a CI job, a pipe - used to
+    """`runspector login < /dev/null` - or from a cron, a CI job, a pipe - used to
     end in a traceback from `input()`. Found by running every README command
     in a directory that had never seen the tool. The right answer to "I ran
     this in the wrong place" is one sentence naming the right place."""
-    from runcoach import auth
+    from runspector import auth
 
     monkeypatch.setattr("builtins.input", lambda *_a: (_ for _ in ()).throw(EOFError()))
     rc = auth.interactive_login()
@@ -1935,15 +1935,15 @@ def test_login_without_a_terminal_says_so(monkeypatch, capsys):
 
 def test_login_names_the_path_when_the_token_directory_cannot_be_made(tmp_path,
                                                                       monkeypatch, capsys):
-    """`RUNCOACH_GARMIN_TOKENS` pointing at a FILE is the likely misreading —
+    """`RUNSPECTOR_GARMIN_TOKENS` pointing at a FILE is the likely misreading —
     garth writes token files, so naming one looks right — and `mkdir` answered
     it with a raw FileExistsError traceback. Same class as the no-terminal
     login: name the path and what it should be."""
-    from runcoach import auth
+    from runspector import auth
 
     f = tmp_path / "token.json"
     f.write_text("{}", encoding="utf-8")
-    monkeypatch.setenv("RUNCOACH_GARMIN_TOKENS", str(f))
+    monkeypatch.setenv("RUNSPECTOR_GARMIN_TOKENS", str(f))
 
     rc = auth.interactive_login()
     err = capsys.readouterr().err
@@ -1951,7 +1951,7 @@ def test_login_names_the_path_when_the_token_directory_cannot_be_made(tmp_path,
     assert "Traceback" not in err and "DIRECTORY" in err and str(f) in err, err
 
 
-# ── the state before `runcoach login` ────────────────────────────────────────
+# ── the state before `runspector login` ────────────────────────────────────────
 #
 # A review reverted all four repairs of this state and the suite stayed green,
 # which is the only reason these exist. The state is also the first screen a
@@ -1961,9 +1961,9 @@ def test_login_names_the_path_when_the_token_directory_cannot_be_made(tmp_path,
 def test_the_session_probe_answers_the_three_shapes_of_a_token_directory(tmp_path,
                                                                          monkeypatch):
     """Missing / empty / non-empty — and a directory it cannot read is NOT a
-    session: `doctor` then says "run runcoach login", which is at least an
+    session: `doctor` then says "run runspector login", which is at least an
     action, where claiming a session would send a doomed sync at Garmin."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     assert paths.garmin_session_present() is False, "no directory at all"
 
     d = paths.garmin_dir()
@@ -1984,7 +1984,7 @@ def test_the_page_can_tell_never_logged_in_from_sync_failed(tmp_path, monkeypatc
     distinguish the two otherwise: both look like "no fresh data". The banner
     for a failed sync is gated on it, so a missing flag silences a page whose
     data has stopped updating."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     app = server.App.__new__(server.App)
     app.db_path = str(tmp_path / "t.db")
     app.store = Store(app.db_path)
@@ -2005,7 +2005,7 @@ def test_the_startup_sync_is_skipped_only_on_a_true_first_run(tmp_path, monkeypa
     appears. The page then shows a normal verdict over data that has silently
     stopped updating. No session AND nothing stored is the only case where
     there is genuinely nothing to report."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     app = server.App.__new__(server.App)
     app.db_path = str(tmp_path / "t.db")
     app.store = Store(app.db_path)
@@ -2033,7 +2033,7 @@ def test_serve_actually_uses_that_gate(tmp_path, monkeypatch, today):
     old `garmin_session_present()` check left `_first_run` intact, and the
     predicate test stayed green while the behaviour was back to the defect.
     A helper nothing is shown to use is a helper that can be quietly bypassed."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
 
     class _ServedError(Exception):
         pass
@@ -2078,7 +2078,7 @@ def test_the_agent_cannot_be_billed_per_token(monkeypatch):
     iterated `agent.BILLING_ENV` and asserted each entry was filtered — i.e. the
     implementation against its own constant. A reviewer emptied the tuple to
     `()`, disabling the guard completely, and the test stayed green."""
-    from runcoach.web import agent as agent_mod
+    from runspector.web import agent as agent_mod
 
     redirects = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
                  "ANTHROPIC_CUSTOM_HEADERS", "ANTHROPIC_PROFILE",
@@ -2106,11 +2106,11 @@ def test_the_spawn_really_hands_over_the_filtered_environment(tmp_path, monkeypa
     AST for `env=` and was blind for the same reason the suite was: the call is
     `Popen(..., **kwargs)`, so the argument is invisible until it is actually
     passed. Only running it answers the question."""
-    from runcoach.web import agent as agent_mod
+    from runspector.web import agent as agent_mod
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-must-not-reach-the-child")
-    monkeypatch.setenv("RUNCOACH_CLAUDE_CMD", json.dumps([sys.executable, "-c", "pass"]))
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_CLAUDE_CMD", json.dumps([sys.executable, "-c", "pass"]))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
 
     seen: dict = {}
 
@@ -2169,10 +2169,10 @@ def test_serve_names_a_corrupt_database_instead_of_tracing_back(tmp_path, monkey
                                                                 capsys):
     """"Database unreadable" is one of the four states this app separates on its
     surfaces — but `App()` opens and migrates the file before any surface
-    exists, so `runcoach serve` on a half-written database ended in a raw
+    exists, so `runspector serve` on a half-written database ended in a raw
     `sqlite3.DatabaseError`. `doctor` has answered this properly all along; the
     command a user starts first did not."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     paths.db_path().parent.mkdir(parents=True, exist_ok=True)
     paths.db_path().write_bytes(b"this is definitely not a database\n" * 2)
 
@@ -2180,7 +2180,7 @@ def test_serve_names_a_corrupt_database_instead_of_tracing_back(tmp_path, monkey
     err = capsys.readouterr().err
     assert rc == 2, rc
     assert "Traceback" not in err, err
-    assert "runcoach doctor" in err and str(paths.db_path()) in err, err
+    assert "runspector doctor" in err and str(paths.db_path()) in err, err
     # ...and the home lock is not left behind naming a process that never served.
     assert not paths.home_lock().exists(), "a refused start must not hold the home"
 
@@ -2191,7 +2191,7 @@ def test_doctor_says_when_billing_variables_will_be_stripped(tmp_path, monkeypat
     works in the user's own terminal, every coach card fails inside the app, and
     doctor answered [ok] twice. Since the cost card was removed there is nothing
     else on screen to notice it by either."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-set-by-the-user-on-purpose")
 
     cli.main(["doctor", "--offline"])

@@ -9,8 +9,8 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 
 from conftest import DETAIL, TODAY, make_activity, make_day, make_split, seed_week
-from runcoach.models import Activity, DailyMetrics, ScheduledWorkout
-from runcoach.store import TREND_METRICS, week_start
+from runspector.models import Activity, DailyMetrics, ScheduledWorkout
+from runspector.store import TREND_METRICS, week_start
 
 # ── daily metrics ────────────────────────────────────────────────────────────
 
@@ -183,7 +183,7 @@ def test_local_day_of_a_late_evening_run(store):
 
 
 def test_local_day_follows_the_configured_timezone(store, monkeypatch):
-    monkeypatch.setenv("RUNCOACH_TZ", "America/Los_Angeles")
+    monkeypatch.setenv("RUNSPECTOR_TZ", "America/Los_Angeles")
     # 03:00 UTC on June 8 = 20:00 on June 7 in Los Angeles
     store.upsert_activity(Activity(activity_id=701, activity_type="running",
                                    start_time=datetime(2026, 6, 8, 3, 0, tzinfo=UTC)))
@@ -591,7 +591,7 @@ def test_a_single_night_is_not_a_resting_hr_baseline(store, today):
     With an ungated AVG() a single noisy reference night became "the baseline":
     one 40 bpm night followed by an otherwise green 48 bpm day produced REST —
     the app's headline answer, from n=1. Reachable on any fresh install, because
-    `runcoach sync` defaults to three days."""
+    `runspector sync` defaults to three days."""
     store.upsert_daily(make_day(today - timedelta(days=1), resting_hr=40))
     store.upsert_daily(make_day(today, resting_hr=48, sleep_score=82,
                                 hrv_status="BALANCED", body_battery_high=88))
@@ -917,6 +917,6 @@ def test_get_weekly_volume_empty_rows_are_independent(store):
 
 
 def test_today_fixture_matches_constant(today):
-    from runcoach import paths
+    from runspector import paths
 
     assert paths.today() == TODAY == today

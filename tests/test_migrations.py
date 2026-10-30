@@ -9,8 +9,8 @@ from pathlib import Path
 import pytest
 
 from conftest import make_activity, make_day
-from runcoach import paths
-from runcoach.store import Store
+from runspector import paths
+from runspector.store import Store
 
 SCHEMA_VERSION = 4   # 0001 init, 0002 runcoach_workouts (provenance), 0003 proposal_items (claims),
 #                      0004 load balance
@@ -36,7 +36,7 @@ def test_a_version_1_database_is_upgraded_in_place(tmp_path):
     path = tmp_path / "old.db"
     conn = sqlite3.connect(path)
     try:
-        from runcoach import store as store_mod
+        from runspector import store as store_mod
 
         sql = (store_mod._MIGRATIONS / "0001_init.sql").read_text(encoding="utf-8")
         conn.executescript(f"BEGIN;\n{sql}\nPRAGMA user_version = 1;\nCOMMIT;")
@@ -68,7 +68,7 @@ def test_schema_has_the_expected_tables_and_indexes(tmp_path):
 
 def test_model_columns_exist_in_the_schema(tmp_path):
     """The dataclasses are the single source for INSERT column lists."""
-    from runcoach.models import Activity, ActivitySplit, DailyMetrics
+    from runspector.models import Activity, ActivitySplit, DailyMetrics
 
     path = tmp_path / "t.db"
     Store(path)
@@ -90,9 +90,9 @@ def test_migration_files_are_numbered_sql():
     assert all(name[:4].isdigit() and name[4] == "_" for name in files)
 
 
-def test_default_store_path_is_under_runcoach_home(tmp_path):
+def test_default_store_path_is_under_runspector_home(tmp_path):
     store = Store()
-    assert store.path == str(tmp_path / "home" / "runcoach.db")
+    assert store.path == str(tmp_path / "home" / "runspector.db")
     assert Path(store.path).is_file()
 
 
@@ -115,16 +115,16 @@ def test_home_and_subdirectories(tmp_path):
 
 def test_garmin_dir_default_and_override(tmp_path, monkeypatch):
     assert paths.garmin_dir() == tmp_path / "home" / "garmin"
-    monkeypatch.setenv("RUNCOACH_GARMIN_TOKENS", str(tmp_path / "tokens"))
+    monkeypatch.setenv("RUNSPECTOR_GARMIN_TOKENS", str(tmp_path / "tokens"))
     assert paths.garmin_dir() == tmp_path / "tokens"
 
 
-def test_local_day_uses_runcoach_tz(monkeypatch):
+def test_local_day_uses_runspector_tz(monkeypatch):
     late = datetime(2026, 6, 7, 23, 30, tzinfo=UTC)
     assert paths.local_day(late) == date(2026, 6, 8)             # Europe/Berlin (autouse)
-    monkeypatch.setenv("RUNCOACH_TZ", "UTC")
+    monkeypatch.setenv("RUNSPECTOR_TZ", "UTC")
     assert paths.local_day(late) == date(2026, 6, 7)
-    monkeypatch.delenv("RUNCOACH_TZ")
+    monkeypatch.delenv("RUNSPECTOR_TZ")
     assert paths.local_tz() is None                              # falls back to the system zone
     assert isinstance(paths.today(), date)
 
@@ -137,13 +137,13 @@ def test_every_migration_the_schema_claims_exists_and_is_tracked_by_git():
     present locally, untracked, and passing the whole suite."""
     import subprocess
 
-    from runcoach import store as store_mod
+    from runspector import store as store_mod
 
     files = sorted(p.name for p in store_mod._MIGRATIONS.glob("[0-9][0-9][0-9][0-9]_*.sql"))
     assert [int(n[:4]) for n in files] == list(range(1, SCHEMA_VERSION + 1)), (
         f"the schema is at v{SCHEMA_VERSION} but the package ships {files}")
 
-    git = subprocess.run(["git", "ls-files", "src/runcoach/migrations"],
+    git = subprocess.run(["git", "ls-files", "src/runspector/migrations"],
                          cwd=store_mod._MIGRATIONS.parents[2], capture_output=True, text=True)
     if git.returncode != 0:          # not a checkout (an installed wheel, say)
         pytest.skip("not inside a git work tree")

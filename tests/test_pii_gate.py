@@ -105,10 +105,10 @@ def test_a_real_screenshot_from_this_repo_stays_clean(tree):
 
 
 def test_the_private_term_hook_still_works(tree, monkeypatch):
-    """`RUNCOACH_PII_EXTRA` adds names without committing them — the mechanism
+    """`RUNSPECTOR_PII_EXTRA` adds names without committing them — the mechanism
     that lets this repo be checked for a person's actual name."""
     (tree / "docs" / "notes.md").write_text("a note about Hauptbahnhof", encoding="utf-8")
-    env = {**dict(__import__("os").environ), "RUNCOACH_PII_EXTRA": "Hauptbahnhof"}
+    env = {**dict(__import__("os").environ), "RUNSPECTOR_PII_EXTRA": "Hauptbahnhof"}
     out = subprocess.run([sys.executable, str(tree / "scripts" / "pii_gate.py")],
                          capture_output=True, text=True, env=env, timeout=120)
     assert out.returncode == 1 and "private term" in out.stdout

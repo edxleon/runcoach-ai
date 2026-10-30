@@ -2,7 +2,7 @@
 a coach must hold over the whole course (`evals/sim.py`).
 
 Each persona runs on its own fixed seed in every test run. Set
-RUNCOACH_SIM_SEEDS=N to run N more seeds per persona with the events moved
+RUNSPECTOR_SIM_SEEDS=N to run N more seeds per persona with the events moved
 around - a pause in another week, of another length: that is the bug hunt,
 not a gate. A course it breaks becomes a fixed scenario in
 `test_what_comes_next.py`, red before the fix.
@@ -21,7 +21,7 @@ sys.path.insert(0, str(ROOT / "evals"))
 
 import sim  # noqa: E402
 
-_EXTRA = int(os.environ.get("RUNCOACH_SIM_SEEDS") or 0)
+_EXTRA = int(os.environ.get("RUNSPECTOR_SIM_SEEDS") or 0)
 CASES = [(name, p.seed) for name, p in sim.PERSONAS.items()] + \
     [(name, 1000 + i) for name in sim.PERSONAS for i in range(_EXTRA)]
 

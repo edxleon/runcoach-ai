@@ -10,7 +10,7 @@ So this test does the one thing the fake clients cannot: it asks the installed
 `garminconnect.Garmin` class whether the methods `garmin.py` calls still exist,
 and whether they still accept the arguments we pass.
 
-The method list is derived by parsing `src/runcoach/garmin.py` with `ast` — a
+The method list is derived by parsing `src/runspector/garmin.py` with `ast` — a
 hardcoded list would rot the moment someone adds a call. Nothing here touches the
 network or needs credentials: the class is introspected, never instantiated.
 """
@@ -24,7 +24,7 @@ from pathlib import Path
 import pytest
 from garminconnect import Garmin
 
-GARMIN_PY = Path(__file__).resolve().parent.parent / "src" / "runcoach" / "garmin.py"
+GARMIN_PY = Path(__file__).resolve().parent.parent / "src" / "runspector" / "garmin.py"
 
 #: Sanity floor for the AST walk. If a refactor renames the `client` variable or
 #: moves the calls behind a helper, the walk would find nothing and this file

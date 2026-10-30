@@ -63,7 +63,7 @@ jobs:
         timeout-minutes: 120
         env:
           MODULE: ${{ matrix.module }}
-        run: uv run --python 3.12 --locked --group mutation mutmut run --max-children 4 "runcoach.$MODULE.*"
+        run: uv run --python 3.12 --locked --group mutation mutmut run --max-children 4 "runspector.$MODULE.*"
 
       - name: Survivors as the job summary
         if: always()
@@ -74,7 +74,7 @@ jobs:
           # other jobs' as "not checked"). Only this module's `survived` is a
           # test that is missing; `timeout` and `no tests` are counted apart.
           uv run --python 3.12 --locked --group mutation mutmut results \
-            | grep -E "^ *runcoach\.$MODULE\." > results.txt || true
+            | grep -E "^ *runspector\.$MODULE\." > results.txt || true
           grep -E ': survived$' results.txt > survivors.txt || true
           {
             echo "## $MODULE.py - surviving mutants: $(wc -l < survivors.txt)"
@@ -95,13 +95,13 @@ jobs:
           import ast, difflib, os, sys
 
           module = os.environ["MODULE"]
-          path = f"mutants/src/runcoach/{module}.py"
+          path = f"mutants/src/runspector/{module}.py"
           source = open(path, encoding="utf-8").read()
           funcs = {n.name: n for n in ast.walk(ast.parse(source))
                    if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)}
           for line in open(sys.argv[1], encoding="utf-8"):
               key = line.split(":")[0].strip()
-              name = key.removeprefix(f"runcoach.{module}.")
+              name = key.removeprefix(f"runspector.{module}.")
               base = name.rpartition("__mutmut_")[0]
               orig, mutant = funcs.get(base + "__mutmut_orig"), funcs.get(name)
               if orig is None or mutant is None:

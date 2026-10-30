@@ -17,9 +17,9 @@ _SRC = Path(__file__).resolve().parents[1] / "src"
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from runcoach import paths  # noqa: E402
-from runcoach.models import Activity, ActivitySplit, DailyMetrics  # noqa: E402
-from runcoach.store import Store  # noqa: E402
+from runspector import paths  # noqa: E402
+from runspector.models import Activity, ActivitySplit, DailyMetrics  # noqa: E402
+from runspector.store import Store  # noqa: E402
 
 #: A fixed "today" for tests that need one. A Wednesday; its week starts Monday 2026-06-08.
 TODAY = date(2026, 6, 10)
@@ -33,29 +33,29 @@ DETAIL = {"hr_z1_s": 18, "hr_z2_s": 361, "hr_z3_s": 687, "hr_z4_s": 1276,
 @pytest.fixture(autouse=True)
 def _isolated_env(tmp_path, monkeypatch):
     """Deterministic timezone on any machine, and nothing touches the real home."""
-    monkeypatch.setenv("RUNCOACH_TZ", "Europe/Berlin")
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path / "home"))
-    for name in ("RUNCOACH_DB", "RUNCOACH_ACTIVITY_BACKFILL_DAYS", "RUNCOACH_LT_HISTORY_DAYS",
-                 "RUNCOACH_GARMIN_TOKENS", "RUNCOACH_DEMO", "RUNCOACH_TOKEN",
-                 "RUNCOACH_CLAUDE_CMD", "RUNCOACH_MODEL", "RUNCOACH_LOG"):
+    monkeypatch.setenv("RUNSPECTOR_TZ", "Europe/Berlin")
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path / "home"))
+    for name in ("RUNSPECTOR_DB", "RUNSPECTOR_ACTIVITY_BACKFILL_DAYS", "RUNSPECTOR_LT_HISTORY_DAYS",
+                 "RUNSPECTOR_GARMIN_TOKENS", "RUNSPECTOR_DEMO", "RUNSPECTOR_TOKEN",
+                 "RUNSPECTOR_CLAUDE_CMD", "RUNSPECTOR_MODEL", "RUNSPECTOR_LOG"):
         monkeypatch.delenv(name, raising=False)
 
 @pytest.fixture(autouse=True)
 def _no_worker_outlives_its_test():
     """A job worker started by one test and left running is invisible to that
     test and lethal to a later one: it keeps polling `paths.jobs_dir()`, which
-    reads RUNCOACH_HOME on every call, so it consumes the jobs of whichever
+    reads RUNSPECTOR_HOME on every call, so it consumes the jobs of whichever
     home the next test sets up - with the real `agent.run`, which fails a job
     in milliseconds and frees a queue slot that test was counting on. This is
     what "queue_full expected, got 200" in test_web was, once in many CI runs
     and never in isolation.
 
     The worker names its own thread, whoever started it, so the check needs
-    no cooperation from the test: after every test, no `runcoach-worker` may
+    no cooperation from the test: after every test, no `runspector-worker` may
     still be alive. A test that starts one has to stop it (`app.worker_stop`)."""
     import threading
     yield
-    leaked = [t for t in threading.enumerate() if t.name == "runcoach-worker" and t.is_alive()]
+    leaked = [t for t in threading.enumerate() if t.name == "runspector-worker" and t.is_alive()]
     assert not leaked, ("a job worker thread outlived this test - set app.worker_stop "
                         "and join it, or every later test's queue is at its mercy")
 

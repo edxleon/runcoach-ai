@@ -156,7 +156,7 @@ def _splits(aid: int, kind: str, minutes: int, z4: int, z5: int) -> list:
     """Garmin's laps for a structured workout: reps as ACTIVE/RECOVERY between a
     warm-up and a cool-down. Without them every threshold session would read as
     one continuous steady block - which the app rightly counts as a measurement."""
-    from runcoach.models import ActivitySplit
+    from runspector.models import ActivitySplit
 
     if kind == "vo2max":
         reps, work, rest = max(2, z5 // 240), 240, 180
@@ -184,7 +184,7 @@ def _splits(aid: int, kind: str, minutes: int, z4: int, z5: int) -> list:
 
 class _Sim:
     def __init__(self, persona: Persona, weeks: int, home: Path):
-        from runcoach.store import Store
+        from runspector.store import Store
 
         self.p = persona
         self.weeks = weeks
@@ -211,7 +211,7 @@ class _Sim:
 
     def other_sport(self, day: date) -> None:
         """The other sports of this weekday, as Garmin would record them."""
-        from runcoach.models import Activity
+        from runspector.models import Activity
 
         for weekday, kind, minutes, te in self.p.other:
             if day.weekday() != weekday:
@@ -240,7 +240,7 @@ class _Sim:
         return min(3.0, round(acute / chronic, 2)) if chronic > 0.5 else None
 
     def morning(self, day: date) -> tuple[bool, float | None]:
-        from runcoach.models import DailyMetrics
+        from runspector.models import DailyMetrics
 
         ill = self.events.get(day) == "ill"
         acwr = self.acwr(day)
@@ -280,7 +280,7 @@ class _Sim:
             self.store.upsert_daily(self.today_metrics)
 
     def run(self, day: date, kind: str, minutes: int) -> Run:
-        from runcoach.models import Activity
+        from runspector.models import Activity
 
         z4, z5 = _shape(kind, minutes)
         detail = self.p.zone_detail
@@ -326,11 +326,11 @@ class _Sim:
                     self.run(d, kind, per)
 
     def plan_week(self, sunday: date) -> dict:
-        from runcoach import plan
-        from runcoach.models import ScheduledWorkout
+        from runspector import plan
+        from runspector.models import ScheduledWorkout
 
         budget, lines, mode = plan._week_plan(self.store, sunday)
-        from runcoach import planning
+        from runspector import planning
 
         given = ({"days_per_week": self.p.days_per_week,
                   "long_run_day": planning.WEEKDAYS[self.p.long_day]} if self.p.profile else {})
@@ -386,18 +386,18 @@ class _Sim:
 
 def simulate(persona: Persona, weeks: int = 16, probe=None) -> Course:
     """Run `persona` through `weeks` of the app. Freezes `paths.today` and
-    points RUNCOACH_HOME at a temp dir for the duration, as fixture_gen does.
+    points RUNSPECTOR_HOME at a temp dir for the duration, as fixture_gen does.
 
     `probe(day, store)` is called at the end of every day - after the run,
     before a Sunday's planning - with the clock still on that day: the place
     to render what the tools say at a moment of the course."""
-    from runcoach import paths, snapshot, tools
+    from runspector import paths, snapshot, tools
 
     real_today = paths.today
-    old_home = os.environ.get("RUNCOACH_HOME")
-    os.environ.setdefault("RUNCOACH_TZ", "Europe/Berlin")
+    old_home = os.environ.get("RUNSPECTOR_HOME")
+    os.environ.setdefault("RUNSPECTOR_TZ", "Europe/Berlin")
     with tempfile.TemporaryDirectory() as tmp:
-        os.environ["RUNCOACH_HOME"] = tmp
+        os.environ["RUNSPECTOR_HOME"] = tmp
         clock = [START]
         paths.today = lambda: clock[0]
         try:
@@ -428,9 +428,9 @@ def simulate(persona: Persona, weeks: int = 16, probe=None) -> Course:
         finally:
             paths.today = real_today
             if old_home is None:
-                os.environ.pop("RUNCOACH_HOME", None)
+                os.environ.pop("RUNSPECTOR_HOME", None)
             else:
-                os.environ["RUNCOACH_HOME"] = old_home
+                os.environ["RUNSPECTOR_HOME"] = old_home
 
 
 # ── what a runner expects of a coach ─────────────────────────────────────────
@@ -591,7 +591,7 @@ def check(course: Course) -> list[str]:
     # The week lands on the runner's own days, though they never said which:
     # the long run on their long-run day, most sessions on days they run.
     if p.plans_week and not p.profile and p.weekdays and p.compliance == 1.0 and not p.events:
-        from runcoach import planning
+        from runspector import planning
 
         theirs = {planning.WEEKDAYS[w] for w in p.weekdays}
         for r in weeks:

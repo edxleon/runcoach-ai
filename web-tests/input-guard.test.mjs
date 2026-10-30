@@ -35,7 +35,7 @@ function root(fields) {
 let main = root([]);
 globalThis.document = { querySelector: sel => (sel === "main" ? main : null) };
 
-const { hasInput } = await import("../src/runcoach/web/static/input-guard.js");
+const { hasInput } = await import("../src/runspector/web/static/input-guard.js");
 
 test("basic cases", () => {
   assert.equal(hasInput(root([])), false);

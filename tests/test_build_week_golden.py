@@ -6,7 +6,7 @@ tests and the pinned eval fixtures stand on that. This file records the week
 for every combination of start weekday, days, long-run day, rep variant,
 quality, budget and session cap; a change shows up as a line diff.
 
-    RUNCOACH_REGEN_GOLDEN=1 uv run pytest -q tests/test_build_week_golden.py
+    RUNSPECTOR_REGEN_GOLDEN=1 uv run pytest -q tests/test_build_week_golden.py
 regenerates it - only when a change to the planner is meant to move weeks.
 """
 
@@ -18,7 +18,7 @@ from datetime import date
 from itertools import product
 from pathlib import Path
 
-from runcoach import planning
+from runspector import planning
 
 GOLDEN = Path(__file__).parent / "golden" / "build_week.txt"
 
@@ -56,7 +56,7 @@ def render() -> str:
 
 def test_without_habits_the_week_is_the_week_it_always_was():
     text = render()
-    if os.environ.get("RUNCOACH_REGEN_GOLDEN"):
+    if os.environ.get("RUNSPECTOR_REGEN_GOLDEN"):
         GOLDEN.write_text(text, encoding="utf-8")
     want = GOLDEN.read_text(encoding="utf-8")
     if text != want:

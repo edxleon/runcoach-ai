@@ -71,7 +71,7 @@ jobs:
       - name: Python tests (no database server, no network, no Garmin account)
         shell: bash   # one syntax for the empty $COVERAGE on every leg, Windows included
         env:
-          COVERAGE: ${{ matrix.coverage && '--cov=runcoach --cov-branch --cov-report=term:skip-covered --cov-fail-under=92' || '' }}
+          COVERAGE: ${{ matrix.coverage && '--cov=runspector --cov-branch --cov-report=term:skip-covered --cov-fail-under=92' || '' }}
           # Outside the tree: the data file holds absolute paths, and pii_gate
           # (two steps down) reads every file in the checkout.
           COVERAGE_FILE: ${{ runner.temp }}/.coverage

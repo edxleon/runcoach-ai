@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { nextTheme, THEMES, THEME_KEY } from "../src/runcoach/web/static/theme.js";
+import { nextTheme, THEMES, THEME_KEY } from "../src/runspector/web/static/theme.js";
 
 test("three states in a fixed order", () => {
   assert.equal(THEMES.join(), "auto,light,dark");
@@ -18,8 +18,8 @@ test("the cycle closes", () => {
 });
 
 test("the pre-paint boot script reads the same storage key", () => {
-  assert.equal(THEME_KEY, "runcoach-theme");
-  const dir = new URL("../src/runcoach/web/static/", import.meta.url);
+  assert.equal(THEME_KEY, "runspector-theme");
+  const dir = new URL("../src/runspector/web/static/", import.meta.url);
   const boot = readFileSync(new URL("theme-boot.js", dir), "utf8");
   assert.ok(boot.includes(`localStorage.getItem("${THEME_KEY}")`),
             "theme-boot.js applies the stored theme under the same key theme.js writes");

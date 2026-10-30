@@ -13,9 +13,9 @@ from datetime import UTC, timedelta
 
 import pytest
 
-from runcoach import paths
-from runcoach.store import Store
-from runcoach.web import agent, jobs, server
+from runspector import paths
+from runspector.store import Store
+from runspector.web import agent, jobs, server
 
 CARD = {"kind": "week-review", "ref": "", "day": "2026-06-10", "headline": "Solid week.",
         "bullets": ["42 km in 4 runs", "Hard share 18 %"], "verdict": "Keep going"}
@@ -163,12 +163,12 @@ def test_prompt_cap_cuts_the_memory_never_the_task():
 # ── command: an allowlist, not a denylist ────────────────────────────────────
 
 def test_command_is_an_allowlist(tmp_path, monkeypatch):
-    monkeypatch.setenv("RUNCOACH_CLAUDE_CMD", json.dumps(["fake-claude"]))
-    cmd = agent.command(tmp_path, str(tmp_path / "runcoach.db"))
+    monkeypatch.setenv("RUNSPECTOR_CLAUDE_CMD", json.dumps(["fake-claude"]))
+    cmd = agent.command(tmp_path, str(tmp_path / "runspector.db"))
     assert cmd[0] == "fake-claude" and "--print" in cmd
     assert cmd[cmd.index("--tools") + 1] == ""                # no built-in tool at all
     assert "--strict-mcp-config" in cmd
-    assert cmd[cmd.index("--allowedTools") + 1] == "mcp__runcoach"
+    assert cmd[cmd.index("--allowedTools") + 1] == "mcp__runspector"
     # The prefix allow above would cover the one tool that writes to Garmin;
     # an unattended card run must not be able to call it. A click or the
     # athlete's word in a Claude Code session applies a proposal, never a job.
@@ -176,10 +176,10 @@ def test_command_is_an_allowlist(tmp_path, monkeypatch):
     # anything not named here is allowed. `tests/test_tools.py` pins separately
     # that this list is DERIVED from `tools.WRITE_TOOLS` rather than remembered.
     assert (cmd[cmd.index("--disallowedTools") + 1].split(",")
-            == ["mcp__runcoach__apply_workout", "mcp__runcoach__undo_workout"])
+            == ["mcp__runspector__apply_workout", "mcp__runspector__undo_workout"])
     # ...and the second lock, which does not depend on that flag: the child
     # server is told it is a card run, and refuses the write itself.
-    assert agent.mcp_config(None)["mcpServers"]["runcoach"]["env"]["RUNCOACH_UNATTENDED"] == "1"
+    assert agent.mcp_config(None)["mcpServers"]["runspector"]["env"]["RUNSPECTOR_UNATTENDED"] == "1"
     assert cmd[cmd.index("--output-format") + 1] == "json"
     assert "--dangerously-skip-permissions" not in cmd
     assert "--safe-mode" not in cmd                           # it would disable our MCP server too
@@ -187,26 +187,26 @@ def test_command_is_an_allowlist(tmp_path, monkeypatch):
 
     cfg = json.loads((tmp_path / "mcp.json").read_text(encoding="utf-8"))
     assert cmd[cmd.index("--mcp-config") + 1] == str(tmp_path / "mcp.json")
-    assert list(cfg["mcpServers"]) == ["runcoach"]            # exactly one server: ours
-    srv = cfg["mcpServers"]["runcoach"]
-    assert srv["command"] == sys.executable and srv["args"] == ["-m", "runcoach.cli", "mcp"]
-    assert srv["env"]["RUNCOACH_DB"] == str(tmp_path / "runcoach.db")
-    assert srv["env"]["RUNCOACH_HOME"] == str(paths.home())
-    assert srv["env"]["RUNCOACH_TZ"] == "Europe/Berlin"
-    assert "RUNCOACH_DEMO" not in srv["env"]
+    assert list(cfg["mcpServers"]) == ["runspector"]            # exactly one server: ours
+    srv = cfg["mcpServers"]["runspector"]
+    assert srv["command"] == sys.executable and srv["args"] == ["-m", "runspector.cli", "mcp"]
+    assert srv["env"]["RUNSPECTOR_DB"] == str(tmp_path / "runspector.db")
+    assert srv["env"]["RUNSPECTOR_HOME"] == str(paths.home())
+    assert srv["env"]["RUNSPECTOR_TZ"] == "Europe/Berlin"
+    assert "RUNSPECTOR_DEMO" not in srv["env"]
 
 
 def test_command_marks_the_demo_database_and_honours_the_model(tmp_path, monkeypatch):
-    monkeypatch.setenv("RUNCOACH_CLAUDE_CMD", json.dumps(["fake-claude"]))
-    monkeypatch.setenv("RUNCOACH_MODEL", "some-model")
+    monkeypatch.setenv("RUNSPECTOR_CLAUDE_CMD", json.dumps(["fake-claude"]))
+    monkeypatch.setenv("RUNSPECTOR_MODEL", "some-model")
     cmd = agent.command(tmp_path, str(tmp_path / "demo.db"))
     assert cmd[cmd.index("--model") + 1] == "some-model"
     cfg = json.loads((tmp_path / "mcp.json").read_text(encoding="utf-8"))
-    assert cfg["mcpServers"]["runcoach"]["env"]["RUNCOACH_DEMO"] == "1"
+    assert cfg["mcpServers"]["runspector"]["env"]["RUNSPECTOR_DEMO"] == "1"
 
 
 def test_claude_available_via_override(monkeypatch):
-    monkeypatch.setenv("RUNCOACH_CLAUDE_CMD", json.dumps(["fake-claude"]))
+    monkeypatch.setenv("RUNSPECTOR_CLAUDE_CMD", json.dumps(["fake-claude"]))
     assert agent.claude_available() is True
 
 
@@ -244,7 +244,7 @@ def stub_cli(tmp_path, monkeypatch):
     d.mkdir()
     (d / "claude_stub.py").write_text(STUB, encoding="utf-8")
     (d / "mode.txt").write_text("ok", encoding="utf-8")
-    monkeypatch.setenv("RUNCOACH_CLAUDE_CMD", json.dumps([sys.executable, str(d / "claude_stub.py")]))
+    monkeypatch.setenv("RUNSPECTOR_CLAUDE_CMD", json.dumps([sys.executable, str(d / "claude_stub.py")]))
     return d
 
 
@@ -273,7 +273,7 @@ def test_run_round_trip_writes_a_validated_card(stub_cli, tmp_path, today):
     argv = json.loads((stub_cli / "argv.json").read_text(encoding="utf-8"))
     assert argv[argv.index("--tools") + 1] == "" and "--strict-mcp-config" in argv
     denied = argv[argv.index("--disallowedTools") + 1].split(",")
-    assert denied == ["mcp__runcoach__apply_workout", "mcp__runcoach__undo_workout"], \
+    assert denied == ["mcp__runspector__apply_workout", "mcp__runspector__undo_workout"], \
         "the real spawn reached the CLI without every write tool denied"
     assert "exit=0" in jobs.log_path(job["id"]).read_text(encoding="utf-8")
     assert [c["id"] for c in jobs.public_cards()] == [job["id"]]
@@ -359,14 +359,14 @@ def _serve(app):
 def demo_app(tmp_path_factory):
     """One seeded demo app per module (seeding takes a few seconds)."""
     with pytest.MonkeyPatch.context() as mp:
-        mp.setenv("RUNCOACH_HOME", str(tmp_path_factory.mktemp("web-home")))
-        mp.setenv("RUNCOACH_TZ", "Europe/Berlin")
+        mp.setenv("RUNSPECTOR_HOME", str(tmp_path_factory.mktemp("web-home")))
+        mp.setenv("RUNSPECTOR_TZ", "Europe/Berlin")
         return server.App(demo=True, token=None)
 
 
 @pytest.fixture()
 def httpd(demo_app, monkeypatch):
-    monkeypatch.setenv("RUNCOACH_CLAUDE_CMD", json.dumps(["fake-claude"]))
+    monkeypatch.setenv("RUNSPECTOR_CLAUDE_CMD", json.dumps(["fake-claude"]))
     srv = _serve(demo_app)
     yield srv
     srv.shutdown()
@@ -401,7 +401,7 @@ def test_index_static_and_manifest(httpd):
     status, body, resp = call(httpd, "GET", "/static/tokens.css")
     assert status == 200 and resp.getheader("Content-Type").startswith("text/css")
     status, data, _ = call(httpd, "GET", "/manifest.json")
-    assert status == 200 and data["name"] == "runcoach"
+    assert status == 200 and data["name"] == "runspector"
     assert call(httpd, "GET", "/nope")[0] == 404 and call(httpd, "GET", "/api/nope")[0] == 404
 
 
@@ -454,7 +454,7 @@ def test_spawn_queues_a_job_and_dedups(httpd):
     # the next person to guess: which files exist, what the loader made of them,
     # and which home they were read from.
     if status != 409:
-        from runcoach import paths
+        from runspector import paths
 
         listing = sorted(p.name for p in paths.jobs_dir().iterdir())
         loaded = [(j.get("id"), j.get("status")) for j in jobs.read_jobs(100)]
@@ -475,7 +475,7 @@ def test_spawn_queues_a_job_and_dedups(httpd):
 
 
 def test_spawn_without_the_cli_is_503(httpd, monkeypatch):
-    monkeypatch.delenv("RUNCOACH_CLAUDE_CMD")
+    monkeypatch.delenv("RUNSPECTOR_CLAUDE_CMD")
     monkeypatch.setattr(agent.shutil, "which", lambda name: None)
     assert call(httpd, "POST", "/api/spawn", {"template_id": "week-review"})[0] == 503
 
@@ -571,7 +571,7 @@ def test_bad_request_bodies(httpd):
 
 def test_serve_refuses_a_non_loopback_host_without_a_token(capsys):
     assert server.serve(host="0.0.0.0", port=0, open_browser=False, sync_on_start=False) == 2
-    assert "RUNCOACH_TOKEN" in capsys.readouterr().err
+    assert "RUNSPECTOR_TOKEN" in capsys.readouterr().err
 
 
 def test_token_guards_the_api(monkeypatch):
@@ -579,9 +579,9 @@ def test_token_guards_the_api(monkeypatch):
     srv = _serve(server.App(demo=False, token="s3cret-token"))
     try:
         assert call(srv, "GET", "/api/state")[0] == 403
-        assert call(srv, "GET", "/api/state", headers={"X-Runcoach-Token": "wrong"})[0] == 403
+        assert call(srv, "GET", "/api/state", headers={"X-Runspector-Token": "wrong"})[0] == 403
         assert call(srv, "POST", "/api/refresh", {})[0] == 403
-        status, data, _ = call(srv, "GET", "/api/state", headers={"X-Runcoach-Token": "s3cret-token"})
+        status, data, _ = call(srv, "GET", "/api/state", headers={"X-Runspector-Token": "s3cret-token"})
         assert status == 200 and data["demo"] is False and data["data_through"] is None
         # The token in the query is accepted ONLY for the page itself, which is
         # how it gets into localStorage; on the API it would only end up in proxy
@@ -598,7 +598,7 @@ def test_token_guards_the_api(monkeypatch):
 
 def _file_proposal(store, today):
     from conftest import DETAIL, make_activity, make_day
-    from runcoach import plan
+    from runspector import plan
 
     store.upsert_activity(make_activity(9_000_000_001, today - timedelta(days=2)))
     store.update_activity_detail(9_000_000_001, {**DETAIL, "splits": [], "unknown": set()})
@@ -612,7 +612,7 @@ def test_a_card_that_names_a_proposal_carries_its_preview(tmp_path, monkeypatch,
     """The model files a session and puts the id in the card; the page needs
     the preview and the status, resolved server-side from the proposal file.
     An id the model invented resolves to nothing and is dropped."""
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     app = server.App.__new__(server.App)
     app.db_path = str(tmp_path / "t.db")
     app.store = Store(app.db_path)
@@ -643,9 +643,9 @@ def test_parse_card_keeps_only_a_well_formed_proposal_id():
 def test_the_click_applies_the_proposal_through_the_same_path_as_the_tool(tmp_path, monkeypatch,
                                                                           today):
     from conftest import FakeGarmin
-    from runcoach import garmin, plan
+    from runspector import garmin, plan
 
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     app = server.App.__new__(server.App)
     app.db_path = str(tmp_path / "t.db")
     app.store = Store(app.db_path)
@@ -678,9 +678,9 @@ def test_the_click_applies_the_proposal_through_the_same_path_as_the_tool(tmp_pa
     ({"proposal_id": "p-20260101-000000-dead"}, 404, "unknown"),
 ])
 def test_apply_rejects_bad_input_before_touching_garmin(tmp_path, monkeypatch, op, code, needle):
-    from runcoach import garmin
+    from runspector import garmin
 
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     monkeypatch.setattr(garmin, "login", lambda tokenstore=None: (_ for _ in ()).throw(
         AssertionError("login must not be attempted")))
     app = server.App.__new__(server.App)
@@ -720,7 +720,7 @@ def test_run_drops_a_proposal_reference_that_is_not_one(stub_cli, tmp_path):
 
 
 def test_the_request_log_never_prints_the_token():
-    from runcoach.web.server import redact_token
+    from runspector.web.server import redact_token
 
     line = '"GET /?token=s3cr3t-Tok_en HTTP/1.1" 200 -'
     assert "s3cr3t" not in redact_token(line) and "token=<redacted>" in redact_token(line)
@@ -735,9 +735,9 @@ def test_a_long_running_server_keeps_its_lock_fresh(tmp_path, monkeypatch):
     import os
     from datetime import datetime, timedelta
 
-    from runcoach.web import server
+    from runspector.web import server
 
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     lock = server._take_home_lock()
     old = (datetime.now().astimezone() - timedelta(hours=40)).isoformat()
     lock.write_text(f"{os.getpid()} {old}\n", encoding="utf-8")
@@ -777,7 +777,7 @@ def test_a_path_helper_refuses_what_is_not_an_id():
     py/path-injection, 2026-10-29)."""
     import pytest
 
-    from runcoach import plan
+    from runspector import plan
 
     for bad in ("../../etc/passwd", "j-abc/../x", "j-abc\n", "", "j-ABC"):
         for helper in (jobs.job_path, jobs.log_path, jobs.card_path):
@@ -797,7 +797,7 @@ def test_the_limit_messages_claude_really_prints_mean_wait():
     _quota_wait.py, and since 2.1.312 "5-hour limit" instead of "session
     limit" - matched nothing, so a card run out of quota FAILED instead of
     waiting, against the README's promise."""
-    from runcoach.web import agent
+    from runspector.web import agent
 
     for text in ("You've hit your session limit · resets 1pm (Europe/Berlin)",
                  "You've hit your 5-hour limit · resets 1pm (Europe/Berlin)",
@@ -834,7 +834,7 @@ def test_a_week_setting_is_saved_and_shows_as_set_by_the_athlete(httpd):
 @pytest.mark.parametrize("body", [{}, {"set": {}}, {"set": "x"}, {"set": {"goal": "sub 40"}},
                                   {"set": {"long_run_day": "sun", "off_days": ["sun"]}}])
 def test_a_refused_setting_says_why_and_writes_nothing(httpd, body):
-    from runcoach import paths
+    from runspector import paths
 
     status, data, _ = call(httpd, "POST", "/api/profile", body)
     assert status == 400 and data["error"]
@@ -842,7 +842,7 @@ def test_a_refused_setting_says_why_and_writes_nothing(httpd, body):
 
 
 def test_the_profile_route_refuses_a_cross_origin_request(httpd):
-    from runcoach import paths
+    from runspector import paths
 
     status, _, _ = call(httpd, "POST", "/api/profile", {"set": {"long_run_day": "sun"}},
                         headers={"Origin": "https://evil.example"})
@@ -867,7 +867,7 @@ def test_a_card_is_not_current_once_the_athlete_changed_their_week(httpd):
     assert call(httpd, "POST", "/api/profile", {"set": {"off_days": ["sat"]}})[0] == 200
     import os
 
-    from runcoach import paths
+    from runspector import paths
 
     future = datetime.now(UTC).timestamp() + 600   # saved after the card was made
     os.utime(paths.profile_path(), (future, future))

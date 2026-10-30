@@ -91,7 +91,7 @@ def render(*, captions_on: bool = False) -> str:
     # Not a narration scene: no voice, a fixed length, fully drawn on frame 0.
     intro = (f'<section id="s-intro" class="clip scene" data-start="0" data-duration="{INTRO_S + 0.4}">'
              '<div class="inner"><div class="intro-box">'
-             '<div class="logo">runcoach</div>'
+             '<div class="logo">runspector</div>'
              '<div class="intro-line">An AI running coach for your Garmin data</div>'
              '<div class="intro-sub">Local-first · runs on your Claude subscription · open source</div>'
              f'<div class="intro-cue">▶&nbsp; {round(total)}-second demo · sound on</div>'
@@ -133,7 +133,7 @@ def render(*, captions_on: bool = False) -> str:
     flags.append((<span class="s">"rest"</span>, <span class="s">"body_battery"</span>, …))
 <span class="k">if</span> delta &gt;= <span class="n">7</span>:   <span class="c"># resting HR above baseline</span>
     flags.append((<span class="s">"rest"</span>, <span class="s">"resting_hr"</span>, …))</pre>
-        <div class="path t2">src/runcoach/logic.py</div>
+        <div class="path t2">src/runspector/logic.py</div>
         <h2 class="t3">The AI explains it. It never invents it.</h2>
       </div>
       <div class="phone today-phone"><div class="vp" data-layout-allow-overflow><img src="assets/today.png" alt=""></div>
@@ -170,17 +170,17 @@ def render(*, captions_on: bool = False) -> str:
     prop = cap["propose"].splitlines()
     chat = section("chat", f"""
       <div class="term chat-term">
-        <div class="bar"><i></i><i></i><i></i><span>Claude Code · runcoach MCP</span></div>
+        <div class="bar"><i></i><i></i><i></i><span>Claude Code · runspector MCP</span></div>
         <div class="body">
           <div class="blk h1"><div class="line user"><span class="prompt">&gt;</span> <span class="type ask" data-len="40">plan me an easy 40 minutes for tomorrow</span></div></div>
           <div class="blk h2">
-            <div class="line tool">⏺ runcoach · propose_workout <span class="dim">(easy, 40 min, {esc(cap["day"])})</span></div>
+            <div class="line tool">⏺ runspector · propose_workout <span class="dim">(easy, 40 min, {esc(cap["day"])})</span></div>
             <div class="res">{esc(prop[0])}<br>{esc(prop[1])}<br>{esc(prop[2])}<br><span class="warn">NOT on Garmin yet.</span></div>
           </div>
           <div class="blk h3"><div class="line said">⏺ Here's the session: 40 minutes easy, heart rate 130–148. It is not on your watch yet. Shall I put it there?</div></div>
           <div class="blk h4"><div class="line user"><span class="prompt">&gt;</span> <span class="type yes" data-len="3">yes</span></div></div>
           <div class="blk h5">
-            <div class="line tool">⏺ runcoach · apply_workout</div>
+            <div class="line tool">⏺ runspector · apply_workout</div>
             <div class="res">{esc(cap["apply"][0])}<br><span class="okc">{esc(cap["apply"][1])}</span></div>
           </div>
         </div>
@@ -210,20 +210,20 @@ def render(*, captions_on: bool = False) -> str:
       <div class="term try-term">
         <div class="bar"><i></i><i></i><i></i><span>Terminal</span></div>
         <div class="body">
-          <div class="blk b1">{typed("uv tool install git+https://github.com/edxleon/runcoach-ai")}</div>
-          <div class="blk b2">{typed("runcoach serve --demo")}
-            {out("runcoach 0.2.0 (demo data) - http://127.0.0.1:8765/", "ok")}
-            {out("data: ~/.runcoach/demo   stop with Ctrl+C")}</div>
+          <div class="blk b1">{typed("uv tool install git+https://github.com/edxleon/runspector")}</div>
+          <div class="blk b2">{typed("runspector serve --demo")}
+            {out("runspector 0.2.0 (demo data) - http://127.0.0.1:8765/", "ok")}
+            {out("data: ~/.runspector/demo   stop with Ctrl+C")}</div>
         </div>
       </div>
       <div class="demo-note">a synthetic athlete · no Garmin account · nothing to sign up for</div>""")
 
     close = section("close", """
       <div class="close-box">
-        <div class="logo">runcoach</div>
+        <div class="logo">runspector</div>
         <div class="story">Built by a runner whose VO2max would not move.</div>
         <div class="tags"><span>Local-first</span><span>Open source · MIT</span><span>Garmin + Claude</span></div>
-        <div class="url">github.com/edxleon/runcoach-ai</div>
+        <div class="url">github.com/edxleon/runspector</div>
         <div class="fine">Not affiliated with Garmin. A training tool, not medical advice.</div>
       </div>""")
 
@@ -253,7 +253,7 @@ def render(*, captions_on: bool = False) -> str:
 <body>
 <div id="root" data-composition-id="main" data-start="0" data-duration="{total}" data-width="1920" data-height="1080">
   <div id="chrome" class="clip" data-start="0" data-duration="{total}">
-    <div class="wordmark">runcoach <span>v0.2</span></div>
+    <div class="wordmark">runspector <span>v0.2</span></div>
   </div>
   {intro}{hook}{answer}{today}{strategy}{runs}{chat}{watch}{try_}{close}
   {captions}

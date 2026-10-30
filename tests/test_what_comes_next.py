@@ -8,8 +8,8 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from conftest import make_activity, make_day
-from runcoach import logic, plan, planning, snapshot, tools
-from runcoach.models import ScheduledWorkout
+from runspector import logic, plan, planning, snapshot, tools
+from runspector.models import ScheduledWorkout
 
 _AID = [5_000_000_000]
 
@@ -117,7 +117,7 @@ def test_after_a_pause_the_hard_day_is_not_a_vo2max_session(store, today):
 
 
 def test_a_session_already_on_todays_calendar_is_not_named_again_as_lacking(store, today):
-    from runcoach import plan as plan_mod  # noqa: F401
+    from runspector import plan as plan_mod  # noqa: F401
 
     _green(store, today)
     store.record_workout(4711, name="VO2max 5x4 min", kind="vo2max", spec_json="{}",
@@ -289,7 +289,7 @@ def test_no_down_week_lands_right_behind_a_return_week(store):
 
 
 def test_a_single_session_ignores_a_stale_race_prediction(store, today):
-    from runcoach.models import DailyMetrics
+    from runspector.models import DailyMetrics
 
     m = DailyMetrics(day=today - timedelta(days=400))
     m.race_5k_s, m.race_10k_s = 1392, 2910
@@ -572,7 +572,7 @@ def test_a_week_cut_to_one_quality_session_follows_the_next_stimulus():
 def _set_profile(**values):
     import json
 
-    from runcoach import paths
+    from runspector import paths
 
     paths.profile_path().write_text(json.dumps(values), encoding="utf-8")
 
@@ -653,7 +653,7 @@ def test_the_coach_is_told_the_week_the_planner_goes_by_not_the_raw_history(stor
 def test_the_runs_a_week_shown_are_the_runs_the_planner_plans(store, today):
     """Round 2: the history's five days were shown next to three days off,
     while every week planned four."""
-    from runcoach import facts, habits
+    from runspector import facts, habits
 
     _habit_weeks(store, today, 8, {0: 40, 1: 40, 3: 40, 4: 40, 5: 90})
     _set_profile(off_days=["mon", "wed", "fri"])

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Before main moves: what CI would fail on, here, in about a minute. Commits go
 # straight to main and CI only reports afterwards - and `uv tool install
-# git+...runcoach-ai` installs whatever main is at that moment.
+# git+...runspector` installs whatever main is at that moment.
 #
 #   git config core.hooksPath .githooks      # once per clone, opt-in
 #   git push --no-verify                     # skip, when you know why
@@ -16,7 +16,7 @@ while read -r local_ref local_sha remote_ref remote_sha; do
     changed=$(git diff --name-only "$remote_sha" "$local_sha")
     # The coach's prompt is code with its own tests: a change to it ships with
     # an eval run, which is what rewrites evals/RESULTS.md.
-    if echo "$changed" | grep -qE '^src/runcoach/skills/|^evals/cases\.yaml$' &&
+    if echo "$changed" | grep -qE '^src/runspector/skills/|^evals/cases\.yaml$' &&
        ! echo "$changed" | grep -qx 'evals/RESULTS.md'; then
         echo "pre-push: the coach prompt or the eval cases changed, evals/RESULTS.md did not."
         echo "          uv run python evals/run_evals.py   (or --no-verify, and say why)"

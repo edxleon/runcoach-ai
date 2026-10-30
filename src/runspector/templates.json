@@ -1,0 +1,51 @@
+[
+  {
+    "id": "train-today",
+    "title": "Should I train today?",
+    "hint": "Readiness + today's session and HR cap",
+    "params": [
+      "day"
+    ],
+    "prompt": "For {day}, answer: train or rest - and if train, WHAT exactly (volume, intensity, heart-rate cap).\n\nFetch the data yourself with the runspector tools (get_training_readiness, get_recovery_summary, get_training_load, get_recent_activities; sync_garmin first if today's data is missing). Derive the HR cap from the Garmin zone bounds of a recent run (analyze_workout prints them) and the lactate threshold (get_training_load prints it); honour what the Garmin calendar has planned for today unless the data argues against it; never invent a max-HR formula, and do not print a zone table - only the cap with its source.\n\nThe rule-based verdict is the starting point, not the conclusion: if the signals contradict it, say so and justify it in numbers - only the CONFLICT, not how the verdict is built. No reassurance, no filler.\n\nOn a hard day the decision block also names WHICH hard session (VO2max intervals, threshold reps, or a steady block as the VO2max measurement) and why. That is today's session, unless the Garmin calendar has a run for today - then that run is the plan. Build bullet (3) on it; do not pick a different kind without saying which number argues against the named one.\n\nShort contract: headline = decision + cap in ONE sentence. At most 5 bullets: (1) verdict vs today's signals - only the conflict, in numbers; (2) the one trend that carries the decision (e.g. weekly HRV mean vs last night); (3) today's session, concretely (workout, volume, cap); (4) what is NOT happening + the criterion for resuming it; (5) abort criteria. Any derivation that does not change the decision is dropped."
+  },
+  {
+    "id": "analyze-run",
+    "title": "Analyze this run",
+    "hint": "Structure, zones, context",
+    "params": [
+      "activity_id"
+    ],
+    "prompt": "Analyze the Garmin activity with id {activity_id} via analyze_workout (pass activity_id).\n\nAnswer: (1) What kind of session was it - structure from the splits, not from its name (for intervals: count x duration, average HR work vs recovery; the split structure is Garmin's auto-detection - if the athlete states a different structure, the athlete is right). (2) Did it hit what it was meant to hit (zone distribution, time above the Z4/Z5 bound)? (3) How does it fit into the last 4 weeks (load, performance condition, temperature as context; use get_recent_activities and get_training_load)? (4) What follows for the next hard session?\n\nIf detail data is missing (no splits, no zone detail), say so instead of interpolating.\n\nUse the activity id as `ref` in the card."
+  },
+  {
+    "id": "why-vo2max",
+    "title": "Why is VO2max moving?",
+    "hint": "Factors instead of guesses",
+    "params": [],
+    "prompt": "Examine how VO2max developed over the last 8 weeks and WHICH factors mechanically fit.\n\nFetch the data with get_vo2max_history, get_training_load and get_intensity_distribution (28 and 84 days), plus get_recent_activities.\n\nImportant: Garmin's VO2max is carry-forward - on days without a real measurement the last value is repeated. Treat the series as steps and interpret only the jumps, not the plateau in between. Compare the last 28 days with the 28 before: distance, Z5 minutes, easy share, average temperature. If the older block was not read in full, do not sell the comparison as a change.\n\nSay clearly what the data supports and what it does not (correlation is not causation, n=1). No training-theory platitudes - refer to the athlete's numbers."
+  },
+  {
+    "id": "plan-session",
+    "title": "Plan a session",
+    "hint": "For a route you run: warm-up, reps, cool-down",
+    "params": [
+      "kind",
+      "distance_km"
+    ],
+    "prompt": "Plan a {kind} session for a {distance_km} km route. First read get_training_readiness and get_recent_activities. If today's decision and the spacing allow this kind, call propose_workout with kind and distance_km exactly as given. If they do NOT - a REST or EASY day, or the last hard session was yesterday - then file what the day allows instead: on an easy day propose kind=\"easy\" for the same route and say plainly that the {kind} session is not what today asks for and what would change that; on a rest day propose nothing at all and say so. Never file a hard session against the day's own decision - the card offers a one-tap write, so what you file is what is most likely to end up on the watch. Then explain in the card: headline = the structure in one line (e.g. 4x4 min in zone 5, 2.6 km warm-up, 1.9 km cool-down) or, if you filed nothing, what today is for instead; bullets = why this structure for this athlete today (zones and their source, last hard session, what the targets mean on the watch), the assumptions the proposal lists, and the criterion that would make the requested session right again. Put the proposal id in the card's proposal field when you filed one. Do NOT call apply_workout - the athlete applies with a click."
+  },
+  {
+    "id": "plan-week",
+    "title": "Plan my week",
+    "hint": "A polarised week as one package for the watch",
+    "params": [],
+    "prompt": "Plan the coming training week. First read get_training_load, get_intensity_distribution (28 days) and get_training_readiness. Then call propose_week - it sizes the week from the athlete's own running weeks and says so in its assumptions. The proposal's assumption lines say how the week was sized: from the athlete's own weeks plus 10 %, or held or unloaded on the load ratio, every fourth week a down week, a return week after a pause, or a measurement week with a steady block in the threshold slot. Explain the line that applies in the athlete's numbers; do not override it with a smaller or larger days_per_week because the athlete asked or feels fresh - the rules read the history, and the card explains them. Then explain the package in the card: headline = the week in one line (e.g. 4 days - VO2max Tue, threshold Thu, easy Sat, long Sun); bullets = why this structure for this athlete now (last 4 weeks' load and intensity split, what the two quality sessions target, where the rest days sit and why), the assumptions the proposal lists - including how the week was sized - and what the athlete should change if a day does not fit. Put the proposal id in the card's proposal field. Do NOT call apply_workout - the athlete applies the whole week with a click."
+  },
+  {
+    "id": "week-review",
+    "title": "Review my training week",
+    "hint": "Volume, polarisation, ACWR",
+    "params": [],
+    "prompt": "Review the last training week: volume and load compared with the 4 weeks before, ACWR with its source (Garmin or computed), intensity distribution (80/20 - how much sits in the grey zone Z3?), recovery signals (HRV status, resting HR against the baseline, sleep).\n\nFetch the data with the runspector tools. Conclude with: does the ratio of stimulus and recovery fit, and what is the ONE thing that should be different next week - justified from the numbers."
+  }
+]

@@ -12,13 +12,13 @@ import {
   groupRunsByWeek, NO_DATE, volumeComparison, volumeAverageKm, weekIncomplete,
   intensitySeries, intensityHits, chartPoints, chartScale, axisX, stepPath, stepMarks,
   barScale, carryForward, hasNoData, isFirstRun, showSyncFailure,
-} from "../src/runcoach/web/static/logic.js";
+} from "../src/runspector/web/static/logic.js";
 import { fmtKm, fmtNum, fmtDelta, fmtDay, fmtDayShort, fmtMinSec, fmtPace, fmtDur,
-         fmtHours, plural, esc } from "../src/runcoach/web/static/ui.js";
+         fmtHours, plural, esc } from "../src/runspector/web/static/ui.js";
 
 /* ── Hard sessions ────────────────────────────────────────────────────── */
 
-/* These three numbers are a COPY of `src/runcoach/logic.py: is_hard`. This is
+/* These three numbers are a COPY of `src/runspector/logic.py: is_hard`. This is
    the test that keeps the copy honest: if the server's predicate moves, the
    line below has to move with it — and the page is not allowed to drift
    silently into a second meaning of "hard". */
@@ -380,7 +380,7 @@ test("isFirstRun: no session AND nothing stored — an expired login is not one"
   assert.equal(isFirstRun(S({ garmin_session: false })), true);
 
   // THE case the review caught: data in the store, token directory gone
-  // (re-login in progress, or RUNCOACH_GARMIN_TOKENS set in one shell and not
+  // (re-login in progress, or RUNSPECTOR_GARMIN_TOKENS set in one shell and not
   // the other). Not a first run — and the sync-failure banner is gated on
   // this, so getting it wrong silences a page that has stopped updating.
   assert.equal(isFirstRun(S({ garmin_session: false, data_through: "2026-09-20" })), false,
@@ -416,7 +416,7 @@ test("showSyncFailure: silent only on a true first run", () => {
 
 /* ── "Last hard session" is counted from the readiness day ─────────────── */
 
-import { lastHardLabel } from "../src/runcoach/web/static/logic.js";
+import { lastHardLabel } from "../src/runspector/web/static/logic.js";
 
 test("last hard session: relative to the day the count was made on", () => {
   // `days_since_hard_workout` is counted from the readiness day. An early
@@ -434,12 +434,12 @@ test("last hard session: relative to the day the count was made on", () => {
 
 /* ── setup checklist ───────────────────────────────────────────────────── */
 
-import { setupSteps } from "../src/runcoach/web/static/logic.js";
+import { setupSteps } from "../src/runspector/web/static/logic.js";
 
 test("setup: a fresh install sees all three steps and the one command for each", () => {
   const steps = setupSteps({ garmin_session: false, claude_status: "missing", counts: {} });
   assert.deepEqual(steps.map(s => [s.key, s.done]), [["garmin", false], ["claude", false], ["sync", false]]);
-  assert.match(steps[0].text, /runcoach login/);
+  assert.match(steps[0].text, /runspector login/);
   assert.match(steps[1].text, /claude auth login/);
   assert.match(steps[1].text, /no API key/, "it says plainly that nothing else is to connect");
   assert.match(steps[2].text, /after the Garmin sign-in/);
@@ -461,7 +461,7 @@ test("setup: nothing to set up in the demo, and a signed-out Claude stays visibl
 });
 
 test("Garmin's load focus: each band against its own target range", async () => {
-  const { loadFocusRows, loadFocusPhrase } = await import("../src/runcoach/web/static/logic.js");
+  const { loadFocusRows, loadFocusPhrase } = await import("../src/runspector/web/static/logic.js");
   const rows = loadFocusRows({
     load_aerobic_low: 115.4, load_aerobic_low_min: 115, load_aerobic_low_max: 279,
     load_aerobic_high: 0, load_aerobic_high_min: 186, load_aerobic_high_max: 350,
@@ -476,7 +476,7 @@ test("Garmin's load focus: each band against its own target range", async () => 
 });
 
 test("the You tab lists each fact with its evidence, escaped, and says when nothing is known", async () => {
-  const { youHtml } = await import("../src/runcoach/web/static/you.js");
+  const { youHtml } = await import("../src/runspector/web/static/you.js");
   const html = youHtml([{ label: "Long run", value: "sat", evidence: "8 of 8 weeks",
                           change: "since about 3 weeks ago; before: sun" },
                         { label: "<b>x</b>", value: "<script>", evidence: "e", change: null }]);
@@ -487,7 +487,7 @@ test("the You tab lists each fact with its evidence, escaped, and says when noth
 });
 
 test("the You tab's week: history fills it, the athlete's setting wins and says so", async () => {
-  const { youHtml, effective } = await import("../src/runcoach/web/static/you.js");
+  const { youHtml, effective } = await import("../src/runspector/web/static/you.js");
   const week = { set: { long_run_day: "sun", off_days: ["thu"] }, note: "", note_max: 600,
                  history: { days_per_week: 3, run_days: ["tue", "thu", "sat"], long_run_day: "sat",
                             off_days: [], sport_days: ["tue"] },
@@ -510,7 +510,7 @@ test("the You tab's week: history fills it, the athlete's setting wins and says 
 
 test("the week editor: only what the athlete touched is sent; a day off moves the history's days", async () => {
   const { newDraft, pick, draftPatch, youHtml } =
-    await import("../src/runcoach/web/static/you.js");
+    await import("../src/runspector/web/static/you.js");
   const week = { set: {}, note: "",
                  history: { days_per_week: 3, run_days: ["tue", "thu", "sat"], long_run_day: "sat",
                             off_days: [], sport_days: null } };
@@ -536,7 +536,7 @@ test("the week editor: only what the athlete touched is sent; a day off moves th
 
 test("the week editor: the athlete's own values are kept and handed back to the history", async () => {
   const { newDraft, pick, resetRow, draftPatch, youHtml } =
-    await import("../src/runcoach/web/static/you.js");
+    await import("../src/runspector/web/static/you.js");
   const week = { set: { long_run_day: "sun", run_days: ["tue", "thu"], off_days: ["sat"] }, note: "",
                  history: { days_per_week: 3, run_days: ["tue", "thu", "sat"], long_run_day: "sat",
                             off_days: [], sport_days: null } };
@@ -566,7 +566,7 @@ test("the week editor: the athlete's own values are kept and handed back to the 
 });
 
 test("the note to the coach is escaped and keeps what is being typed", async () => {
-  const { youHtml } = await import("../src/runcoach/web/static/you.js");
+  const { youHtml } = await import("../src/runspector/web/static/you.js");
   const week = { set: {}, note: "<b>gym</b>", note_max: 600, history: {} };
   const html = youHtml([], week);
   assert.ok(!html.includes("<b>gym</b>") && html.includes("&lt;b&gt;gym&lt;/b&gt;"));

@@ -9,7 +9,7 @@ build/
 node_modules/
 
 # local data never belongs in the repo
-.runcoach/
+.runspector/
 *.db
 *.db-wal
 *.db-shm

@@ -25,7 +25,7 @@ import yaml
 
 # The prompt under test is IMPORTED from the app, never re-declared here: a copy
 # would let the suite keep passing against a framing the product no longer ships.
-from runcoach.web.agent import SKILLS, coaching_reference
+from runspector.web.agent import SKILLS, coaching_reference
 
 HERE = Path(__file__).resolve().parent
 LAST_RUN = HERE / "last-run.json"
@@ -98,7 +98,7 @@ def validate(spec: dict) -> list[str]:
 
 def claude(prompt: str, model: str | None, timeout: int) -> tuple[str, float, str]:
     """(answer, cost_usd, error). Tool-free, MCP-free, empty cwd, prompt on STDIN."""
-    with tempfile.TemporaryDirectory(prefix="runcoach-eval-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="runspector-eval-") as tmp:
         cfg = Path(tmp) / "mcp.json"
         cfg.write_text('{"mcpServers":{}}', encoding="utf-8")
         # --safe-mode keeps YOUR ~/.claude/CLAUDE.md, hooks and plugins out of the run:
@@ -202,7 +202,7 @@ def write_results(model: str, judge_model: str, n_pass: int, results: list, tota
         f"- cost: ${total:.2f} subscription-equivalent (not billed)",
         "",
         "The coach model here is the harness default, which is not necessarily the",
-        "model `RUNCOACH_MODEL` picks in the app. A green suite says \"these two skill",
+        "model `RUNSPECTOR_MODEL` picks in the app. A green suite says \"these two skill",
         "files behave on this model\", not \"the shipped coach behaves\".",
         "",
         "| case | status | seconds |",

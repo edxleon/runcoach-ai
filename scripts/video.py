@@ -1,4 +1,4 @@
-"""Regenerate the README demo video, docs/video/runcoach-demo.mp4.
+"""Regenerate the README demo video, docs/video/runspector-demo.mp4.
 
 A picture nobody can regenerate is documentation that can only rot, and a
 video is a picture that also talks. Everything in it comes from the repo: the
@@ -13,7 +13,7 @@ and a voice spoken from `docs/video/narration.json`.
     uv run python scripts/video.py --captions    # with burned-in captions (off by default)
 
 Needs ffmpeg/ffprobe and Node (HyperFrames renders through `npx`, version
-pinned below). `--voice` also needs `RUNCOACH_TTS_PYTHON`, see docs/video/tts.py.
+pinned below). `--voice` also needs `RUNSPECTOR_TTS_PYTHON`, see docs/video/tts.py.
 The demo athlete has no Garmin account, so `apply_workout` refuses in demo
 mode: the two "On Garmin" lines of the chat scene are written in the exact
 format a real apply printed on 2026-10-28, and the frame says so.
@@ -37,7 +37,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 VIDEO = ROOT / "docs" / "video"
 ASSETS = VIDEO / "assets"
 SHOTS = ROOT / "docs" / "screenshots"
-OUT = VIDEO / "runcoach-demo.mp4"
+OUT = VIDEO / "runspector-demo.mp4"
 POSTER = VIDEO / "poster.png"
 #: Pinned: HyperFrames renders deterministically only against itself.
 HYPERFRAMES = "hyperframes@0.8.181"
@@ -67,12 +67,12 @@ def copy_app_pictures() -> None:
 def capture() -> None:
     """Tool texts from the demo athlete, on the coach card's frozen day."""
     import screenshots
-    from runcoach import demo, tools
+    from runspector import demo, tools
 
     day = screenshots.card_day()
     screenshots.freeze_today(day)
-    home = Path(tempfile.mkdtemp(prefix="runcoach-video-"))
-    os.environ["RUNCOACH_HOME"], os.environ["RUNCOACH_DEMO"] = str(home), "1"
+    home = Path(tempfile.mkdtemp(prefix="runspector-video-"))
+    os.environ["RUNSPECTOR_HOME"], os.environ["RUNSPECTOR_DEMO"] = str(home), "1"
     try:
         store = demo.seed()
         tomorrow = (day + timedelta(days=1)).isoformat()
@@ -91,9 +91,9 @@ def capture() -> None:
 
 def voice(only: list[str]) -> None:
     """Speak, then normalise: -18 LUFS per clip lands the whole film near -16."""
-    py = os.environ.get("RUNCOACH_TTS_PYTHON")
+    py = os.environ.get("RUNSPECTOR_TTS_PYTHON")
     if not py:
-        sys.exit("--voice needs RUNCOACH_TTS_PYTHON (an interpreter with mlx-audio + misaki[en])")
+        sys.exit("--voice needs RUNSPECTOR_TTS_PYTHON (an interpreter with mlx-audio + misaki[en])")
     with tempfile.TemporaryDirectory() as raw:
         run([py, str(VIDEO / "tts.py"), str(VIDEO / "narration.json"), raw, *only])
         for wav in Path(raw).glob("*.wav"):

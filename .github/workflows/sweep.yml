@@ -39,5 +39,5 @@ jobs:
           cache-dependency-glob: uv.lock
       - name: Synthetic athletes, many seeds
         env:
-          RUNCOACH_SIM_SEEDS: ${{ inputs.seeds || '40' }}
+          RUNSPECTOR_SIM_SEEDS: ${{ inputs.seeds || '40' }}
         run: uv run --python 3.12 pytest -q tests/test_simulation.py

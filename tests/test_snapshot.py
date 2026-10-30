@@ -10,9 +10,9 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 
 from conftest import DETAIL, TODAY, make_activity, make_day, make_split
-from runcoach import paths, snapshot
-from runcoach.models import Activity, ScheduledWorkout
-from runcoach.store import Store
+from runspector import paths, snapshot
+from runspector.models import Activity, ScheduledWorkout
+from runspector.store import Store
 
 TOP_LEVEL_KEYS = {
     "schema", "generated_at", "data_through", "stale_days", "stale_after_days",

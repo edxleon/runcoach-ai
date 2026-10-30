@@ -30,7 +30,7 @@ from conftest import FakeGarmin
 
 garminconnect = pytest.importorskip("garminconnect")
 
-SRC = Path(__file__).resolve().parent.parent / "src" / "runcoach"
+SRC = Path(__file__).resolve().parent.parent / "src" / "runspector"
 
 #: How this app calls the vendor's write methods: (positional args, keyword
 #: args) at each call site. Checked against the real signature by binding.

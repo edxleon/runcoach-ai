@@ -8,8 +8,8 @@ from datetime import date, timedelta
 import pytest
 
 from conftest import split_dict
-from runcoach import logic as logic_mod
-from runcoach.logic import (
+from runspector import logic as logic_mod
+from runspector.logic import (
     QUALITY_FLOOR_SECONDS,
     decide_today,
     interval_facts,

@@ -18,7 +18,7 @@
 | `web/jobs.py` | Jobs and cards as atomic JSON files | – |
 | `web/agent.py` | Builds the prompt, runs the CLI under an allowlist, validates the card | web/jobs |
 | `demo.py` | Deterministic synthetic athlete | store |
-| `web/static/` | The frontend itself — ~3,900 lines of vanilla ES modules, CSS and one HTML file, no build step. **`app.js` is the page**: the only module `index.html` loads, and every card, chart and cell is rendered there. Beneath it: `chassis.js` (tabs, loading and error states, the refresh button), `cards.js` (coach cards and the job strip, including their polling), `you.js` (the You tab: the week editor, the note to the coach and what the coach has learned - pure, the edit draft lives in `app.js`), `signin.js` (the Garmin sign-in dialog - the same sign-in as `runcoach login`, in two steps, POST `/api/garmin/login`), `ui.js` (formatting, escaping, `apiGet`/`apiPost`), `logic.js` (the pure arithmetic, tested in `web-tests/` and pinned against Python in `tests/test_js_python_contract.py`), `input-guard.js`, `theme.js` + `theme-boot.js` (the pre-paint one is a separate file because the CSP forbids inline script), `tokens.css` + `cards.css` | the JSON of `/api/state` |
+| `web/static/` | The frontend itself — ~3,900 lines of vanilla ES modules, CSS and one HTML file, no build step. **`app.js` is the page**: the only module `index.html` loads, and every card, chart and cell is rendered there. Beneath it: `chassis.js` (tabs, loading and error states, the refresh button), `cards.js` (coach cards and the job strip, including their polling), `you.js` (the You tab: the week editor, the note to the coach and what the coach has learned - pure, the edit draft lives in `app.js`), `signin.js` (the Garmin sign-in dialog - the same sign-in as `runspector login`, in two steps, POST `/api/garmin/login`), `ui.js` (formatting, escaping, `apiGet`/`apiPost`), `logic.js` (the pure arithmetic, tested in `web-tests/` and pinned against Python in `tests/test_js_python_contract.py`), `input-guard.js`, `theme.js` + `theme-boot.js` (the pre-paint one is a separate file because the CSP forbids inline script), `tokens.css` + `cards.css` | the JSON of `/api/state` |
 
 ## Data model
 
@@ -75,8 +75,8 @@ all, which would defeat the two mitigations that depend on the athlete *seeing* 
 **Where the isolation ends.** `--tools ""` withholds every built-in tool, `--strict-mcp-config` with a
 one-server `--mcp-config` excludes every other MCP server, and the working directory is an empty temp
 dir. Since v0.2 the server also carries the one tool that writes to Garmin (`apply_workout`), and
-`--allowedTools mcp__runcoach` is a prefix allow that would cover it — so every card run additionally
-passes `--disallowedTools mcp__runcoach__apply_workout`. A card may *propose* a session; applying it is a
+`--allowedTools mcp__runspector` is a prefix allow that would cover it — so every card run additionally
+passes `--disallowedTools mcp__runspector__apply_workout`. A card may *propose* a session; applying it is a
 human's click on the card or their answer in a Claude Code session, where the flag is not set. Both the
 flag and the fact that it names a registered tool are pinned by tests, because a flag that denies a tool
 nobody registers denies nothing. What that does *not* exclude is the host's own Claude Code configuration: user-level `CLAUDE.md`
@@ -93,7 +93,7 @@ which is why the delete button is part of the security design and not a convenie
 
 ## Web security
 
-- Loopback by default; non-loopback bind requires `RUNCOACH_TOKEN` (constant-time compare, global
+- Loopback by default; non-loopback bind requires `RUNSPECTOR_TOKEN` (constant-time compare, global
   back-off on failures). Token bootstrap via `?token=` is moved to `localStorage` and stripped from the URL.
 - **DNS rebinding**: in the token-less loopback case every request — GET and POST — must carry a
   `Host` of `127.0.0.1`, `localhost` or `::1`. A rebound `evil.example` resolves to loopback but
@@ -106,12 +106,12 @@ which is why the delete button is part of the security design and not a convenie
 - Static files: filename allowlist regex, no path components.
 - All model-written content is rendered escaped; the server enforces structure and length only.
 
-**One trust boundary this does not cover.** Everything under `~/.runcoach/` — cards, job files, the
+**One trust boundary this does not cover.** Everything under `~/.runspector/` — cards, job files, the
 database — is read back without any integrity check and flows straight into both the DOM and the
 next agent prompt (a card is re-injected as context for the following card of its kind). Whoever can
 write that directory can therefore write the UI and steer the coach. For a single-user local tool
 that is the same privilege the user already has, and no boundary is crossed. It stops being true the
-moment `RUNCOACH_HOME` points at a cloud-synced or shared folder, which is then a different threat
+moment `RUNSPECTOR_HOME` points at a cloud-synced or shared folder, which is then a different threat
 model than the one this design assumes.
 
 ## Testing
@@ -122,8 +122,8 @@ model than the one this design assumes.
 | `tests/test_js_python_contract.py` | the quantities that exist in BOTH languages, pinned against each other: it RUNS the shipped `logic.js` through node and compares the result to the Python — `is_hard` over a 375-workout grid, the weekly intensity series, `weekStart`. `web-tests/` asserts JavaScript against JavaScript literals, so it goes red when someone edits `logic.js` and never when someone edits `logic.py` — which is how the intensity numerator drifted for one review round (13 min on one tab, 17 on the other) and the target line for the next (17 of 43 against 17 of 6). A first version of this file parsed the source instead of running it and was measurably too weak: it summed the field names out of the numerator, so a flipped operator passed | node |
 | `tests/test_palette.py` | the colour claims in `tokens.css`, measured: a Viénot/Brettel deuteranopia simulation and ΔE76 over every adjacent pair, in all four palette blocks (`:root`, the `prefers-color-scheme` override and both `data-theme` blocks). The comments quoted three numbers nothing could re-check; now they are output | nothing |
 | `tests/test_eval_fixture.py` | five eval cases' inputs are generated from the real tools (`evals/fixture_gen.py`) - one from a hand-seeded store, four from a day of a synthetic athlete's course - and compared byte for byte, so the prompt shape a case measures cannot drift from the prompt that ships | pyyaml |
-| `tests/test_build_week_golden.py` | the week `build_week` plans for 3,150 combinations of start day, days, long-run day, variant, quality, budget and cap, frozen in `tests/golden/build_week.txt` - without habits the planner must plan exactly the week it always did. `RUNCOACH_REGEN_GOLDEN=1` rewrites it when a change is meant to move weeks | nothing |
-| `tests/test_simulation.py` | eight synthetic athletes (`evals/sim.py`) run sixteen weeks of the app day by day against the real tools - planning on Sundays, running what the calendar or the decision says, falling ill, pausing, overrunning - and a runner's expectations must hold over the whole course: no hard day when ill or right after a hard run, the first week back easy, no week far above what was run, no week of mostly hard sessions, regular lighter weeks, a plateau measured, a return back to 70 % within eight weeks. `RUNCOACH_SIM_SEEDS=N` sweeps N more seeds per athlete with the events moved - the bug hunt, not the gate | nothing |
+| `tests/test_build_week_golden.py` | the week `build_week` plans for 3,150 combinations of start day, days, long-run day, variant, quality, budget and cap, frozen in `tests/golden/build_week.txt` - without habits the planner must plan exactly the week it always did. `RUNSPECTOR_REGEN_GOLDEN=1` rewrites it when a change is meant to move weeks | nothing |
+| `tests/test_simulation.py` | eight synthetic athletes (`evals/sim.py`) run sixteen weeks of the app day by day against the real tools - planning on Sundays, running what the calendar or the decision says, falling ill, pausing, overrunning - and a runner's expectations must hold over the whole course: no hard day when ill or right after a hard run, the first week back easy, no week far above what was run, no week of mostly hard sessions, regular lighter weeks, a plateau measured, a return back to 70 % within eight weeks. `RUNSPECTOR_SIM_SEEDS=N` sweeps N more seeds per athlete with the events moved - the bug hunt, not the gate | nothing |
 | `tests/test_invariants.py` | the promises that span two or more modules: a predicate that exists in three languages, one anchor date for every surface reporting a training load, a stamp that may only be written after what it promises, a word that has to mean the same thing on both tabs. Deliberately one file — splitting them by module would put each half of an invariant next to code that cannot break it alone | nothing |
 | `tests/test_api_contract.py` | the one test that does *not* use a fake client: parses `garmin.py` with `ast` and asserts every `client.*` endpoint it calls still exists on the installed `garminconnect.Garmin`, with the arguments we pass. `_safe()` catches `AttributeError`, so a renamed endpoint is otherwise one log line and a permanently NULL column | garminconnect installed (no network, no credentials) |
 | `tests/test_ui_smoke.py` | headless Chrome renders all five tabs against a throw-away demo server. Red on an uncaught console error, the visible "Page error" marker, or a module that never ran (`data-area` missing) — a SyntaxError in an inline module is otherwise just a blank page no unit test can see. Skipped when no Chrome is installed | Chrome/Chromium |

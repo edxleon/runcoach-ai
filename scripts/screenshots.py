@@ -2,7 +2,7 @@
 
 They were made by hand once and went stale within two review rounds: the Trend
 chart's axis caption changed and the pictures still showed the old one, so a
-reader who ran `runcoach serve --demo` saw different labels than the README.
+reader who ran `runspector serve --demo` saw different labels than the README.
 A picture nobody can regenerate is documentation that can only rot.
 
     uv run python scripts/screenshots.py
@@ -79,7 +79,7 @@ def freeze_today(day: date) -> None:
     made the repository expire, because the check had to compare against the
     real clock. Freezing the clock removes the drift instead of reporting it.
     Running `--new-card` moves both together."""
-    from runcoach import paths
+    from runspector import paths
 
     paths.today = lambda: day
 
@@ -97,7 +97,7 @@ def check_card(app, card: dict) -> None:
     to `logic.decide_today` or to the demo generator can make the stored card
     say EASY where the app now says hard, and the README cites the card's
     numbers by name."""
-    from runcoach import snapshot
+    from runspector import snapshot
 
     decision = snapshot.assemble(app.store)["decision_today"]["decision"]
     verdict = str(card.get("verdict") or "").lower()
@@ -109,10 +109,10 @@ def check_card(app, card: dict) -> None:
 
 def new_card(app) -> dict:
     """Run the real agent against the demo data and keep the card."""
-    from runcoach.web import agent, jobs
+    from runspector.web import agent, jobs
 
     tpl = next(t for t in json.loads(
-        (ROOT / "src" / "runcoach" / "templates.json").read_text(encoding="utf-8"))
+        (ROOT / "src" / "runspector" / "templates.json").read_text(encoding="utf-8"))
         if t["id"] == "train-today")
     job = jobs.new_job(tpl["prompt"], title=tpl["title"], kind="train-today")
     print("  running a real agent job (this costs a few minutes and some quota)...")
@@ -169,16 +169,16 @@ def shoot(binary: str, url: str, out: Path, size: tuple[int, int], profile: Path
 
 
 def main() -> int:
-    from runcoach.web import jobs, server
+    from runspector.web import jobs, server
 
     binary = chrome()
-    home = Path(tempfile.mkdtemp(prefix="runcoach-shots-"))
-    os.environ["RUNCOACH_HOME"] = str(home)
+    home = Path(tempfile.mkdtemp(prefix="runspector-shots-"))
+    os.environ["RUNSPECTOR_HOME"] = str(home)
     # Seed the demo athlete on the CARD's day, unless we are about to replace
     # the card - then the real today is the new anchor for both.
     if "--new-card" not in sys.argv:
         freeze_today(card_day())
-    app = server.App(demo=True, token=None)          # moves RUNCOACH_HOME to <home>/demo
+    app = server.App(demo=True, token=None)          # moves RUNSPECTOR_HOME to <home>/demo
     card = new_card(app) if "--new-card" in sys.argv else load_card()
     check_card(app, card)
     jobs.write_card("j-train-today-demo", card)

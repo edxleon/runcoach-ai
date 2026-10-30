@@ -8,8 +8,8 @@ from datetime import date, timedelta
 import pytest
 
 from conftest import FakeGarmin
-from runcoach import garmin, plan, planning
-from runcoach.planning import (
+from runspector import garmin, plan, planning
+from runspector.planning import (
     DEFAULT_LT_PACE_S,
     HARD_KINDS,
     KINDS,
@@ -469,7 +469,7 @@ def test_a_workout_name_arrives_as_one_line_of_printable_text():
 
 #: Every exception the vendor library defines, and whether it PROVES Garmin
 #: created nothing. `True` hands the claim back so the session can be tried
-#: again; `False` keeps it, and `runcoach doctor` asks the athlete to look in
+#: again; `False` keeps it, and `runspector doctor` asks the athlete to look in
 #: their Garmin library - the safe direction when the answer was lost rather
 #: than refused. A new class in a library update makes this table red, which
 #: is the point: the default for something unclassified is "keep the claim",
@@ -491,7 +491,7 @@ def test_every_vendor_error_has_a_deliberate_verdict():
 
     import garminconnect
 
-    from runcoach.plan import _created_nothing
+    from runspector.plan import _created_nothing
 
     found = {name: cls for name, cls in vars(garminconnect).items()
              if inspect.isclass(cls) and issubclass(cls, BaseException)}
@@ -513,7 +513,7 @@ def test_a_lost_answer_is_never_mistaken_for_a_refusal(name, expected):
     how the same session reaches the watch twice."""
     import requests
 
-    from runcoach.plan import _created_nothing
+    from runspector.plan import _created_nothing
 
     assert _created_nothing(getattr(requests.exceptions, name)("x")) is expected
 
@@ -540,7 +540,7 @@ def test_a_server_error_after_a_write_is_never_read_as_nothing_created():
     import garminconnect
     import requests
 
-    from runcoach.plan import _created_nothing
+    from runspector.plan import _created_nothing
 
     assert _created_nothing(_vendor_http_error(502)) is False
     assert _created_nothing(_vendor_http_error(503)) is False
@@ -576,7 +576,7 @@ def test_the_week_is_sized_from_running_not_from_every_sport(store, today):
     from datetime import timedelta
 
     from conftest import make_activity
-    from runcoach import plan
+    from runspector import plan
 
     monday = today - timedelta(days=today.weekday())
     aid = 7_000_000_000
@@ -613,7 +613,7 @@ def test_zone_bounds_come_from_a_run_not_from_a_ride():
     the newest one with any. Garmin keeps separate zones per sport, so a ride
     after the last run put the bike's 145/158 on the Today tab as "Garmin zones
     on the run" and capped the next easy run 15 bpm too low."""
-    from runcoach.snapshot import build_zones
+    from runspector.snapshot import build_zones
 
     sessions = [  # newest first, the way the snapshot hands them over
         {"type": "cycling", "day": "2026-06-10", "hr_z4_low": 145, "hr_z5_low": 158},
@@ -643,7 +643,7 @@ def test_a_connection_dropped_after_sending_is_not_a_refusal():
     import requests
     import urllib3
 
-    from runcoach.plan import _created_nothing
+    from runspector.plan import _created_nothing
 
     dropped = _chain(garminconnect.GarminConnectConnectionError("Connection error: aborted"),
                      requests.exceptions.ConnectionError("Connection aborted."),
@@ -673,7 +673,7 @@ def test_a_connect_timeout_is_still_a_connection_never_made():
     import requests
     import urllib3
 
-    from runcoach.plan import _created_nothing
+    from runspector.plan import _created_nothing
 
     timed_out = _chain(requests.exceptions.ConnectTimeout("connect timed out"),
                        urllib3.exceptions.MaxRetryError(None, "/", "x"),
@@ -701,7 +701,7 @@ def test_aerobic_efficiency_reads_runs_only_untyped_included():
     every other number in the app does not."""
     from datetime import date
 
-    from runcoach.snapshot import build_aerobic
+    from runspector.snapshot import build_aerobic
 
     run = {"type": "running", "day": "2026-06-08", "avg_hr": 138, "pace_s_per_km": 390,
            "distance_m": 8000, "duration_s": 3120}
@@ -717,7 +717,7 @@ def _cal(day, title, sid):
 
 
 def _week(monday, calendar):
-    from runcoach.planning import build_week, fit_week_to_calendar
+    from runspector.planning import build_week, fit_week_to_calendar
 
     sessions, _ = build_week(monday, days_per_week=4, long_run_day="sun", zones=ZONES)
     return fit_week_to_calendar(sessions, calendar, own_kinds={}, zones=ZONES)
@@ -752,7 +752,7 @@ def test_a_package_session_next_to_a_hard_calendar_day_is_made_easy():
 
 
 def test_a_package_that_fits_is_left_as_it_was():
-    from runcoach.planning import build_week, fit_week_to_calendar
+    from runspector.planning import build_week, fit_week_to_calendar
 
     monday = date(2026, 9, 21)
     sessions, _ = build_week(monday, days_per_week=4, long_run_day="sun", zones=ZONES)
@@ -768,7 +768,7 @@ def test_a_package_that_fits_is_left_as_it_was():
 def test_a_calendar_title_is_read_as_what_it_says(title, kind):
     """`lang` anywhere made "Langsamer Dauerlauf" the week's long run - and the
     planner then dropped the real one and softened the day before it."""
-    from runcoach.planning import calendar_kind
+    from runspector.planning import calendar_kind
 
     assert calendar_kind({"title": title, "workout_id": None}, {}) == kind
 
@@ -888,7 +888,7 @@ def _weeks_of_running(store, today, minutes_per_week, *, aid_base=8_000_000_000)
 
 
 def test_the_budget_steps_up_ten_percent_by_default_and_names_its_weeks(store, today):
-    from runcoach import plan
+    from runspector import plan
 
     _weeks_of_running(store, today, [100, 100, 100, 100])
     monday = planning.CADENCE_EPOCH + timedelta(weeks=200)          # not a down week
@@ -901,7 +901,7 @@ def test_the_budget_steps_up_ten_percent_by_default_and_names_its_weeks(store, t
 
 def test_the_budget_holds_or_unloads_on_the_load_ratio(store, today):
     from conftest import make_day
-    from runcoach import plan
+    from runspector import plan
 
     _weeks_of_running(store, today, [100, 100, 100, 100])
     monday = planning.CADENCE_EPOCH + timedelta(weeks=200)
@@ -920,7 +920,7 @@ def test_the_budget_holds_or_unloads_on_the_load_ratio(store, today):
 
 
 def test_the_step_is_capped_by_the_last_two_weeks(store, today):
-    from runcoach import plan
+    from runspector import plan
 
     _weeks_of_running(store, today, [200, 200, 80, 90])
     budget, lines = plan._week_budget(store, today, planning.CADENCE_EPOCH + timedelta(weeks=200))
@@ -929,7 +929,7 @@ def test_the_step_is_capped_by_the_last_two_weeks(store, today):
 
 
 def test_a_pause_makes_a_return_week_from_the_weeks_before_it(store, today):
-    from runcoach import plan
+    from runspector import plan
 
     _weeks_of_running(store, today, [100, 100, 100, 100, 0, 0])
     budget, lines = plan._week_budget(store, today)
@@ -941,7 +941,7 @@ def test_a_first_run_back_does_not_end_the_return_week(store, today):
     """Four weeks of running, two weeks off, and a run two days ago: the last
     run is recent, but the gap before it is a pause - still a return week."""
     from conftest import make_activity
-    from runcoach import plan
+    from runspector import plan
 
     _weeks_of_running(store, today, [100, 100, 100, 100, 0, 0])
     store.upsert_activity(make_activity(8_100_000_000, today - timedelta(days=2), duration_s=1800,
@@ -952,7 +952,7 @@ def test_a_first_run_back_does_not_end_the_return_week(store, today):
 
 def test_a_pause_of_more_than_eight_weeks_is_three_short_easy_runs(store, today):
     from conftest import make_activity
-    from runcoach import plan
+    from runspector import plan
 
     store.upsert_activity(make_activity(8_200_000_000, today - timedelta(days=80), duration_s=3600,
                                         load=None))
@@ -966,7 +966,7 @@ def test_a_return_week_with_days_off_still_gets_the_free_days():
     out as three days - Tuesday and Thursday were never tried for an easy run."""
     from datetime import date
 
-    from runcoach import planning
+    from runspector import planning
 
     sessions, notes = planning.build_week(date(2026, 6, 15), days_per_week=5, long_run_day="sun",
                                           quality=(), long_run=False,
@@ -982,7 +982,7 @@ def test_every_week_gets_the_days_asked_for_that_are_free():
     from datetime import date
     from itertools import combinations
 
-    from runcoach import planning
+    from runspector import planning
 
     offs = [frozenset(c) for k in range(4) for c in combinations(planning.WEEKDAYS, k)]
     short = []
@@ -1005,7 +1005,7 @@ def test_every_week_gets_the_days_asked_for_that_are_free():
 def test_a_week_without_room_for_quality_says_so_instead_of_the_usual_rhythm():
     from datetime import date
 
-    from runcoach import planning
+    from runspector import planning
 
     # Long run Saturday, Monday to Thursday off: Friday and Sunday touch the long run.
     sessions, notes = planning.build_week(date(2026, 6, 15), days_per_week=3, long_run_day="sat",

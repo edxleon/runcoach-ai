@@ -1,7 +1,7 @@
 """The first start: Garmin and Claude checked in the terminal `serve` runs in.
 
 A new user met four steps in two windows - `serve`, a page saying "run
-`runcoach login`", the login in another terminal, then `runcoach sync --days
+`runspector login`", the login in another terminal, then `runspector sync --days
 30` - and most restarted `serve` in between. These pin the shorter way."""
 
 from __future__ import annotations
@@ -11,13 +11,13 @@ import sys
 
 import pytest
 
-from runcoach import onboarding, paths
+from runspector import onboarding, paths
 
 
 def _claude(monkeypatch, answer: dict | None, *, rc: int = 0):
     """Stub `claude auth status` with a one-line Python program."""
     body = json.dumps(answer) if answer is not None else "not json"
-    monkeypatch.setenv("RUNCOACH_CLAUDE_CMD", json.dumps(
+    monkeypatch.setenv("RUNSPECTOR_CLAUDE_CMD", json.dumps(
         [sys.executable, "-c", f"import sys; print({body!r}); sys.exit({rc})"]))
     onboarding._cache.update(at=0.0, status=None)
 
@@ -29,20 +29,20 @@ def _claude(monkeypatch, answer: dict | None, *, rc: int = 0):
     (None, "unknown"),
 ])
 def test_the_claude_login_is_read_from_the_cli_itself(monkeypatch, answer, status):
-    """The subscription is not connected inside runcoach: it is the `claude`
+    """The subscription is not connected inside runspector: it is the `claude`
     CLI's own login, and `claude auth status` says which one it is."""
     _claude(monkeypatch, answer)
     assert onboarding.claude_status(fresh=True) == status
 
 
 def test_no_cli_is_missing(monkeypatch):
-    monkeypatch.delenv("RUNCOACH_CLAUDE_CMD", raising=False)
+    monkeypatch.delenv("RUNSPECTOR_CLAUDE_CMD", raising=False)
     monkeypatch.setattr(onboarding.shutil, "which", lambda name: None)
     assert onboarding.claude_status(fresh=True) == "missing"
 
 
 def _first_start(monkeypatch, tmp_path, *, interactive, answers, signed_in_garmin=False):
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     if signed_in_garmin:
         paths.garmin_dir().mkdir(parents=True, exist_ok=True)
         (paths.garmin_dir() / "garmin_tokens.json").write_text("{}", encoding="utf-8")
@@ -75,7 +75,7 @@ def test_without_a_terminal_nothing_is_asked_and_the_way_is_named(monkeypatch, t
     _claude(monkeypatch, {"loggedIn": False})
     calls, out = _first_start(monkeypatch, tmp_path, interactive=False, answers=[])
     assert calls == {"garmin": 0, "claude": 0}
-    assert "runcoach login" in out and "no restart needed" in out
+    assert "runspector login" in out and "no restart needed" in out
     assert "claude auth login" in out
 
 
@@ -88,11 +88,11 @@ def test_a_signed_out_claude_is_offered_its_login(monkeypatch, tmp_path):
 
 
 def test_the_first_sync_of_an_empty_store_takes_a_month(tmp_path, monkeypatch):
-    """`runcoach sync --days 30` was a step of its own on the first-run page."""
-    from runcoach import garmin, sync
-    from runcoach.web import server
+    """`runspector sync --days 30` was a step of its own on the first-run page."""
+    from runspector import garmin, sync
+    from runspector.web import server
 
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     asked = []
 
     class Rep:
@@ -113,13 +113,13 @@ def test_the_first_sync_of_an_empty_store_takes_a_month(tmp_path, monkeypatch):
 
 def test_the_login_says_what_happens_to_the_password_before_asking_for_it(tmp_path, monkeypatch, capsys):
     """What is kept, where, and how to take it back - before the e-mail prompt."""
-    from runcoach import auth
+    from runspector import auth
 
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     monkeypatch.setattr("builtins.input", lambda prompt="": (_ for _ in ()).throw(EOFError()))
     assert auth.interactive_login() == 1
     out = " ".join(capsys.readouterr().out.split())
-    assert "runcoach never stores them" in out
+    assert "runspector never stores them" in out
     assert "Only that token is saved, on this computer" in out
     assert str(paths.garmin_dir()) in out and "To revoke it" in out
 
@@ -127,8 +127,8 @@ def test_the_login_says_what_happens_to_the_password_before_asking_for_it(tmp_pa
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX modes")
 def test_the_token_folder_is_readable_by_its_owner_only(tmp_path, monkeypatch):
     """The notice promises it for whatever folder is used - also one that
-    `RUNCOACH_GARMIN_TOKENS` points at outside the 0700 home."""
-    from runcoach import auth
+    `RUNSPECTOR_GARMIN_TOKENS` points at outside the 0700 home."""
+    from runspector import auth
 
     store = tmp_path / "elsewhere"
     store.mkdir(mode=0o755)
@@ -145,6 +145,6 @@ def test_the_data_folder_is_shown_without_the_account_name(tmp_path, monkeypatch
     from pathlib import Path
 
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-    assert paths.display_path(tmp_path / ".runcoach") == "~/.runcoach"
+    assert paths.display_path(tmp_path / ".runspector") == "~/.runspector"
     # Outside the home the path is shown as the system writes it (backslashes on Windows).
     assert paths.display_path(Path("/opt/elsewhere")) == str(Path("/opt/elsewhere"))

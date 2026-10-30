@@ -7,9 +7,9 @@ from datetime import date, timedelta
 import pytest
 
 from conftest import TODAY, FakeGarmin, make_activity
-from runcoach import garmin, sync
-from runcoach.models import ScheduledWorkout
-from runcoach.sync import SyncReport
+from runspector import garmin, sync
+from runspector.models import ScheduledWorkout
+from runspector.sync import SyncReport
 
 ZONES = [{"zoneNumber": n, "secsInZone": 100 * n, "zoneLowBoundary": 90 + 20 * n} for n in range(1, 6)]
 
@@ -126,7 +126,7 @@ def test_activity_window_is_wider_than_the_day_window(store, today, monkeypatch)
     assert rep.activities == 2
     assert client.activity_calls == [(0, 100)]
 
-    monkeypatch.setenv("RUNCOACH_ACTIVITY_BACKFILL_DAYS", "5")
+    monkeypatch.setenv("RUNSPECTOR_ACTIVITY_BACKFILL_DAYS", "5")
     client = SyncClient(activities=[raw_activity(4, today - timedelta(days=5)),
                                     raw_activity(5, today - timedelta(days=6))])
     rep, _ = _run(store, client, days=1)
@@ -350,10 +350,10 @@ def test_sync_report_exit_code_and_summary():
 @pytest.mark.parametrize("raw,expected", [(None, 180), ("   ", 180), ("abc", 180), ("42", 42), ("", 180)])
 def test_env_int(monkeypatch, raw, expected):
     if raw is None:
-        monkeypatch.delenv("RUNCOACH_LT_HISTORY_DAYS", raising=False)
+        monkeypatch.delenv("RUNSPECTOR_LT_HISTORY_DAYS", raising=False)
     else:
-        monkeypatch.setenv("RUNCOACH_LT_HISTORY_DAYS", raw)
-    assert sync._env_int("RUNCOACH_LT_HISTORY_DAYS", 180) == expected
+        monkeypatch.setenv("RUNSPECTOR_LT_HISTORY_DAYS", raw)
+    assert sync._env_int("RUNSPECTOR_LT_HISTORY_DAYS", 180) == expected
 
 
 def test_today_fixture_is_what_sync_uses(store, today):
@@ -379,7 +379,7 @@ def test_the_account_settings_keep_three_fields_and_nothing_else():
 
 
 def test_the_sync_writes_the_account_settings_at_most_once_a_day(store, today):
-    from runcoach import paths
+    from runspector import paths
 
     calls = []
 

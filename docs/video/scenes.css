@@ -5,7 +5,7 @@
 @font-face { font-family: "JB Mono"; font-weight: 400; src: url("assets/fonts/jbmono-400.woff2") format("woff2"); }
 @font-face { font-family: "JB Mono"; font-weight: 600; src: url("assets/fonts/jbmono-600.woff2") format("woff2"); }
 
-/* the app's own dark tokens (src/runcoach/web/static/tokens.css) */
+/* the app's own dark tokens (src/runspector/web/static/tokens.css) */
 :root {
   --bg: #12151c; --surface: #1a1e27; --surface2: #20242f; --line: #2a3040;
   --text: #e8eaf0; --muted: #8b92a5; --accent: #64d2a3;

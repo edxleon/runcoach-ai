@@ -7,17 +7,17 @@ import json
 import pytest
 
 from conftest import TODAY
-from runcoach import demo, paths, snapshot
+from runspector import demo, paths, snapshot
 
 
 @pytest.fixture(scope="module")
 def demo_snapshot(tmp_path_factory):
     """Seeded ONCE per module (seeding is ~400 single writes) into the default
-    location under an isolated RUNCOACH_HOME, with `paths.today()` frozen."""
+    location under an isolated RUNSPECTOR_HOME, with `paths.today()` frozen."""
     home = tmp_path_factory.mktemp("demo-home")
     with pytest.MonkeyPatch.context() as mp:
-        mp.setenv("RUNCOACH_HOME", str(home))
-        mp.setenv("RUNCOACH_TZ", "Europe/Berlin")
+        mp.setenv("RUNSPECTOR_HOME", str(home))
+        mp.setenv("RUNSPECTOR_TZ", "Europe/Berlin")
         mp.setattr(paths, "today", lambda: TODAY)
         store = demo.seed()
         assert store.path == str(home / "demo.db")

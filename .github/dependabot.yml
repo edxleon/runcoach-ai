@@ -17,7 +17,7 @@ updates:
     schedule:
       interval: weekly
     # `garminconnect` tracks an unofficial API; a minor bump there is exactly
-    # the change that needs a human to run `runcoach sync` once before merging.
+    # the change that needs a human to run `runspector sync` once before merging.
     commit-message:
       prefix: "deps"
     ignore:

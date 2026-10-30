@@ -1,7 +1,7 @@
 """Render an eval fixture from the REAL tool output instead of writing it by hand.
 
 Every other case in `cases.yaml` carries a hand-written `input` "in the exact
-text shapes of `src/runcoach/tools.py`" — a claim nothing checked, and one that
+text shapes of `src/runspector/tools.py`" — a claim nothing checked, and one that
 was already false: the shipped `get_training_readiness` emits a decision block
 and a calendar line that no fixture contained. So twelve cases were testing the
 coach against a prompt shape it never actually receives.
@@ -37,8 +37,8 @@ def build_store(tmp_db: str, today_extra: dict | None = None, days: int = 30):
     done". Both halves of the rule are visible in the numbers."""
     from datetime import datetime
 
-    from runcoach.models import Activity, DailyMetrics
-    from runcoach.store import Store
+    from runspector.models import Activity, DailyMetrics
+    from runspector.store import Store
 
     store = Store(tmp_db)
     for i in range(days):
@@ -83,7 +83,7 @@ def build_store(tmp_db: str, today_extra: dict | None = None, days: int = 30):
 
 
 def render(store) -> str:
-    from runcoach import tools
+    from runspector import tools
 
     parts = [
         "Athlete: Should I train today?",
@@ -118,7 +118,7 @@ ASK_CASE_ID = "open-question-biggest-lever-first"
 
 
 def render_ask(store) -> str:
-    from runcoach import tools
+    from runspector import tools
 
     parts = [
         "Athlete: Honestly - what am I doing wrong? I run three or four times a week and I want "
@@ -149,13 +149,13 @@ def fixture_input(today_extra: dict | None = None, renderer=None, days: int = 30
     import tempfile
 
     with tempfile.TemporaryDirectory() as tmp:
-        os.environ.setdefault("RUNCOACH_TZ", "Europe/Berlin")
-        old_home = os.environ.get("RUNCOACH_HOME")
-        os.environ["RUNCOACH_HOME"] = tmp
+        os.environ.setdefault("RUNSPECTOR_TZ", "Europe/Berlin")
+        old_home = os.environ.get("RUNSPECTOR_HOME")
+        os.environ["RUNSPECTOR_HOME"] = tmp
         # FREEZE the clock. Without it the tools answer about the real today,
         # decide that data from `TODAY` is stale, and the fixture comes out as
         # "UNKNOWN - not enough data" — the opposite of the case being written.
-        from runcoach import paths
+        from runspector import paths
 
         real_today = paths.today
         paths.today = lambda: TODAY
@@ -164,9 +164,9 @@ def fixture_input(today_extra: dict | None = None, renderer=None, days: int = 30
         finally:
             paths.today = real_today
             if old_home is None:
-                os.environ.pop("RUNCOACH_HOME", None)
+                os.environ.pop("RUNSPECTOR_HOME", None)
             else:
-                os.environ["RUNCOACH_HOME"] = old_home
+                os.environ["RUNSPECTOR_HOME"] = old_home
 
 
 # ── cases rendered from a synthetic athlete's course (evals/sim.py) ────────────
@@ -216,7 +216,7 @@ def _week_minutes(text: str) -> int:
 def sim_input(case_id: str) -> str:
     """The case's input: what the tools said on that day of the course."""
     import sim
-    from runcoach import tools
+    from runspector import tools
 
     persona, day, message, with_week, must = SIM_CASES[case_id]
     fixed = f"p-{day:%Y%m%d}-071500-" + format(sum(map(ord, case_id)) % 0xFFFF, "04x")

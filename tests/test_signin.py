@@ -1,5 +1,5 @@
 """The Garmin sign-in from the web page (`auth.WebLogin`, POST /api/garmin/login):
-the same sign-in as `runcoach login`, in two requests. What it must never do is
+the same sign-in as `runspector login`, in two requests. What it must never do is
 keep the password - on disk, in an answer, in the state - or take one from a
 device whose connection to the page is plain HTTP across a network."""
 
@@ -13,9 +13,9 @@ import garminconnect
 import pytest
 from garminconnect import GarminConnectAuthenticationError, GarminConnectTooManyRequestsError
 
-from runcoach import auth, paths
-from runcoach.store import Store
-from runcoach.web import server
+from runspector import auth, paths
+from runspector.store import Store
+from runspector.web import server
 from test_web import _serve, call
 
 PASSWORD = "correct horse battery staple"
@@ -264,8 +264,8 @@ def test_a_refusal_is_a_sentence_and_never_the_librarys_text(fake, exc, says):
 
 
 def test_the_terminal_and_the_page_show_the_same_notice(tmp_path):
-    shown = auth.notice_points("~/.runcoach/garmin")
-    printed = " ".join(auth.LOGIN_NOTICE.format(store="~/.runcoach/garmin").split())
+    shown = auth.notice_points("~/.runspector/garmin")
+    printed = " ".join(auth.LOGIN_NOTICE.format(store="~/.runspector/garmin").split())
     assert len(shown) == 4 and all(" ".join(p.split()) in printed for p in shown)
 
 
@@ -364,7 +364,7 @@ def test_the_demo_has_nothing_to_sign_in_to(fake):
 
 
 def test_a_sync_that_failed_for_want_of_a_session_offers_the_sign_in(tmp_path, monkeypatch):
-    from runcoach import garmin
+    from runspector import garmin
 
     app = server.App.__new__(server.App)
     app.demo = False

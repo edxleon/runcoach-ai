@@ -1,4 +1,4 @@
-"""Install runcoach the way a user does, then use it the way a user does.
+"""Install runspector the way a user does, then use it the way a user does.
 
 The test suite runs `uv run pytest` from the source tree, which proves the
 code and nothing about the package: a data file missing from the wheel, an
@@ -6,7 +6,7 @@ entry point that does not resolve, a prompt that tracebacks without a
 terminal - none of that is visible from inside the checkout. This script is
 the other half. It builds the wheel, installs it with `uv tool install` into
 a throw-away tool directory, and then drives the installed executable through
-the README's quick start against an empty RUNCOACH_HOME:
+the README's quick start against an empty RUNSPECTOR_HOME:
 
     --version · serve --demo (HTTP from outside) · doctor · sync · login with
     no terminal · the MCP handshake over stdio (tools/list)
@@ -17,7 +17,7 @@ on Linux, macOS and Windows - the three machines this repository's author
 does not have in front of them.
 
     python scripts/install_check.py            # build + install + check
-    python scripts/install_check.py --no-build # check whatever `runcoach` is on PATH
+    python scripts/install_check.py --no-build # check whatever `runspector` is on PATH
 """
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ def install(tool_dir: Path, bin_dir: Path) -> Path:
     env = os.environ | {"UV_TOOL_DIR": str(tool_dir), "UV_TOOL_BIN_DIR": str(bin_dir)}
     out = run(["uv", "tool", "install", "--quiet", str(wheels[0])], env=env)
     check(out.returncode == 0, "uv tool install", out.stderr[-400:])
-    exe = bin_dir / ("runcoach.exe" if os.name == "nt" else "runcoach")
+    exe = bin_dir / ("runspector.exe" if os.name == "nt" else "runspector")
     check(exe.is_file(), f"executable at {exe}")
     return exe
 
@@ -75,25 +75,25 @@ def main() -> int:
     # Windows holds a lock on a `.pyd` for a moment after the process that
     # loaded it exits; the checks are done by then and the directory is a
     # throw-away, so a failed delete is not a finding.
-    with tempfile.TemporaryDirectory(prefix="runcoach-install-", ignore_cleanup_errors=True) as tmp:
+    with tempfile.TemporaryDirectory(prefix="runspector-install-", ignore_cleanup_errors=True) as tmp:
         tmp_p = Path(tmp)
         home = tmp_p / "home"
         if build:
             exe = install(tmp_p / "tools", tmp_p / "bin")
         else:
-            found = shutil.which("runcoach")
-            check(found is not None, "runcoach on PATH")
-            exe = Path(found or "runcoach")
+            found = shutil.which("runspector")
+            check(found is not None, "runspector on PATH")
+            exe = Path(found or "runspector")
         if failures:
             return report()
-        env = os.environ | {"RUNCOACH_HOME": str(home), "PYTHONUTF8": "1"}
+        env = os.environ | {"RUNSPECTOR_HOME": str(home), "PYTHONUTF8": "1"}
         rc = lambda *args, **kw: run([str(exe), *args], env=env, **kw)  # noqa: E731
 
-        print("== runcoach --version")
+        print("== runspector --version")
         out = rc("--version")
         check(out.returncode == 0 and out.stdout.strip(), "prints a version", out.stderr[-300:])
 
-        print("== runcoach serve --demo (HTTP from outside the process)")
+        print("== runspector serve --demo (HTTP from outside the process)")
         port = free_port()
         proc = subprocess.Popen([str(exe), "serve", "--demo", "--port", str(port), "--no-browser"],
                                 env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -133,24 +133,24 @@ def main() -> int:
                 proc.kill()
         check((home / "demo").is_dir(), "demo data lives under <home>/demo, not in the real home")
 
-        print("== runcoach doctor on an empty home")
+        print("== runspector doctor on an empty home")
         out = rc("doctor", "--offline")
         check(out.returncode == 1, "exit 1 (something is missing)", f"exit={out.returncode}")
-        check("runcoach login" in out.stdout and "runcoach sync" in out.stdout,
+        check("runspector login" in out.stdout and "runspector sync" in out.stdout,
               "names the two commands that fix it", out.stdout[-400:])
 
-        print("== runcoach sync with no session")
+        print("== runspector sync with no session")
         out = rc("sync")
         check(out.returncode == 2, "exit 2 (Garmin stopped us)", f"exit={out.returncode} {out.stderr[-200:]}")
-        check("runcoach login" in out.stderr + out.stdout, "points at `runcoach login`")
+        check("runspector login" in out.stderr + out.stdout, "points at `runspector login`")
 
-        print("== runcoach login with no terminal")
+        print("== runspector login with no terminal")
         out = rc("login", stdin=subprocess.DEVNULL, timeout=60)
         check(out.returncode == 1, "exit 1", f"exit={out.returncode}")
         check("Traceback" not in out.stderr, "no traceback", out.stderr[-400:])
         check("interactive" in out.stderr, "says it needs a terminal", out.stderr[-300:])
 
-        print("== runcoach mcp: initialize + tools/list over stdio")
+        print("== runspector mcp: initialize + tools/list over stdio")
         msgs = [
             {"jsonrpc": "2.0", "id": 1, "method": "initialize",
              "params": {"protocolVersion": "2024-11-05", "capabilities": {},

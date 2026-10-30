@@ -15,7 +15,7 @@ because the reasoning behind the order is the point of this file.
 | 3 | A session with your own structure, in your own words | high | medium |
 | 4 | Rep targets by pace, not heart rate, once the pace is real | high (anyone without a chest strap) | small |
 | 5 | The proposed session matched against the run that followed | high | medium |
-| 6 | `runcoach today` for the morning; a sync when the page comes back into focus | medium | tiny |
+| 6 | `runspector today` for the morning; a sync when the page comes back into focus | medium | tiny |
 | 7 | Deeper history on first install | medium | medium |
 | 8 | Body weight in the sync | medium | small |
 | 9 | Garmin's own readiness beside the app's | medium (trust) | small |
@@ -65,7 +65,7 @@ let the coach learn from its own prescriptions.
 
 ## 6. The morning
 
-The product is needed at 07:00. There is no `runcoach today` printing the readiness text (a
+The product is needed at 07:00. There is no `runspector today` printing the readiness text (a
 cron plus any notifier would do the rest), and the web app syncs only at start and on ↻, so a
 page left open overnight shows yesterday until someone clicks.
 
@@ -95,7 +95,7 @@ without the calendar - which is why this sits last, not first.
 
 ## Smaller
 
-- Cards are written in English whatever the athlete's language; a `RUNCOACH_LANG` would be cheap.
+- Cards are written in English whatever the athlete's language; a `RUNSPECTOR_LANG` would be cheap.
 - Strength and cycling count as hard days (good) but have no place in a planned week.
 - Menstrual-cycle data, which Garmin has, appears nowhere.
 - Every proposal creates a new Garmin workout and nothing deletes one; after months the library

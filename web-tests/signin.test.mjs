@@ -1,8 +1,8 @@
 // The Garmin sign-in dialog (signin.js) and the setup step that opens it.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { signinHtml } from "../src/runcoach/web/static/signin.js";
-import { setupSteps, signInHere } from "../src/runcoach/web/static/logic.js";
+import { signinHtml } from "../src/runspector/web/static/signin.js";
+import { setupSteps, signInHere } from "../src/runspector/web/static/logic.js";
 
 test("sign-in: offered on this computer only - the server refuses a password from elsewhere", () => {
   for (const h of ["127.0.0.1", "localhost", "LOCALHOST", "[::1]", "::1"]) assert.equal(signInHere(h), true, h);
@@ -34,8 +34,8 @@ test("setup: on this computer the Garmin step is a button, elsewhere the termina
   const here = setupSteps(s, { signInHere: true })[0].text;
   assert.match(here, /data-signin/);
   assert.match(here, /first sync starts right after/);
-  assert.doesNotMatch(here, /runcoach login/);
+  assert.doesNotMatch(here, /runspector login/);
   const away = setupSteps(s)[0].text;
   assert.doesNotMatch(away, /data-signin/);
-  assert.match(away, /runcoach login/);
+  assert.match(away, /runspector login/);
 });

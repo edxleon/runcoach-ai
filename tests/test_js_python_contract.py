@@ -38,9 +38,9 @@ from pathlib import Path
 
 import pytest
 
-from runcoach import logic, snapshot
+from runspector import logic, snapshot
 
-STATIC = Path(__file__).resolve().parent.parent / "src" / "runcoach" / "web" / "static"
+STATIC = Path(__file__).resolve().parent.parent / "src" / "runspector" / "web" / "static"
 JS = STATIC / "logic.js"
 
 node = shutil.which("node")
@@ -79,7 +79,7 @@ def _js_const(name: str) -> float:
     ("HARD_DURATION_S", logic.LONG_RUN_MIN_SECONDS),
 ])
 def test_the_hard_thresholds_are_the_same_number_in_both_languages(js_name, py_value):
-    """`logic.js` calls these "a COPY of src/runcoach/logic.py: is_hard". Until
+    """`logic.js` calls these "a COPY of src/runspector/logic.py: is_hard". Until
     this file existed nothing checked that claim: the JS test pins the JS
     literals against themselves, and no Python test read `logic.js`."""
     assert _js_const(js_name) == py_value, (
@@ -174,7 +174,7 @@ def test_the_two_duration_formatters_round_the_same_way():
 
     This file ran the shipped JavaScript from the start and did not cover the
     formatters; the drift class it exists for is not limited to the numbers."""
-    from runcoach.tools import _hm
+    from runspector.tools import _hm
 
     # Every boundary case plus the ones measured to disagree.
     values = [0, 45, 59, 60, 90, 3570, 3599, 3600, 21030, 25110, 25170, 25230, 27240]
@@ -228,10 +228,10 @@ def test_the_two_duration_formatters_round_the_same_way():
 def test_both_languages_agree_on_whether_the_store_is_empty(tmp_path, monkeypatch, today,
                                                             label, days, runs):
     from conftest import make_activity, make_day
-    from runcoach.store import Store
-    from runcoach.web import server
+    from runspector.store import Store
+    from runspector.web import server
 
-    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path))
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path))
     store = Store(tmp_path / f"{label.replace(' ', '-')}.db")
     for i in range(days):
         store.upsert_daily(make_day(today - timedelta_days(i)))
@@ -278,9 +278,9 @@ def test_every_surface_offers_exactly_the_session_kinds_the_planner_builds():
     The JavaScript is read by EXECUTING it, not by parsing a regex out of the
     source - the form's validator is the thing that decides, so the test asks
     it, kind by kind."""
-    from runcoach import planning
-    from runcoach.mcp_server import Kind
-    from runcoach.web.server import _CTX_RULES
+    from runspector import planning
+    from runspector.mcp_server import Kind
+    from runspector.web.server import _CTX_RULES
 
     kinds = set(planning.KINDS)
     assert set(Kind.__args__) == kinds, "the MCP tool offers a different set"
@@ -306,7 +306,7 @@ def test_every_surface_offers_exactly_the_session_kinds_the_planner_builds():
 def test_the_form_and_the_server_agree_on_what_a_route_length_looks_like():
     """A value the browser accepts and the server rejects is a 400 the athlete
     cannot act on; the other way round is a gate that is not one."""
-    from runcoach.web.server import _CTX_RULES
+    from runspector.web.server import _CTX_RULES
 
     rule = _CTX_RULES["distance_km"]
     samples = ["10", "10.5", "1", "60", "0.5", "100", "10.55", "ten", "", "1e3", " 10"]
@@ -331,7 +331,7 @@ def test_the_week_editors_preview_is_the_planners_reading():
     run over the same grid here instead of trusted to agree."""
     from itertools import combinations
 
-    from runcoach import habits, planning
+    from runspector import habits, planning
 
     hists = [habits.Habits(days_per_week=d, long_run_day=lr, preferred=pref, weeks=8,
                            evidence={"days": "e", "long": "e", "preferred": "e"})

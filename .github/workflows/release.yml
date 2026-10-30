@@ -54,7 +54,7 @@ jobs:
           import os, re, tomllib
           tag = os.environ["TAG"].removeprefix("v")
           project = tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]
-          init = re.search(r'__version__ = "([^"]+)"', open("src/runcoach/__init__.py").read())[1]
+          init = re.search(r'__version__ = "([^"]+)"', open("src/runspector/__init__.py").read())[1]
           print(f"tag {tag}, pyproject {project}, __version__ {init}")
           raise SystemExit(0 if tag == project == init else "versions disagree - bump both, re-tag")
           EOF

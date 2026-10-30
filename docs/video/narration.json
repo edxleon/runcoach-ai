@@ -7,7 +7,7 @@
  {
   "id": "answer",
   "say": "Run coach does. One tap, and Claude reads your numbers, and gives you a straight answer, with the reason behind it.",
-  "show": "runcoach does. One tap, and Claude reads your numbers, and gives you a straight answer, with the reason behind it."
+  "show": "runspector does. One tap, and Claude reads your numbers, and gives you a straight answer, with the reason behind it."
  },
  {
   "id": "today",
@@ -42,6 +42,6 @@
  {
   "id": "close",
   "say": "Run coach. Built by a runner whose V O two max would not move.",
-  "show": "runcoach. Built by a runner whose VO2max would not move."
+  "show": "runspector. Built by a runner whose VO2max would not move."
  }
 ]

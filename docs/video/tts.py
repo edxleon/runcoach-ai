@@ -2,14 +2,14 @@
 <out>/<id>.wav. `scripts/video.py --voice` runs it and normalises the result.
 
 It runs under its OWN interpreter, not the repo's: Kokoro needs `mlx-audio`
-(Apple silicon) and `misaki[en]`, which have no business in runcoach's
-dependencies. Point `RUNCOACH_TTS_PYTHON` at that interpreter.
+(Apple silicon) and `misaki[en]`, which have no business in runspector's
+dependencies. Point `RUNSPECTOR_TTS_PYTHON` at that interpreter.
 
-    $RUNCOACH_TTS_PYTHON docs/video/tts.py docs/video/narration.json <out>
+    $RUNSPECTOR_TTS_PYTHON docs/video/tts.py docs/video/narration.json <out>
 
 Two pitfalls, both measured: espeak-ng cuts its data path at 160 characters,
 so a venv deep in a temp tree needs its data copied somewhere short and named
-in `RUNCOACH_ESPEAK_DATA` (a symlink does not help, the path is resolved); and
+in `RUNSPECTOR_ESPEAK_DATA` (a symlink does not help, the path is resolved); and
 `preshed`/`cymem`/`murmurhash` must be the classic releases
 (3.0.9 / 2.0.8 / 1.0.10) or spaCy's English model fails to load on 3.12.
 """
@@ -23,8 +23,8 @@ from pathlib import Path
 import misaki.espeak  # noqa: F401  (must be imported before the data path is set)
 from misaki.espeak import EspeakWrapper
 
-if os.environ.get("RUNCOACH_ESPEAK_DATA"):
-    EspeakWrapper.set_data_path(os.environ["RUNCOACH_ESPEAK_DATA"])
+if os.environ.get("RUNSPECTOR_ESPEAK_DATA"):
+    EspeakWrapper.set_data_path(os.environ["RUNSPECTOR_ESPEAK_DATA"])
 
 from mlx_audio.tts.generate import generate_audio
 

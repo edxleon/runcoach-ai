@@ -1,7 +1,7 @@
 """The generated eval fixture must stay identical to what the tools emit.
 
 `evals/README.md` claims the cases are written "in the exact text shapes of
-`src/runcoach/tools.py`". That claim was false and nothing could notice: the
+`src/runspector/tools.py`". That claim was false and nothing could notice: the
 fixtures are hand-written, and the shipped `get_training_readiness` had grown a
 decision block and a calendar line that none of them contained — so every case
 was testing the coach against a prompt it never receives.
@@ -66,7 +66,7 @@ def test_no_case_is_built_on_a_label_the_code_cannot_produce():
     passes, which is worse than failing."""
     import re
 
-    from runcoach.logic import run_kind
+    from runspector.logic import run_kind
 
     text = (ROOT / "evals" / "cases.yaml").read_text(encoding="utf-8")
     # `- 2026-06-25 running (Easy): 9.8 km/55m / load 148 TE 2.9/1.8 / 156 bpm`

@@ -1,6 +1,6 @@
 # Evals — regression tests for the coach prompts
 
-`src/runcoach/skills/coach.md` and `zones.md` are the coach. They are prose, but they
+`src/runspector/skills/coach.md` and `zones.md` are the coach. They are prose, but they
 behave like code: one reworded sentence can turn "no second hard session today" into
 "sure, you feel good". So they get regression tests like code does.
 
@@ -19,8 +19,8 @@ the wrong one:
 | The write path, adversarial | a label claiming the athlete already agreed is not consent; the *Plan a session* button does not file the session the day argues against |
 | What comes next | a measurement week's steady block is not traded for a second interval session; a down week is the progression, not detraining; the days after a pause stay easy however good the legs feel; a week held on the load ratio is not raised on request |
 
-Every case prints what the runcoach tools *would* return inline, in the exact text
-shapes of `src/runcoach/tools.py`. The run is tool-free, so what is measured is the
+Every case prints what the runspector tools *would* return inline, in the exact text
+shapes of `src/runspector/tools.py`. The run is tool-free, so what is measured is the
 prompt, not the plumbing.
 
 Five inputs are not written by hand but rendered from the real tools by
@@ -33,7 +33,7 @@ so the input carries what a hand-built store forgets (today's long run on the
 calendar, the reason the light gives); and when a planner change moves the course
 off that moment, rendering fails instead of the case quietly testing something else.
 
-The coaching reference is **imported** from `runcoach.web.agent.coaching_reference()`,
+The coaching reference is **imported** from `runspector.web.agent.coaching_reference()`,
 not copied, so a reworded framing in the app cannot pass here unnoticed.
 
 ## What this suite does *not* cover
@@ -43,13 +43,13 @@ naming:
 
 | Not covered | Why it matters |
 |---|---|
-| `src/runcoach/templates.json` | the per-button task text (*Analyze this run*, *Review my week*) is rendered by the server and does not enter an eval run — with ONE exception: `plan-button-does-not-file-against-a-red-day` pastes the *Plan a session* text in as its input, because that is the prompt that can put a hard session in front of a one-tap write button |
+| `src/runspector/templates.json` | the per-button task text (*Analyze this run*, *Review my week*) is rendered by the server and does not enter an eval run — with ONE exception: `plan-button-does-not-file-against-a-red-day` pastes the *Plan a session* text in as its input, because that is the prompt that can put a hard session in front of a one-tap write button |
 | the JSON-card frame in `web/agent.py` | card contract, length caps and the nonce-framed data blocks are checked by `tests/test_web.py` against a stubbed CLI, not by a model |
 | the MCP round trip | cases paste tool output inline; nothing here proves the agent *calls* the right tool |
 
 Two more honest caveats: the suite runs `claude --safe-mode`, which **production cannot
 use** (the app needs its MCP server, and `--safe-mode` would drop it), and it runs
-whatever `defaults.model` says — not necessarily the model `RUNCOACH_MODEL` picks in the
+whatever `defaults.model` says — not necessarily the model `RUNSPECTOR_MODEL` picks in the
 app. A green suite therefore says "these two skill files behave on this model", not
 "the shipped coach behaves".
 
