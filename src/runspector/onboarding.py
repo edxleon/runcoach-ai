@@ -131,8 +131,9 @@ def claude_status(*, fresh: bool = False) -> str:
 
 
 CLAUDE_LINES = {
-    "missing": "not installed - coach cards need Claude Code: https://claude.com/claude-code "
-               "(install it, then run `claude auth login` once)",
+    "missing": "not installed - coach cards need Claude Code and a paid Claude plan (or an API "
+               "account): https://claude.com/claude-code, then `claude auth login` once. Step by step: "
+               "https://github.com/edxleon/runspector#connecting-claude",
     "subscription": "signed in with your Claude subscription - coach cards run on it, "
                     "nothing to set up in runspector",
     # Measured in the cards' own environment, so this is what they will run on:
@@ -186,7 +187,7 @@ def first_start(*, interactive: bool, ask: Callable[[str], str] = input,
     if paths.garmin_session_present():
         say("  Garmin   signed in")
     elif page_signin:
-        say("  Garmin   not signed in - sign in on the page that opens now: Setup → Sign in to Garmin\n"
+        say("  Garmin   not signed in - sign in on the page: Setup → Sign in to Garmin\n"
             "           (or `runspector login` in any terminal; the first sync starts right after)")
     else:
         say("  Garmin   not signed in - runspector reads your data with your own Garmin session")

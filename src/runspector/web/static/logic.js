@@ -141,7 +141,7 @@ export function setupSteps(s, { signInHere = false } = {}) {
   const claudeText = {
     subscription: "signed in with your Claude subscription - coach cards run on it.",
     unknown: "Claude Code is installed (its sign-in could not be read - <code>claude auth status</code> shows it).",
-    missing: "for the coach cards. Install Claude Code (<a href=\"https://claude.com/claude-code\" target=\"_blank\" rel=\"noopener\">claude.com/claude-code</a>), then in a terminal: <code>claude auth login</code> and sign in with your Claude plan. That is the whole connection: no API key, nothing to enter here. Reload this page afterwards.",
+    missing: "for the coach cards - everything else here works without it. They run on Claude Code, which needs a paid Claude plan (Pro, Max, Team or Enterprise) or an Anthropic API account. Install it (<a href=\"https://claude.com/claude-code\" target=\"_blank\" rel=\"noopener\">claude.com/claude-code</a>), then in a terminal: <code>claude auth login</code> and sign in with your Claude account. That is the whole connection: no API key, nothing to enter here. Reload this page afterwards. Step by step, and the way through Claude Desktop: <a href=\"https://github.com/edxleon/runspector#connecting-claude\" target=\"_blank\" rel=\"noopener\">Connecting Claude</a>.",
     signed_out: "Claude Code is installed but not signed in. In a terminal: <code>claude auth login</code>, sign in with your Claude plan, then reload this page.",
     // The server measures the sign-in in the cards' own environment, so `other`
     // is what the cards will run on - and be billed on - either way.

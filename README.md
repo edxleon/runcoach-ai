@@ -81,15 +81,10 @@ runspector serve        # first start: checks Garmin and Claude, opens http://12
                         # session token is stored) - and syncs the last 30 days in the background
 ```
 
-**Claude is not connected inside runspector.** Coach cards run on the
-[Claude Code](https://claude.com/claude-code) CLI on your machine, with your own sign-in - a Claude plan is
-enough: install it and run `claude auth login` once. `runspector serve` checks that at start (and offers the login when
-it is missing), the Coach tab says what is missing, and no API key is needed. A key or a cloud provider set up in
-Claude Code itself is used by the cards too, and billed there; one only exported in the environment
-is stripped unless you set `RUNSPECTOR_ALLOW_API_KEY=1`. Garmin can be
-signed into from the page itself (Setup → *Sign in to Garmin*, or *Sign in again* when the session has
-expired) - e-mail, password and Garmin's code if your account uses one, and the sync starts right after.
-`runspector login` does the same from any terminal, and a running app picks it up on ↻ - no restart.
+**Garmin** is signed into on the page itself (Setup → *Sign in to Garmin*, or *Sign in again* when the
+session has expired): e-mail, password and Garmin's code if your account uses one, and the sync starts
+right after. `runspector login` does the same from any terminal, and a running app picks it up on ↻ - no
+restart. **Claude** is only needed for the coach cards: see [Connecting Claude](#connecting-claude).
 
 `runspector doctor` tells you what is missing — it checks the Garmin session by actually
 using it, and reports the data age, because a token that quietly expired is how this kind of app dies.
@@ -128,6 +123,70 @@ uv tool uninstall runspector   # removes the program only - delete ~/.runspector
 `uv tool install runspector` takes the latest release from PyPI (`runspector==0.5.1` pins one; `pipx install runspector`
 and `pipx upgrade runspector` do the same without uv);
 `uv tool install git+https://github.com/edxleon/runspector` takes whatever is on `main`.
+
+## Connecting Claude
+
+runspector does not connect to Claude itself and never asks for a Claude password or key. The coach runs on
+Claude software you sign into with your own account, through Anthropic's own sign-in.
+
+| What you want | What you need |
+|---|---|
+| Today's verdict and its reasons, your runs, the trends, the sync | nothing from Claude |
+| The coach cards in the web app (*Ask the coach*, *Should I train today?*, *Analyze this run*, *Review my week*) and the sessions they put on your watch | **Claude Code** on this computer, signed in |
+| Coaching in a chat instead, sessions on your watch included | **Claude Desktop** or Claude Code, with runspector added as an MCP server |
+
+**What "a Claude plan" means.** Claude Code needs a paid Claude subscription from
+[claude.com/pricing](https://claude.com/pricing) - **Pro, Max, Team or Enterprise** - or an Anthropic
+Console (API) account, which is billed per use. The free Claude plan does not include Claude Code. On a
+plan, the coach cards count against that plan's usage like any other Claude Code use: there is no key to
+create and no bill per card. runspector itself is free.
+
+### With Claude Code (needed for the coach cards)
+
+Claude Code is Anthropic's command-line tool. You only install it and sign in once; runspector starts it
+in the background for each card.
+
+```bash
+# 1. install - macOS / Linux (Windows PowerShell: irm https://claude.ai/install.ps1 | iex)
+curl -fsSL https://claude.ai/install.sh | bash        # or: brew install --cask claude-code
+
+# 2. sign in - opens your browser, sign in with your Claude account
+claude auth login
+
+# 3. check
+runspector doctor        # "Claude: signed in with your Claude subscription"
+```
+
+More install options (WinGet, npm, Linux packages): [Claude Code setup](https://code.claude.com/docs/en/setup).
+If Claude Code was missing when you started `runspector serve`, reload the page afterwards - no restart.
+
+If your Claude Code is signed in with a Console API key or a cloud provider (Bedrock, Vertex) instead of a
+plan, the cards run on that and are billed there; the setup check says so. An `ANTHROPIC_API_KEY` that is
+only exported in your shell, for other work, is removed from the card runs unless you set
+`RUNSPECTOR_ALLOW_API_KEY=1`.
+
+### With Claude Desktop only (no command-line tool for Claude)
+
+If you use the Claude desktop app ([claude.ai/download](https://claude.ai/download)), you can coach in its
+chat without Claude Code:
+
+1. Install runspector and sign in to Garmin once (`runspector login`, or the page of `runspector serve`).
+2. In Claude Desktop: the **Claude** menu → **Settings…** → **Developer** → **Edit Config**, and add:
+   ```json
+   { "mcpServers": { "runspector": { "command": "runspector", "args": ["mcp"] } } }
+   ```
+   (the file is `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS,
+   `%APPDATA%\Claude\claude_desktop_config.json` on Windows; keep any servers already in it).
+3. Quit and restart Claude Desktop, then ask: *"should I train today?"*
+
+If the server does not show up, Claude Desktop may not find the command: put the full path from
+`which runspector` (Windows: `where runspector`) into `"command"`. The web app's coach cards still need
+Claude Code; in Desktop the same coaching happens in the chat.
+
+### Without Claude
+
+The readiness verdict and its reasons, the runs, the trends and the sync all work. What needs Claude is
+everything the coach writes: the cards, and the sessions it proposes for your watch.
 
 ## Questions people ask
 

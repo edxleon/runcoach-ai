@@ -412,7 +412,7 @@ const coachUnavailable = () => D().claude_available === false || D().claude_stat
    own login, so the step is always in a terminal, never in this app. */
 const claudeHint = () => D().claude_status === "signed_out"
   ? "Claude Code is installed but not signed in: run <code>claude auth login</code> once (your Claude subscription), then reload."
-  : "Coach cards run on your Claude subscription through Claude Code: install it from claude.com/claude-code, run <code>claude auth login</code> once, then reload.";
+  : "Coach cards run on Claude Code with a paid Claude plan (Pro, Max, Team or Enterprise): install it from claude.com/claude-code, run <code>claude auth login</code> once, then reload. Step by step: <a href=\"https://github.com/edxleon/runspector#connecting-claude\" target=\"_blank\" rel=\"noopener\">Connecting Claude</a>.";
 
 /* Both predicates live in `logic.js` so web-tests can reach them; these are
    the page's shorthand for "against the current payload". */

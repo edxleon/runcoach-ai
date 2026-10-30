@@ -25,8 +25,10 @@ runspector serve              # the real thing: opens http://127.0.0.1:8765, sig
 ```
 
 Coach cards run on [Claude Code](https://claude.com/claude-code) on your machine, with your own
-Claude sign-in: install it and run `claude auth login` once. A Claude plan is enough; no API key
-is needed. Everything except the coach cards works without Claude.
+Claude sign-in: install it and run `claude auth login` once. It needs a paid Claude plan (Pro, Max,
+Team or Enterprise) or an Anthropic API account; no API key is needed on a plan. Without Claude Code,
+coach in the Claude Desktop chat instead (below). Everything except the coach works without Claude.
+Step by step: [Connecting Claude](https://github.com/edxleon/runspector#connecting-claude).
 
 ## In Claude Code or Claude Desktop
 
