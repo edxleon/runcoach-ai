@@ -40,7 +40,9 @@ def db_path() -> Path:
 # Until v0.5.0 this app was runcoach-ai: data in `~/.runcoach`, the database
 # `runcoach.db`, the variables `RUNCOACH_*`. A new version that silently
 # ignored them would start on an empty directory, which looks exactly like
-# lost data. Everything here goes in v0.6.
+# lost data. v0.5 read the old variables with a warning; since v0.6 they are
+# only NAMED, never read. The data move stays: someone coming from v0.4
+# straight to a later version still finds their data.
 
 LEGACY_ENV_PREFIX = "RUNCOACH_"
 LEGACY_HOME = ".runcoach"
@@ -55,18 +57,14 @@ DB_SIDECARS = ("", "-wal", "-shm", "-journal")
 LEGACY_PLUMBING = ("RUNCOACH_DB", "RUNCOACH_UNATTENDED")
 
 
-def adopt_legacy_env() -> list[str]:
-    """Read every `RUNCOACH_X` as `RUNSPECTOR_X` unless that one is set itself -
-    "set" as `home()` reads it: present and not empty. Returns the old names it
-    took over, for one warning."""
-    taken = []
-    for name in sorted(os.environ):
-        if name.startswith(LEGACY_ENV_PREFIX) and name not in LEGACY_PLUMBING:
-            new = "RUNSPECTOR_" + name.removeprefix(LEGACY_ENV_PREFIX)
-            if not os.environ.get(new):
-                os.environ[new] = os.environ[name]
-                taken.append(name)
-    return taken
+def legacy_env_left() -> list[str]:
+    """The `RUNCOACH_X` variables still set (present and not empty, as `home()`
+    reads a variable) - no longer read since v0.6, so every start names them
+    with the new name to use. The app's own v0.4 plumbing is not the athlete's
+    and is not named."""
+    return [name for name in sorted(os.environ)
+            if name.startswith(LEGACY_ENV_PREFIX) and name not in LEGACY_PLUMBING
+            and os.environ.get(name)]
 
 
 def legacy_home() -> Path:

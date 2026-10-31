@@ -93,7 +93,6 @@ def test_an_empty_old_home_variable_means_the_default_as_it_did(user_home, monke
     env file or a launchd entry may well carry it."""
     old = _old_install(user_home)
     monkeypatch.setenv("RUNCOACH_HOME", "")
-    paths.adopt_legacy_env()
 
     moved, refused = paths.migrate_legacy_home()
 
@@ -226,27 +225,6 @@ def test_a_home_of_its_own_gets_the_database_renamed(tmp_path, monkeypatch):
     assert not (custom / "runcoach.db-wal").exists()
 
 
-def test_the_apps_own_plumbing_is_not_taken_over(monkeypatch):
-    """RUNCOACH_DB and RUNCOACH_UNATTENDED were set by v0.4 for its own card
-    runs, not by the athlete. Taken over, a leftover RUNCOACH_DB would aim the
-    MCP server at a database the move has renamed."""
-    monkeypatch.setenv("RUNCOACH_DB", "/somewhere/runcoach.db")
-    monkeypatch.setenv("RUNCOACH_UNATTENDED", "1")
-    monkeypatch.delenv("RUNSPECTOR_UNATTENDED", raising=False)
-
-    assert paths.adopt_legacy_env() == []
-    assert "RUNSPECTOR_DB" not in os.environ and "RUNSPECTOR_UNATTENDED" not in os.environ
-
-
-def test_an_empty_new_variable_does_not_shadow_the_old_one(monkeypatch):
-    """`RUNSPECTOR_HOME=` is unset for `home()`; it must be for the takeover too."""
-    monkeypatch.setenv("RUNCOACH_HOME", "/data/rc")
-    monkeypatch.setenv("RUNSPECTOR_HOME", "")
-
-    assert paths.adopt_legacy_env() == ["RUNCOACH_HOME"]
-    assert os.environ["RUNSPECTOR_HOME"] == "/data/rc"
-
-
 def test_a_refusal_names_the_way_out_when_no_server_runs(user_home):
     """A lock whose pid was recycled to an unrelated process looks held; the
     message must still say what to do when no old server is running."""
@@ -258,19 +236,52 @@ def test_a_refusal_names_the_way_out_when_no_server_runs(user_home):
     assert "if none runs, delete" in refused.lower()
 
 
-def test_old_variables_are_read_until_they_are_renamed(monkeypatch):
-    monkeypatch.setenv("RUNCOACH_MODEL", "opus")
-    monkeypatch.setenv("RUNCOACH_TZ", "America/New_York")    # RUNSPECTOR_TZ is set
-    monkeypatch.setenv("RUNSPECTOR_MODEL", "placeholder")    # registered for the undo
-    monkeypatch.delenv("RUNSPECTOR_MODEL")
-
-    assert paths.adopt_legacy_env() == ["RUNCOACH_MODEL"]
-    assert os.environ["RUNSPECTOR_MODEL"] == "opus"
-    assert os.environ["RUNSPECTOR_TZ"] == "Europe/Berlin", "a new name set itself wins"
-
-
 def test_doctor_names_the_old_program_while_it_is_installed(capsys, monkeypatch):
     monkeypatch.setattr(paths, "legacy_program", lambda: "/usr/local/bin/runcoach")
 
     cli.main(["doctor", "--offline"])
     assert "runcoach-ai is still installed" in capsys.readouterr().out
+
+
+# ── v0.6: the old variable names are no longer read ──────────────────────────
+
+def test_old_variables_are_no_longer_read_and_the_start_says_so(capsys, monkeypatch):
+    """v0.5 read every RUNCOACH_X as RUNSPECTOR_X, with a warning that this
+    ends in v0.6. It ends: the old name is not read, and every start names it
+    with the new one to use."""
+    monkeypatch.setenv("RUNCOACH_MODEL", "opus")
+    monkeypatch.delenv("RUNSPECTOR_MODEL", raising=False)
+
+    cli.main(["doctor", "--offline"])
+
+    assert "RUNSPECTOR_MODEL" not in os.environ
+    err = capsys.readouterr().err
+    assert "RUNCOACH_MODEL is no longer read" in err and "RUNSPECTOR_MODEL" in err
+
+
+def test_an_old_data_folder_variable_stops_the_start_instead_of_an_empty_app(capsys, monkeypatch,
+                                                                            tmp_path):
+    """Ignored in silence, `RUNCOACH_HOME=/data/rc` would start the app on an
+    empty ~/.runspector - which looks exactly like lost data. It stops with
+    the rename to make, until the athlete says which folder they mean."""
+    monkeypatch.setenv("RUNCOACH_HOME", str(tmp_path / "rc"))
+    monkeypatch.delenv("RUNSPECTOR_HOME", raising=False)
+
+    assert cli.main(["doctor", "--offline"]) == 2
+    err = capsys.readouterr().err
+    assert "RUNCOACH_HOME" in err and "RUNSPECTOR_HOME" in err
+
+    # With the new name set the old one is only named, and the start goes on.
+    monkeypatch.setenv("RUNSPECTOR_HOME", str(tmp_path / "rs"))
+    cli.main(["doctor", "--offline"])
+    err = capsys.readouterr().err
+    assert "RUNCOACH_HOME is no longer read" in err and "Not starting" not in err
+
+
+def test_the_apps_own_old_plumbing_and_empty_old_names_are_not_mentioned(capsys, monkeypatch):
+    """RUNCOACH_DB and RUNCOACH_UNATTENDED were set by v0.4 for its own card
+    runs, not by the athlete; an empty variable is not set."""
+    monkeypatch.setenv("RUNCOACH_DB", "/somewhere/runcoach.db")
+    monkeypatch.setenv("RUNCOACH_UNATTENDED", "1")
+    monkeypatch.setenv("RUNCOACH_HOME", "")
+    assert paths.legacy_env_left() == []

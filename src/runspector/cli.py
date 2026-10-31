@@ -343,9 +343,7 @@ def cmd_doctor(args) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     _utf8()
-    # Before anything reads a variable: `RUNCOACH_LOG` set for v0.4 must still
-    # configure the logging two lines down.
-    taken = paths.adopt_legacy_env()
+    left = paths.legacy_env_left()
     # `.upper()` because `RUNSPECTOR_LOG=debug` is the natural spelling and used to
     # kill every subcommand with a raw `ValueError: Unknown level: 'debug'`.
     logging.basicConfig(level=(os.environ.get("RUNSPECTOR_LOG") or "WARNING").upper(),
@@ -402,9 +400,16 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(fn=cmd_doctor)
 
     args = ap.parse_args(argv)
-    if taken:
-        print(f"note: {', '.join(taken)} - read as RUNSPECTOR_* for now; rename them, "
-              f"the old names stop working in v0.6", file=sys.stderr)
+    for name in left:
+        print(f"note: {name} is no longer read (since v0.6) - rename it to "
+              f"RUNSPECTOR_{name.removeprefix(paths.LEGACY_ENV_PREFIX)}", file=sys.stderr)
+    # The one old name that would not just be a lost setting: ignored, it starts
+    # the app on an empty ~/.runspector, which looks exactly like lost data.
+    if "RUNCOACH_HOME" in left and not os.environ.get("RUNSPECTOR_HOME"):
+        print(f"Not starting: RUNCOACH_HOME={os.environ['RUNCOACH_HOME']} names your data folder, "
+              f"and it is no longer read. Rename it to RUNSPECTOR_HOME (or unset it to use "
+              f"~/.runspector).", file=sys.stderr)
+        return 2
     # Every subcommand, `mcp` included: a Claude Code config that starts the
     # server is often the first thing to run after the upgrade.
     moved, refused = paths.migrate_legacy_home()

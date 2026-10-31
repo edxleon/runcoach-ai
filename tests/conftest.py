@@ -40,8 +40,8 @@ def _isolated_env(tmp_path, monkeypatch):
                  "RUNSPECTOR_GARMIN_TOKENS", "RUNSPECTOR_DEMO", "RUNSPECTOR_TOKEN",
                  "RUNSPECTOR_CLAUDE_CMD", "RUNSPECTOR_MODEL", "RUNSPECTOR_LOG"):
         monkeypatch.delenv(name, raising=False)
-    # `cli.main` reads every `RUNCOACH_X` as `RUNSPECTOR_X`: an old variable in
-    # the developer's shell (`RUNCOACH_DB`, say) would point a test at real data.
+    # `cli.main` names every old `RUNCOACH_X` and stops on RUNCOACH_HOME: one in
+    # the developer's shell would change what a test prints or whether it runs.
     for name in [n for n in os.environ if n.startswith(paths.LEGACY_ENV_PREFIX)]:
         monkeypatch.delenv(name)
     # The developer's own Claude billing setup: an exported ANTHROPIC_API_KEY
