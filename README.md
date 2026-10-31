@@ -56,7 +56,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-1147 tests, 90 frontend tests and that gate on three operating systems and two Python versions, with every
+1148 tests, 90 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -475,6 +475,9 @@ npx --yes @biomejs/biome@2.5.15 lint --error-on-warnings   # frontend lint (biom
 uv run python evals/run_evals.py   # prompt regression (uses your Claude subscription)
 uv run python scripts/pii_gate.py  # release gate
 ```
+
+[CONTRIBUTING.md](CONTRIBUTING.md) says what a change pulls along, and which changes get a deep review
+before the commit - with Claude Code that is the `/deep-review` skill in `.claude/skills/`.
 
 ## Status & roadmap
 

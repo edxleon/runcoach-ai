@@ -32,10 +32,13 @@ number to lower. A Biome version bump changes `ci.yml`, the hook, this line and 
 
 ## Deep review before the commit
 
-The write path and the agent's fence get a deep review (`/iter` from personal-ai) before they are
-committed, not after: `plan.py` (apply, undo, claims), `garmin.py` write calls, `web/agent.py`
-(allowlist, `--disallowedTools`), `mcp_server.py` tool set, `.github/workflows/**`. A write against
-a real Garmin account only after the maintainer's explicit yes, with `undo_workout` as the way back.
+The write path and the agent's fence get a deep review (`/deep-review`, the skill in
+`.claude/skills/deep-review/`) before they are committed, not after: `plan.py` (apply, undo,
+claims), `garmin.py` write calls, `web/agent.py` (allowlist, `--disallowedTools`), `mcp_server.py`
+tool set, `.github/workflows/**`, a migration - and any change over ~1,000 lines. Fresh reviewers,
+every important finding proven by a red test, a live run on throw-away data, a fresh reader last.
+A write against a real Garmin account only after the maintainer's explicit yes, with
+`undo_workout` as the way back.
 
 ## Release
 

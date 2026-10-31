@@ -227,3 +227,12 @@ def test_a_linked_worktrees_git_file_is_not_content(tree):
     (tree / ".git").write_text("gitdir: /Users/someone/repo/.git/worktrees/x\n", encoding="utf-8")
     rc, out = run_gate(tree)
     assert rc == 0, out
+
+
+def test_the_authors_private_setup_is_a_leak(tree):
+    """A public repo whose docs send a contributor to a tool only its author
+    has is a leak of the author's setup and a dead end for everyone else."""
+    private = "personal" + "-ai"              # not spelled out, so this file holds no leak itself
+    (tree / "CLAUDE.md").write_text(f"Review with the skill from {private} first.", encoding="utf-8")
+    rc, out = run_gate(tree)
+    assert rc == 1 and "private setup" in out

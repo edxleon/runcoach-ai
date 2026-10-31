@@ -6,7 +6,7 @@ import { setupSteps, signInHere } from "../src/runspector/web/static/logic.js";
 
 test("sign-in: offered on this computer only - the server refuses a password from elsewhere", () => {
   for (const h of ["127.0.0.1", "localhost", "LOCALHOST", "[::1]", "::1"]) assert.equal(signInHere(h), true, h);
-  for (const h of ["192.168.1.20", "kubik.local", "", undefined, "127.0.0.1.evil.example"]) {
+  for (const h of ["192.168.1.20", "mybox.local", "", undefined, "127.0.0.1.evil.example"]) {
     assert.equal(signInHere(h), false, String(h));
   }
 });

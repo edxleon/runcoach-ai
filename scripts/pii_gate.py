@@ -59,6 +59,9 @@ PATTERNS = {
     "IBAN": re.compile(r"\b[A-Z]{2}\d{2}(?: ?\d{4}){3,}"),
     "long numeric id (chat/user id?)": re.compile(r"(?<![\d.])-?\d{9,12}(?![\d.])"),
     "German leftover": re.compile(r"[äöüÄÖÜß]"),
+    # The author's own tooling, which no contributor has: a step that sends
+    # them there is a dead end, and it publishes how the author works.
+    "private setup (the author's own tooling)": re.compile(r"personal[-_ ]ai", re.I),
 }
 # Long numbers that are legitimately part of the project (synthetic demo ids).
 ALLOWED_NUMBERS = re.compile(r"9[_]?000[_]?000[_]?\d{3}|1234567890")
