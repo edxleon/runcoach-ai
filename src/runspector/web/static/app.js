@@ -21,7 +21,7 @@ import {
 } from "./ui.js";
 import { mountApp } from "./chassis.js";
 import {
-  addDays, axisX, bandSplit, barLabel, barScale, carryForward, chartPoints, chartScale, dataAge as ageOf, groupRunsByWeek, hardSessionToday as hardSessionOf, hasNoData, lastHardLabel, setupSteps, signInHere, coachReassurance as reassuranceFor, intensityHits, intensitySeries, isFirstRun, showSyncFailure, isRunning, isStrength, lightAddendum as lightAddendumOf, loadFocusPhrase, loadFocusRows, monotonyLine, garminReadinessLine, weightLine, syncOnReturn, checkInView, checkInToast, NO_DATE, shortTitle, stepMarks, stepPath, todayIso, volumeAverageKm, volumeComparison, weekdayShort, weekIncomplete, weekLabel, weeksBetween, weekStart, zoneTimeParts,
+  addDays, axisX, bandSplit, barLabel, barScale, carryForward, chartPoints, chartScale, dataAge as ageOf, groupRunsByWeek, hardSessionToday as hardSessionOf, hasNoData, lastHardLabel, setupSteps, signInHere, coachReassurance as reassuranceFor, intensityHits, intensitySeries, isFirstRun, showSyncFailure, isRunning, isStrength, lightAddendum as lightAddendumOf, loadFocusPhrase, loadFocusRows, monotonyLine, garminReadinessLine, weightLine, syncOnReturn, checkInView, checkInToast, decidedByWord, heldLabel, NO_DATE, shortTitle, stepMarks, stepPath, todayIso, volumeAverageKm, volumeComparison, weekdayShort, weekIncomplete, weekLabel, weeksBetween, weekStart, zoneTimeParts,
 } from "./logic.js";
 import { mountCards, mountJobs, jobPoller, todayCard, handle409,
          setCardContext } from "./cards.js";
@@ -78,7 +78,13 @@ function renderVerdict() {
   // Shown the other way round, a big green "Go" sat above "Easy today - the
   // last hard session was yesterday": whoever read only the big word ran hard.
   const call = DECISION[(D().decision_today || {}).decision];
-  const head = call ? { ...call, sub: `today's call · recovery light: ${v.word}` } : v;
+  // When the athlete's own word decided (ill, pain, sore, stressed), it leads:
+  // the call, then what they said, then the watch as context. Shown the other
+  // way round, "Rest" sat above "Recovery in the green" and Garmin's "77 (high)",
+  // and the reason came third.
+  const byWord = decidedByWord(D().decision_today);
+  const head = call ? { ...call, sub: byWord ? `today's call · from what you said · recovery light: ${v.word}`
+                                             : `today's call · recovery light: ${v.word}` } : v;
   const age = dataAge();
   const old = age && age.days >= 1;
   const goal = (D().profile || {}).goal;
@@ -124,11 +130,14 @@ function renderVerdict() {
       <span class="verdict-word ${head.cls}">${esc(head.word)}</span>
       <span class="verdict-sub">${esc(head.sub)}</span>
     </div>
+    ${byWord ? `${decisionHtml()}
+    ${checkInHtml()}
+    <div class="note">The watch: ${esc((t.reasons || []).join(" · ") || "no reasons in the data")}</div>` : `
     ${reasons ? `<ul class="reasons">${reasons}</ul>`
               : `<div class="empty-note">No reasons in the data.</div>`}
     ${garminReadinessLine(t.signals) ? `<div class="note">${esc(garminReadinessLine(t.signals))}</div>` : ""}
     ${decisionHtml()}
-    ${checkInHtml()}
+    ${checkInHtml()}`}
     ${todayCardHtml()}
     ${vo2LineHtml()}
     ${goal ? `<div class="goal-line">Goal: ${esc(String(goal))}</div>` : ""}`;
@@ -156,7 +165,8 @@ function decisionHtml() {
   // "reached" nor "missed".
   const running = (D().weeks || []).some(
     x => x.week_start === w.week_start && (x.partial || x.week_start === weekStart(appToday())));
-  const standing = w.target_min > 0
+  // On a day the athlete's word decided, the week's minutes are beside the point.
+  const standing = w.target_min > 0 && !decidedByWord(e)
     ? (running
         ? ` (this week so far ${w.hard_min ?? 0} min above easy)`
         : ` (this week ${w.hard_min ?? 0} min above easy, ${w.target_min} would be the share)`)
@@ -172,27 +182,30 @@ function decisionHtml() {
 /* The athlete's own word: ill, pain, sore legs, stressed. The watch sees a
    cold only once HRV reacts and never sees a sore calf - a tap here changes
    today's call in code (`logic.check_in_state`), and the call above says so.
-   A button tapped today is a switch: tapped again, or "Said by mistake", it
-   is taken back as if never said - also after "It's over", which on the same
-   day keeps today and ends tomorrow. One said on an earlier day: a tap says it
-   again, "It's over" ends it. Shown also on a day without today's values: the
-   word does not need the watch. */
+   The buttons switch on and off (`logic.js: checkInView`); each state that
+   holds gets a line with when it runs out and plain buttons - Still there,
+   Gone, Undo. Shown also on a day without today's values: the word does not
+   need the watch. */
 function checkInHtml() {
   const v = checkInView(D().check_ins, appToday(), fmtDay);
   const busy = checkInBusy ? " disabled" : "";
   return `<div class="check-in">
     <div class="check-in-head"><span class="k">How are you?</span>
       <div class="seg" role="group" aria-label="How are you?">${v.chips.map(c =>
-        `<button type="button" class="chip" data-check-in="${c.kind}" aria-pressed="${c.pressed}"${
-          c.undoable ? ' data-check-in-toggle=""' : ""}${busy}>${esc(c.label)}</button>`).join("")}</div></div>
-    ${v.lines.map(l => `<div class="goal-line">${esc(l.text)}${l.saidToday ? "" : " · not said today"}
-      ${l.ending ? "" : `<button type="button" class="linkish" data-check-in-over="${l.kind}"${busy}>It's over</button>`}${
-      l.undoable ? `<button type="button" class="linkish" data-check-in-undo="${l.kind}"${busy}>Said by mistake</button>` : ""}</div>`).join("")}
+        `<button type="button" class="chip" data-check-in="${c.kind}" data-check-in-do="${c.action}"
+          aria-pressed="${c.pressed}"${busy}>${esc(c.label)}</button>`).join("")}</div></div>
+    ${v.hint ? `<div class="goal-line">${esc(v.hint)}</div>` : ""}
+    ${v.lines.map(l => `<div class="check-in-line"><span class="goal-line">${esc(l.text)}</span>
+      ${l.actions.length ? `<span class="check-in-acts">${l.actions.map(a =>
+        `<button type="button" class="btn btn-inline" data-check-in="${l.kind}" data-check-in-do="${a}"${busy}>${
+          CHECK_IN_ACT[a]}</button>`).join("")}</span>` : ""}</div>`).join("")}
     ${v.after ? `<div class="goal-line">${esc(v.after)}</div>` : ""}
   </div>`;
 }
 
 let checkInBusy = false;
+/* The line's buttons: still there (said again today), gone, a tap by mistake. */
+const CHECK_IN_ACT = { still: "Still there", over: "Gone", undo: "Undo" };
 
 async function sendCheckIn(kind, how) {
   if (checkInBusy) return;
@@ -948,15 +961,17 @@ function renderWeek() {
     // (planned, past, nothing run), empty.
     const run = ran[0];
     const band = run && BAND_TITLE[run.band] ? run.band : "easy";
+    const held = !run && planned ? heldLabel(planned) : "";
     const cls = run ? ` w-run w-${band}`
               : planned && past ? " w-missed"
+              : held ? " w-held"
               : planned ? " w-planned" : "";
     const content = run
       ? `<span class="w-t">${esc(weekLabel(run.name))}</span>
          ${run.training_load != null ? `<span class="w-s">load ${fmtNum(run.training_load)}</span>` : ""}`
       : planned
         ? `<span class="w-t">${esc(weekLabel(planned.title))}</span>
-           <span class="w-s">${past ? "missed" : "planned"}</span>`
+           <span class="w-s">${past ? "missed" : held || "planned"}</span>`
         : strength.length ? `<span class="w-t muted">Gym</span>` : `<span class="w-t muted">–</span>`;
     const tip = [fmtDay(t.day), run ? shortTitle(run.name) : planned ? shortTitle(planned.title) : ""]
       .filter(Boolean).join(" · ");
@@ -964,12 +979,22 @@ function renderWeek() {
       <span class="w-d">${esc(weekdayShort(t.day))}</span>${content}</div>`;
   }).join("");
   const upcoming = (p.upcoming || []).slice(0, 3).map(d =>
-    `<span>${esc(fmtDay(d.day))} ${esc(shortTitle(d.title))}</span>`).join(" · ");
+    `<span>${esc(fmtDay(d.day))} ${esc(shortTitle(d.title))}${
+      heldLabel(d) ? ` (${esc(heldLabel(d))})` : ""}</span>`).join(" · ");
+  // What holds the plan back, in one line, where the plan is.
+  const said = D().check_ins || {};
+  const anyHeld = days.some(t => (t.planned || []).some(e => e.held))
+    || (p.upcoming || []).some(e => e.held);
+  const heldNote = anyHeld && said.words
+    ? `On hold because ${said.words}${said.hard_from
+        ? ` - hard sessions come back from ${fmtDay(said.hard_from)} at the earliest` : ""}.`
+    : "";
   const nothingPlanned = !days.some(t => (t.planned || []).length) && !(p.upcoming || []).length;
   el.innerHTML = `
     <div class="subhead">This week</div>
     <div class="week-strip">${columns}</div>
     ${upcoming ? `<div class="note" style="margin-top:8px">Coming up: ${upcoming}</div>` : ""}
+    ${heldNote ? `<div class="note">${esc(heldNote)}</div>` : ""}
     ${nothingPlanned ? `<div class="thin-data">Nothing is scheduled on the watch. Workouts
         in the Garmin calendar appear here after the next sync.</div>` : ""}`;
 }
@@ -1587,14 +1612,11 @@ document.addEventListener("input", ev => {
 
 document.addEventListener("click", ev => {
   if (ev.target.closest("button[data-signin]")) { openSignin(); return; }
-  const said = ev.target.closest("button[data-check-in], button[data-check-in-over], "
-    + "button[data-check-in-undo]");
+  const said = ev.target.closest("button[data-check-in]");
   if (said) {
-    const ds = said.dataset;
-    if (ds.checkInOver) sendCheckIn(ds.checkInOver, "over");
-    else if (ds.checkInUndo) sendCheckIn(ds.checkInUndo, "undo");
-    else if ("checkInToggle" in ds) sendCheckIn(ds.checkIn, "undo");
-    else sendCheckIn(ds.checkIn, null);
+    // say / still: it holds (again) today; over: gone; undo: a tap by mistake.
+    const how = said.dataset.checkInDo;
+    sendCheckIn(said.dataset.checkIn, how === "over" || how === "undo" ? how : null);
     return;
   }
   if (ev.target.closest("button[data-signin-cancel]")) { signinDialog().close(); return; }

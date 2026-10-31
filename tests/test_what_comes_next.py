@@ -1144,3 +1144,46 @@ def test_a_check_in_dated_back_into_an_ended_one_can_still_be_ended(store, today
     _green(store, monday + timedelta(days=5))
     assert _decision(store, monday + timedelta(days=5))["decision"] == "easy"
     assert len(store.check_ins(monday + timedelta(days=5))) == 1
+
+
+def test_the_week_strip_says_what_the_athletes_word_holds_back(store, today):
+    """UX review: ill today, and the week strip still showed today's easy run
+    as planned and Thursday's VO2max without a word - the plan and the call
+    disagreed on one screen."""
+    _green(store, today)
+    for wid, name, kind, day in ((4712, "Easy 40", "easy", today),
+                                 (4711, "VO2max 5x4 min", "vo2max", today + timedelta(days=1))):
+        store.record_workout(wid, name=name, kind=kind, spec_json="{}", schedule_id=wid,
+                             scheduled_day=day)
+    store.replace_scheduled_workouts(
+        [ScheduledWorkout(4712, today, workout_id=4712, title="Easy 40", sport="running"),
+         ScheduledWorkout(4711, today + timedelta(days=1), workout_id=4711, title="VO2max 5x4 min",
+                          sport="running"),
+         ScheduledWorkout(77, today + timedelta(days=9), title="Intervals 6x1k", sport="running")],
+        today - timedelta(days=7), today + timedelta(days=14))
+    plan = snapshot.assemble(store, today=today)["plan"]
+    assert all("held" not in e for d in plan["days"] for e in d["planned"])
+    store.say_check_in("ill", today)
+    snap = snapshot.assemble(store, today=today)
+    held = {e["title"]: e.get("held") for d in snap["plan"]["days"] for e in d["planned"]}
+    # Ill today: no run today; over tomorrow at the earliest, so one easy day.
+    assert held == {"Easy 40": "rest", "VO2max 5x4 min": "hold"}, held
+    assert [e.get("held") for e in snap["plan"]["upcoming"]] == [None]
+    assert snap["check_ins"]["hard_from"] == (today + timedelta(days=2)).isoformat()
+    assert snap["check_ins"]["words"] == "you said you are ill"
+
+
+def test_a_session_already_behind_today_is_not_held_back(store, today):
+    """Visual check: a hard session run on Monday was marked "on hold" on
+    Wednesday after an illness - the past is not held by today's word."""
+    store.record_workout(4713, name="VO2max 5x4 min", kind="vo2max", spec_json="{}",
+                         schedule_id=4713, scheduled_day=today - timedelta(days=2))
+    store.replace_scheduled_workouts(
+        [ScheduledWorkout(4713, today - timedelta(days=2), workout_id=4713, title="VO2max 5x4 min",
+                          sport="running")], today - timedelta(days=7), today + timedelta(days=14))
+    store.say_check_in("ill", today - timedelta(days=4))
+    store.say_check_in("ill", today - timedelta(days=2))
+    store.end_check_in("ill", today - timedelta(days=1))
+    _green(store, today)
+    plan = snapshot.assemble(store, today=today)["plan"]
+    assert all("held" not in e for d in plan["days"] for e in d["planned"]), plan["days"]

@@ -250,9 +250,9 @@ export function lightAddendum(decision) {
   // the two would read as a stutter. The verdict word is enough; the full
   // sentence is on the Today tab.
   const word = (DECISION[e.decision] || e.decision || "").toLowerCase();
-  // A day the athlete's own word decided (`logic.decide_today`'s check-in
-  // step) is not the light's call - the light may well be green.
-  if (/^(check-in|after) /.test(String(e.reason || ""))) return ` Today what you said decides: ${esc(word)}.`;
+  // A day the athlete's own word decided is not the light's call - the light
+  // may well be green.
+  if (decidedByWord(e)) return ` Today what you said decides: ${esc(word)}.`;
   return ` Today the readiness light decides: it says ${esc(word)}.`;
 }
 
@@ -491,33 +491,56 @@ export const CHECK_IN_KINDS = ["ill", "pain", "sore", "stressed"];
 const CHECK_IN_LABEL = { ill: "Ill", pain: "Pain", sore: "Sore legs", stressed: "Stressed" };
 
 /** The check-in row under today's call, from the server's `check_ins`
- *  (`logic.check_in_state`): one button per kind, pressed while it holds; a
- *  line for each that holds, with whether it was already said today; and the
- *  easy days after an illness or a pain that ended. `fmtDay` formats an ISO
- *  day for the page. */
+ *  (`logic.check_in_state`).
+ *
+ *  Buttons switch on and off (`action`): off, a tap says it; on and said
+ *  today, a tap takes it back as if never said; on since an earlier day, a tap
+ *  says it is gone. Each state that holds gets a line with when it runs out
+ *  and its actions: `still` (not said today yet), `over` (gone), `undo` (said
+ *  today). `hint` says what a tap does, while nothing is said. `fmtDay`
+ *  formats an ISO day for the page. */
 export function checkInView(state, today, fmtDay) {
   const s = state || {};
   const open = new Map((s.open || []).map(c => [c.kind, c]));
-  // A button tapped today is a switch: a second tap takes it back (`undoable`).
-  // One said on an earlier day is a state with a history; a tap says it again.
-  const chips = CHECK_IN_KINDS.map(kind => ({ kind, label: CHECK_IN_LABEL[kind], pressed: open.has(kind),
-                                              undoable: open.has(kind) && open.get(kind).since === today }));
+  const chips = CHECK_IN_KINDS.map(kind => {
+    const c = open.get(kind);
+    const action = !c ? "say" : c.since === today ? "undo" : "over";
+    return { kind, label: CHECK_IN_LABEL[kind], pressed: !!c, action };
+  });
   const lines = CHECK_IN_KINDS.filter(k => open.has(k)).map(kind => {
     const c = open.get(kind);
     const since = c.since === today ? "since today" : `since ${fmtDay(c.since)}`;
+    if (c.over) {
+      // Said over today after it was said today: today still holds, it ends tomorrow.
+      return { kind, text: `${CHECK_IN_LABEL[kind]} ${since} - over from ${fmtDay(c.over)}`,
+               actions: c.since === today ? ["undo"] : [] };
+    }
     const effect = kind === "ill" || kind === "pain" ? "no run while it holds" : "no hard session while it holds";
-    // Said over today after it was said today: it still holds today and ends
-    // tomorrow - the line says so instead of offering "over" a second time.
-    const ending = !!c.over;
-    return { kind, text: `${CHECK_IN_LABEL[kind]} ${since} - ${ending ? `over from ${fmtDay(c.over)}` : effect}`,
-             saidToday: c.last_said === today, undoable: c.since === today, ending };
+    const actions = [...(c.last_said === today ? [] : ["still"]), "over",
+                     ...(c.since === today ? ["undo"] : [])];
+    return { kind, text: `${CHECK_IN_LABEL[kind]} ${since} - ${effect}, runs out ${fmtDay(c.until)} unless you say it again`,
+             actions };
   });
   const a = s.after;
   const after = a
     ? `${a.kind === "ill" ? "Ill" : "In pain"} for ${a.days} day${a.days === 1 ? "" : "s"}: ` +
       `easy days only, the hard sessions come back on ${fmtDay(a.until)}`
     : "";
-  return { chips, lines, after };
+  const hint = open.size ? "" : "Ill or pain: no run. Sore legs or stressed: nothing hard. Tap again to undo.";
+  return { chips, lines, after, hint };
+}
+
+/** Did the athlete's own word decide today's call (`logic.decide_today`'s
+ *  check-in step: `check-in <kind>` or `after <kind>`)? Then it leads the
+ *  page, and the watch's reasons follow as context. */
+export function decidedByWord(decision) {
+  return /^(check-in|after) /.test(String((decision || {}).reason || ""));
+}
+
+/** What a planned session the athlete's word holds back says in the week
+ *  strip and "Coming up" (`snapshot.mark_held`), or "". */
+export function heldLabel(entry) {
+  return { rest: "not today", hold: "on hold" }[(entry || {}).held] || "";
 }
 
 /** The toast after a check-in button, from the server's `result`
@@ -531,6 +554,7 @@ export function checkInToast(kind, result) {
       (stops ? "; tomorrow is the first day back, and it is easy." : "; tomorrow it is over.");
   }
   if (result === "taken back") return "Taken back - as if never said.";
+  if (result === "said again") return "Noted - still there today.";
   if (result === "none") return "Nothing open to change.";
   return "Noted - today's call goes by it.";
 }

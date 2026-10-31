@@ -670,31 +670,6 @@ test("sync on return: off at 0, and no new attempt within the threshold of a fai
   assert.equal(syncOnReturn(failed, at(151)), true, "a threshold after it, once more");
 });
 
-test("check-in: a button per kind, a line for each that holds, the easy days after", async () => {
-  const { checkInView, CHECK_IN_KINDS } = await import("../src/runspector/web/static/logic.js");
-  const day = iso => `<${iso}>`;
-  const empty = checkInView(null, "2026-06-10", day);
-  assert.deepEqual(empty.chips.map(c => [c.kind, c.pressed]),
-    CHECK_IN_KINDS.map(k => [k, false]));
-  assert.deepEqual(empty.lines, []);
-  assert.equal(empty.after, "");
-  const v = checkInView({
-    open: [{ kind: "sore", since: "2026-06-10", last_said: "2026-06-10" },
-           { kind: "ill", since: "2026-06-08", last_said: "2026-06-09" }],
-    after: null,
-  }, "2026-06-10", day);
-  assert.deepEqual(v.chips.filter(c => c.pressed).map(c => c.kind), ["ill", "sore"]);
-  assert.deepEqual(v.lines, [
-    { kind: "ill", text: "Ill since <2026-06-08> - no run while it holds", saidToday: false,
-      undoable: false, ending: false },
-    { kind: "sore", text: "Sore legs since today - no hard session while it holds", saidToday: true,
-      undoable: true, ending: false },
-  ]);
-  assert.equal(checkInView({ open: [], after: { kind: "pain", days: 1, until: "2026-06-11" } },
-    "2026-06-10", day).after,
-    "In pain for 1 day: easy days only, the hard sessions come back on <2026-06-11>");
-});
-
 test("check-in toast: easy days only after an illness or a pain", async () => {
   const { checkInToast } = await import("../src/runspector/web/static/logic.js");
   assert.match(checkInToast("ill", "over"), /first days back are easy/);
@@ -712,26 +687,54 @@ test("lightAddendum: a day the athlete's word decided is not the light's call", 
   assert.match(lightAddendum({ decision: "rest", reason: "verdict REST" }), /readiness light decides/);
 });
 
-test("check-in: a state said over today shows when it ends, no second 'over'", async () => {
-  const { checkInView } = await import("../src/runspector/web/static/logic.js");
-  const v = checkInView({ open: [{ kind: "ill", since: "2026-06-10", last_said: "2026-06-10",
-                                   over: "2026-06-11" }], after: null }, "2026-06-10", d => `<${d}>`);
-  assert.equal(v.lines[0].text, "Ill since today - over from <2026-06-11>");
-  assert.equal(v.lines[0].ending, true);
+
+test("check-in view: buttons switch on and off, lines name their actions and when they run out", async () => {
+  const { checkInView, CHECK_IN_KINDS } = await import("../src/runspector/web/static/logic.js");
+  const day = iso => `<${iso}>`;
+  const empty = checkInView(null, "2026-06-10", day);
+  assert.deepEqual(empty.chips.map(c => [c.kind, c.pressed, c.action]),
+    CHECK_IN_KINDS.map(k => [k, false, "say"]));
+  assert.deepEqual(empty.lines, []);
+  assert.equal(empty.after, "");
+  // Nothing said: what a tap does, before it is tapped.
+  assert.equal(empty.hint, "Ill or pain: no run. Sore legs or stressed: nothing hard. Tap again to undo.");
+  const v = checkInView({ open: [
+    { kind: "pain", since: "2026-06-08", last_said: "2026-06-09", until: "2026-06-12", over: null },
+    { kind: "sore", since: "2026-06-10", last_said: "2026-06-10", until: "2026-06-12", over: null },
+    { kind: "ill", since: "2026-06-10", last_said: "2026-06-10", until: "2026-06-11", over: "2026-06-11" },
+  ], after: null }, "2026-06-10", day);
+  assert.equal(v.hint, "");
+  const chip = k => v.chips.find(c => c.kind === k);
+  // Said today: a second tap takes it back. Said before today: a tap says it is gone.
+  assert.equal(chip("sore").action, "undo");
+  assert.equal(chip("ill").action, "undo");
+  assert.equal(chip("pain").action, "over");
+  assert.equal(chip("stressed").action, "say");
+  const line = k => v.lines.find(l => l.kind === k);
+  assert.deepEqual(line("pain"), { kind: "pain",
+    text: "Pain since <2026-06-08> - no run while it holds, runs out <2026-06-12> unless you say it again",
+    actions: ["still", "over"] });
+  assert.deepEqual(line("sore"), { kind: "sore",
+    text: "Sore legs since today - no hard session while it holds, runs out <2026-06-12> unless you say it again",
+    actions: ["over", "undo"] });
+  assert.deepEqual(line("ill"), { kind: "ill", text: "Ill since today - over from <2026-06-11>",
+    actions: ["undo"] });
+  assert.equal(checkInView({ open: [], after: { kind: "pain", days: 1, until: "2026-06-11" } },
+    "2026-06-10", day).after,
+    "In pain for 1 day: easy days only, the hard sessions come back on <2026-06-11>");
 });
 
-test("check-in: a button tapped today is a switch - the view says it can be taken back", async () => {
-  const { checkInView } = await import("../src/runspector/web/static/logic.js");
-  const day = d => `<${d}>`;
-  const v = checkInView({ open: [
-    { kind: "ill", since: "2026-06-10", last_said: "2026-06-10", over: "2026-06-11" },
-    { kind: "pain", since: "2026-06-08", last_said: "2026-06-10", over: null },
-  ], after: null }, "2026-06-10", day);
-  const chip = k => v.chips.find(c => c.kind === k);
-  // Tapped today, even after "It's over": a second tap or "Said by mistake" takes it back.
-  assert.equal(chip("ill").undoable, true);
-  assert.equal(v.lines.find(l => l.kind === "ill").undoable, true);
-  // Said on an earlier day: a tap says it again, nothing to take back.
-  assert.equal(chip("pain").undoable, false);
-  assert.equal(chip("sore").undoable, false);
+test("decidedByWord: the call came from what the athlete said, not from the watch", async () => {
+  const { decidedByWord } = await import("../src/runspector/web/static/logic.js");
+  assert.equal(decidedByWord({ decision: "rest", reason: "check-in ill" }), true);
+  assert.equal(decidedByWord({ decision: "easy", reason: "after pain" }), true);
+  assert.equal(decidedByWord({ decision: "rest", reason: "verdict REST" }), false);
+  assert.equal(decidedByWord(null), false);
+});
+
+test("heldLabel: a planned session the athlete's word holds back says so", async () => {
+  const { heldLabel } = await import("../src/runspector/web/static/logic.js");
+  assert.equal(heldLabel({ held: "rest" }), "not today");
+  assert.equal(heldLabel({ held: "hold" }), "on hold");
+  assert.equal(heldLabel({}), "");
 });

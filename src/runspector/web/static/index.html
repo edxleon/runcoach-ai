@@ -40,7 +40,11 @@
 .check-in-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .check-in-head .k { font-size: 12px; color: var(--muted); }
 .check-in .seg .chip { padding: 6px 12px; }
-.check-in .linkish { margin-left: 6px; }
+/* One line per state: what holds, and its actions as real buttons - text
+   links of 12 px were too small to hit on a phone. */
+.check-in-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.check-in-acts { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.check-in-acts .btn-inline { margin: 0; min-height: 32px; }
 .about { text-align: center; opacity: .7; }
 
 /* ── Bars (sleep phases, intensity bands) ──
@@ -120,6 +124,8 @@
 .w-hard     { background: color-mix(in srgb, var(--band-hard) 18%, var(--surface)); }
 .w-planned { background: var(--surface); border-style: solid; border-color: var(--accent); }
 .w-missed { background: var(--surface); border-style: dashed; color: var(--muted); }
+/* Planned, but held back by what the athlete said (ill, pain ...). */
+.w-held { background: var(--surface); border-style: dashed; border-color: var(--warn); color: var(--muted); }
 .w-today { box-shadow: 0 0 0 2px var(--accent); }
 /* Minutes above easy: bars below the target line subdued, the line dashed.
    ONE bar, TWO numbers: the pale body is everything above the easy zones

@@ -396,6 +396,29 @@ def build_plan(scheduled: list[dict], runs: list[dict], today: date) -> dict:
             "upcoming": sorted(upcoming, key=lambda x: x["day"])[:6]}
 
 
+def mark_held(plan: dict, said: dict | None, today: date, own_kinds: dict) -> None:
+    """In place: each planned entry the athlete's word holds back gets `held` -
+    `rest` (no run today while ill or in pain) or `hold` (a hard session before
+    the earliest day one may come back), from `logic.check_in_blocks`, the gate
+    the planners ask. The week strip and "Coming up" then say what the call
+    says, instead of showing the plan as if nothing had been said."""
+    from . import planning
+
+    if not said:
+        return
+    entries = [(d["day"], e) for d in plan.get("days") or [] for e in d.get("planned") or []]
+    entries += [(e["day"], e) for e in plan.get("upcoming") or []]
+    for day, e in entries:
+        if day < today.isoformat():         # what is behind today is not held by today's word
+            continue
+        hard = planning.calendar_kind(e, own_kinds) == "hard"
+        blocked = logic.check_in_blocks(said, today, date.fromisoformat(day), hard=hard)
+        if blocked == logic.NO_RUN_TODAY:
+            e["held"] = "rest"
+        elif blocked:
+            e["held"] = "hold"
+
+
 def build_aerobic(runs_wide: list[dict], *, today: date, ref_hr: int, weeks: int = WEEKS) -> dict:
     """Easy pace at a fixed heart rate: the most honest base-fitness signal. Each
     easy run's pace is scaled to the reference HR (pace × HR/ref — roughly linear
@@ -680,6 +703,11 @@ def assemble(store: Store, *, today: date | None = None) -> dict:
     # Not `soft`: an unreadable check-in would turn "you said you are ill" into
     # a green day without a word - the one failure the athlete cannot see.
     said = check_in_state(store, today)
+    if said:
+        # What the page says beside the plan it holds back.
+        first = logic.check_in_hard_from(said, today)
+        said = {**said, "hard_from": first.isoformat() if first else None,
+                "words": logic.check_in_words(said, today)}
     # This app's own quality sessions already on the calendar in the coming
     # days: the stimulus does not name a session that is planned anyway.
     own_kind = {w["workout_id"]: w["kind"] for w in own if w.get("workout_id")}
@@ -691,6 +719,9 @@ def assemble(store: Store, *, today: date | None = None) -> dict:
             planned_ahead[k] = e["day"]
     stimulus = logic.next_stimulus(runs_wide, today=today, measurement=vo2["measurement"],
                                    comeback_state=cb, planned_ahead=planned_ahead)
+    plan = build_plan(soft(store.get_scheduled_workouts, today - timedelta(days=today.weekday()),
+                           today + timedelta(days=14), default=[]), runs, today)
+    mark_held(plan, said, today, own_kind)
 
     return {
         "schema": SCHEMA,
@@ -729,9 +760,7 @@ def assemble(store: Store, *, today: date | None = None) -> dict:
         "zones": build_zones(runs, lt, soft(store.lactate_threshold_history, default=[]),
                              soft(store.max_hr_since, today - timedelta(days=90)),
                              predictions=predictions),
-        "plan": build_plan(
-            soft(store.get_scheduled_workouts, today - timedelta(days=today.weekday()),
-                 today + timedelta(days=14), default=[]), runs, today),
+        "plan": plan,
         "aerobic": build_aerobic(runs_wide, today=today, ref_hr=aerobic_ref_hr(profile, lt)),
         "predictions": build_predictions(predictions),
         "targets": {"hard_share": HARD_SHARE_TARGET},
