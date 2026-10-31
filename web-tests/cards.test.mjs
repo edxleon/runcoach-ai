@@ -236,3 +236,11 @@ test("renderProposal: the button that writes says what changes and that it can b
                                 pending: 0, workouts: [900001], preview: "…" }, {});
   assert.doesNotMatch(done, /proposal-net/, "nothing left to write, nothing to reassure about");
 });
+
+test("todayCard: a card made before the athlete checked in is out of date", () => {
+  const card = { kind: "train-today", day: "2026-06-10", snapshot_generated_at: "2026-06-10T05:00:00+00:00" };
+  assert.equal(todayCard([card], "2026-06-10").outdated, false);
+  assert.equal(todayCard([card], "2026-06-10", "train-today", "2026-06-10T06:00:00+00:00").outdated, true);
+  assert.equal(todayCard([card], "2026-06-10", "train-today", "2026-06-10T04:00:00+00:00").outdated, false);
+  assert.equal(todayCard([card], "2026-06-11", "train-today", "2026-06-10T06:00:00+00:00").outdated, false);
+});

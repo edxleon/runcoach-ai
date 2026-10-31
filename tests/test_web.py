@@ -175,8 +175,11 @@ def test_command_is_an_allowlist(tmp_path, monkeypatch):
     # BOTH write tools, by their literal names: the allow above is a PREFIX, so
     # anything not named here is allowed. `tests/test_tools.py` pins separately
     # that this list is DERIVED from `tools.WRITE_TOOLS` rather than remembered.
+    # ...and the tool that records the athlete's word: a card run has no
+    # athlete in it, so it can never say "ill" or "over" for them.
     assert (cmd[cmd.index("--disallowedTools") + 1].split(",")
-            == ["mcp__runspector__apply_workout", "mcp__runspector__undo_workout"])
+            == ["mcp__runspector__apply_workout", "mcp__runspector__undo_workout",
+                "mcp__runspector__check_in"])
     # ...and the second lock, which does not depend on that flag: the child
     # server is told it is a card run, and refuses the write itself.
     assert agent.mcp_config(None)["mcpServers"]["runspector"]["env"]["RUNSPECTOR_UNATTENDED"] == "1"
@@ -273,7 +276,8 @@ def test_run_round_trip_writes_a_validated_card(stub_cli, tmp_path, today):
     argv = json.loads((stub_cli / "argv.json").read_text(encoding="utf-8"))
     assert argv[argv.index("--tools") + 1] == "" and "--strict-mcp-config" in argv
     denied = argv[argv.index("--disallowedTools") + 1].split(",")
-    assert denied == ["mcp__runspector__apply_workout", "mcp__runspector__undo_workout"], \
+    assert denied == ["mcp__runspector__apply_workout", "mcp__runspector__undo_workout",
+                      "mcp__runspector__check_in"], \
         "the real spawn reached the CLI without every write tool denied"
     assert "exit=0" in jobs.log_path(job["id"]).read_text(encoding="utf-8")
     assert [c["id"] for c in jobs.public_cards()] == [job["id"]]
@@ -905,3 +909,67 @@ def test_a_card_is_not_current_once_the_athlete_changed_their_week(httpd):
     os.utime(paths.profile_path(), (future, future))
     status, data, _ = call(httpd, "POST", "/api/spawn", {"template_id": "week-review"})
     assert status == 200 and data["ok"] is True, data
+
+
+# ── the athlete's own word (POST /api/check-in) ───────────────────────────────
+
+def test_a_check_in_from_the_today_tab_changes_the_call_and_can_be_taken_back(httpd):
+    status, data, _ = call(httpd, "POST", "/api/check-in", {"kind": "ill"})
+    assert status == 200 and data == {"ok": True, "result": "new"}
+    state = call(httpd, "GET", "/api/state")[1]
+    assert state["decision_today"]["decision"] == "rest", state["decision_today"]
+    assert [c["kind"] for c in state["check_ins"]["open"]] == ["ill"]
+    assert call(httpd, "POST", "/api/check-in", {"kind": "ill"})[1]["result"] == "said again"
+    # A tap by mistake, undone the day it was made.
+    status, data, _ = call(httpd, "POST", "/api/check-in", {"kind": "ill", "undo": True})
+    assert status == 200 and data["result"] == "taken back"
+    assert call(httpd, "GET", "/api/state")[1]["check_ins"] is None
+    assert call(httpd, "POST", "/api/check-in", {"kind": "ill", "over": True})[1]["result"] == "none"
+    assert call(httpd, "POST", "/api/check-in", {"kind": "ill", "undo": True})[1]["result"] == "none"
+
+
+@pytest.mark.parametrize("body", [{}, {"kind": "tired"}, {"kind": ["ill"]},
+                                  {"kind": "ill", "over": "yes"}, {"kind": "ill", "undo": 1},
+                                  {"kind": "ill", "over": True, "undo": True}])
+def test_a_refused_check_in_says_why_and_records_nothing(httpd, body):
+    status, data, _ = call(httpd, "POST", "/api/check-in", body)
+    assert status == 400 and data["error"]
+    assert call(httpd, "GET", "/api/state")[1]["check_ins"] is None
+
+
+def test_the_check_in_route_refuses_a_cross_origin_request(httpd):
+    status, _, _ = call(httpd, "POST", "/api/check-in", {"kind": "pain"},
+                        headers={"Origin": "https://evil.example"})
+    assert status == 403
+    assert call(httpd, "GET", "/api/state")[1]["check_ins"] is None
+
+
+def test_a_card_is_not_current_once_the_athlete_checked_in(httpd, monkeypatch):
+    """Review: a check-in changes the day's decision, which every card reads -
+    "Should I train today?" asked again after tapping Ill answered 409."""
+    from datetime import datetime, timedelta
+
+    from runspector import store as store_mod
+
+    job = jobs.new_job("p", title="t", kind="week-review")
+    # After every sync and every check-in the module's other tests made.
+    now = datetime.now(UTC) + timedelta(minutes=5)
+    jobs.write_card(job["id"], {"kind": "week-review", "headline": "Go: 5x4", "bullets": ["b"],
+                                "verdict": "GO",
+                                "snapshot_generated_at": now.isoformat(timespec="seconds")})
+    for j in jobs.read_jobs(100):
+        j.update(status="done")
+        jobs.write_job(j)
+    first = call(httpd, "POST", "/api/spawn", {"template_id": "week-review"})
+    assert first[1].get("code") == "card_current", first[1]
+    later = (now + timedelta(minutes=5)).isoformat(timespec="seconds")
+    monkeypatch.setattr(store_mod, "_now", lambda: later)
+    assert call(httpd, "POST", "/api/check-in", {"kind": "ill"})[0] == 200
+    try:
+        status, data, _ = call(httpd, "POST", "/api/spawn", {"template_id": "week-review"})
+        assert status == 200 and data["ok"] is True, data
+    finally:
+        call(httpd, "POST", "/api/check-in", {"kind": "ill", "undo": True})
+        for j in jobs.read_jobs(100):
+            if j.get("status") in jobs.ACTIVE:
+                jobs.request_cancel(j["id"])

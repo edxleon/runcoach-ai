@@ -33,7 +33,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-EXPECTED_TOOLS = 16   # 13 that never write to Garmin + sync_garmin + the two write tools
+EXPECTED_TOOLS = 17   # 13 that never write to Garmin + sync_garmin + check_in + the two write tools
 failures: list[str] = []
 
 

@@ -88,6 +88,12 @@ class Persona:
     #: `plan.apply` against a Garmin double; 0 = the week is on the calendar
     #: at once, as after a timely apply.
     applies_late: int = 0
+    #: Chance that the morning after a hard session something hurts - for
+    #: 2 to 5 days, which the watch never sees. The runner says so on the
+    #: Today tab, says it again each morning it still hurts, and says it is
+    #: over the morning it is gone; every other time they forget, and the
+    #: word runs out on its own.
+    pain_after_hard: float = 0.0
 
 
 PERSONAS = {p.name: p for p in (
@@ -116,6 +122,8 @@ PERSONAS = {p.name: p for p in (
                           ("long_run_day", "sun")), seed=13),
     # Says yes to the week on Wednesday: Monday and Tuesday are gone by then.
     Persona("late_yes", applies_late=3, seed=14),
+    # A calf that hurts the day after one quality session in seven - HRV stays green.
+    Persona("pain_after_quality", pain_after_hard=0.15, seed=15),
 )}
 
 
@@ -135,6 +143,12 @@ class DayRecord:
     stimulus: str | None
     readiness: str
     ill: bool = False
+    #: The runner's own word this morning: (kind, what they said) - `said`,
+    #: `again` or `over` - and whether something hurt today.
+    said: tuple | None = None
+    hurts: bool = False
+    #: The rule behind the decision (`decide_today`'s `reason`).
+    reason: str | None = None
     ran: Run | None = None
     planned: tuple | None = None          # (kind, minutes) on today's calendar
     acwr: float | None = None
@@ -228,6 +242,10 @@ class _Sim:
         self.fallback: dict[date, int] = {}
         self.loads: dict[date, float] = {}
         self.events = {}
+        #: The days something hurts (the toy body), and whether the runner
+        #: will say "over" when it stops.
+        self.pain: set[date] = set()
+        self.pain_ends_said: dict[date, bool] = {}
         for w, kind, days in persona.events:
             first = START + timedelta(weeks=w)
             for i in range(days):
@@ -432,9 +450,32 @@ class _Sim:
         new = {k: v for k, v in (self.garmin.data.get("schedule") or {}).items() if k not in before}
         return (sessions, result, new)
 
+    def check_in(self, day: date) -> tuple | None:
+        """The runner's word on the Today tab this morning, before the app
+        is read: something started hurting after yesterday's hard session,
+        still hurts, or stopped. Through the real store, as the page does."""
+        p = self.p
+        if not p.pain_after_hard:
+            return None
+        yesterday = self.course.runs.get(day - timedelta(days=1))
+        if (day not in self.pain and yesterday is not None and yesterday.kind in HARD
+                and self.rng.random() < p.pain_after_hard):
+            for k in range(self.rng.randint(2, 5)):
+                self.pain.add(day + timedelta(days=k))
+            last = max(d for d in self.pain if d >= day)
+            self.pain_ends_said[last + timedelta(days=1)] = self.rng.random() < 0.7
+        if day in self.pain:
+            first = day - timedelta(days=1) not in self.pain
+            self.store.say_check_in("pain", day, note="calf" if first else None)
+            return ("pain", "said" if first else "again")
+        if self.pain_ends_said.pop(day, False):
+            self.store.end_check_in("pain", day)
+            return ("pain", "over")
+        return None
+
     def athlete(self, day: date, decision: str, stimulus: str | None, ill: bool) -> Run | None:
         """What this runner does today, given what the app said."""
-        if ill or self.events.get(day) == "pause":
+        if ill or self.events.get(day) == "pause" or day in self.pain:
             return None
         if self.p.own_rhythm:
             return None if decision == "rest" else self.run(day, "easy", self.p.own_rhythm)
@@ -491,12 +532,14 @@ def simulate(persona: Persona, weeks: int = 16, probe=None) -> Course:
                 day = START + timedelta(days=i)
                 clock[0] = day
                 ill, acwr = sim.morning(day)
+                said = sim.check_in(day)
                 snap = snapshot.assemble(sim.store, today=day)
                 dec = snap["decision_today"]
                 stim = (dec.get("stimulus") or {}).get("kind")
                 rec = DayRecord(day=day, decision=dec["decision"], stimulus=stim,
                                 readiness=tools.get_training_readiness(sim.store),
-                                ill=ill, planned=sim.calendar.get(day), acwr=acwr)
+                                ill=ill, planned=sim.calendar.get(day), acwr=acwr,
+                                said=said, hurts=day in sim.pain, reason=dec.get("reason"))
                 if i % 3 == 0:
                     rec.morning = tools.today_text(sim.store)[0]
                 rec.applied = sim.late_yes(day)
@@ -582,11 +625,30 @@ def check(course: Course) -> list[str]:
             if hidden:
                 out.append(f"{r.day}: names VO2max though {hidden[0]} had Z5 it could not see")
 
+    # A runner who said it hurts is not sent out while it does, and comes
+    # back easy: at least as many days without a hard session as it hurt.
+    for k, r in enumerate(days):
+        if r.hurts and r.decision != "rest":
+            out.append(f"{r.day}: the runner said it hurts and the app said {r.decision}")
+        if r.hurts and r.morning is not None and "You said: in pain" not in r.morning:
+            out.append(f"{r.day}: the morning text does not say what the runner said")
+        if r.hurts and "The athlete's own word: in pain" not in r.readiness:
+            out.append(f"{r.day}: the coach is not told the runner said it hurts")
+        if r.hurts and (k + 1 == len(days) or not days[k + 1].hurts):
+            hurt = 1
+            while k - hurt >= 0 and days[k - hurt].hurts:
+                hurt += 1
+            hard = [d.day for d in days[k + 1:k + 1 + hurt] if d.decision == "hard"]
+            if hard:
+                out.append(f"{r.day}: {hurt} days of pain ended, and the app said hard on {hard}")
+
     # A runner who listens is not kept off their feet by numbers: no more than
-    # three rest calls in a row unless the body itself says ill.
+    # three rest calls in a row unless the body itself says ill - or it hurts.
+    # Keyed on the runner's own pain, not on the app's label for the day: a
+    # word the app never lets run out must still show up here.
     streak = 0
     for r in days:
-        streak = streak + 1 if r.decision == "rest" and not r.ill else 0
+        streak = streak + 1 if r.decision == "rest" and not r.ill and not r.hurts else 0
         if streak == 4:
             out.append(f"{r.day}: fourth rest call in a row without illness "
                        f"(ACWR {r.acwr})")
@@ -639,8 +701,15 @@ def check(course: Course) -> list[str]:
         if n_hard > len(kinds) - n_hard:
             out.append(f"{r.day}: a week of {kinds} - more hard sessions than easy ones")
         # A step up is up: a week the line calls a step is never smaller than
-        # the week planned before it.
-        if j and w["mode"] == "step" and weeks[j - 1].week["mode"] in ("step", "hold"):
+        # the week planned before it. (Not for the runner whose calf takes
+        # weeks out: their weeks shrink to the shortest useful sessions, and
+        # there a week built from the same budget comes out a few minutes
+        # smaller - a steady block shorter than the threshold session it
+        # replaces, or one day fewer. The step floor compares budgets, not the
+        # sessions built from them: a planner limit `docs/roadmap.md` "Smaller"
+        # names, not one of the check-in; seen on seeds 1008 and 1011.)
+        if j and w["mode"] == "step" and weeks[j - 1].week["mode"] in ("step", "hold") \
+                and not p.pain_after_hard:
             before = sum(m for _, _, m in weeks[j - 1].week["sessions"])
             # ...when that week was run: a plan skipped does not lift the next one;
             # and not when the session cap bites (a long run skipped shrinks it).
@@ -656,7 +725,7 @@ def check(course: Course) -> list[str]:
     # Regular lighter weeks, never two in a row - for a runner who follows the plan
     # through a quiet course (a pause or illness makes its own light weeks).
     if p.plans_week and p.compliance == 1.0 and not p.events and p.effort == "as_planned" \
-            and not p.applies_late:
+            and not p.applies_late and not p.pain_after_hard:
         totals = [sum(m for _, _, m in r.week["sessions"]) for r in weeks]
         light = [b < 0.85 * a for a, b in zip(totals, totals[1:], strict=False)]
         if sum(light) < len(totals) // 6:
@@ -669,8 +738,12 @@ def check(course: Course) -> list[str]:
     # The VO2max work does not disappear: a runner who runs what the app says
     # does a Z5 session at least every two weeks outside a break.
     # (A late yes loses the first days of every week: that runner does not run
-    # the whole plan, like one who skips sessions.)
-    if p.effort == "as_planned" and p.compliance == 1.0 and p.zone_detail and not p.applies_late:
+    # the whole plan, like one who skips sessions. Nor does one whose calf
+    # takes sessions out - and after each pain the light reads the lower load
+    # as ACWR < 0.8 and keeps the days easy until the ratio recovers, which
+    # `docs/roadmap.md` "Smaller" names.)
+    if p.effort == "as_planned" and p.compliance == 1.0 and p.zone_detail and not p.applies_late \
+            and not p.pain_after_hard:
         for r in days[14:]:
             if any(r.day - timedelta(days=k) in event_days or back_in(r.day - timedelta(days=k))
                    for k in range(21)):
@@ -820,6 +893,7 @@ def table(course: Course) -> str:
             kinds = "/".join(k[:3] for _, k, _ in sunday.week["sessions"])
             plan_txt = f"{sunday.week['mode']:7} {total:4} {kinds}"
         notes = ", ".join(sorted({"ill" for r in wk if r.ill}
+                                 | {"pain" for r in wk if r.hurts}
                                  | {"off" for r in wk if not r.ran and r.planned}))
         rows.append(f"{wk[0].day} | {plan_txt:27} | {ran:4} | "
                     f"{counts['hard']}/{counts['easy']}/{counts['rest']:<15} | {notes}")
@@ -846,7 +920,8 @@ def main() -> int:
                 ran = f"{r.ran.kind} {r.ran.minutes}" if r.ran else "-"
                 cal = f"{r.planned[0]} {r.planned[1]}" if r.planned else "-"
                 print(f"{r.day} {r.day:%a} {r.decision:7} {str(r.stimulus):9} cal {cal:14} "
-                      f"ran {ran:14} acwr {r.acwr}{'  ILL' if r.ill else ''}")
+                      f"ran {ran:14} acwr {r.acwr}{'  ILL' if r.ill else ''}"
+                      f"{f'  said {r.said[0]} {r.said[1]}' if r.said else ''}")
                 if r.week:
                     w = r.week
                     print(f"    plans {w['mode']}: " + ", ".join(

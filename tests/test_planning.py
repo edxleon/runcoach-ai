@@ -1190,3 +1190,19 @@ def test_an_old_threshold_measurement_is_no_pace_for_the_reps():
     rep = next(b for b in build_session("vo2max", duration_min=50, zones=fresh,
                                         today=today).blocks if isinstance(b, Repeat))
     assert rep.steps[0].target["type"] == "pace"
+
+
+def test_easy_where_turns_only_the_quality_sessions_it_names_easy():
+    from datetime import date, timedelta
+
+    start = date(2026, 6, 8)
+    sessions, _ = planning.build_week(start, days_per_week=4, long_run_day="sun")
+    out, changed = planning.easy_where(sessions, lambda d, s: d < start + timedelta(days=3))
+    for (day, before), (_, after) in zip(sessions, out, strict=True):
+        if before.kind in planning.HARD_KINDS and day < start + timedelta(days=3):
+            assert after.kind == "easy" and after.estimated_seconds <= before.estimated_seconds
+        else:
+            assert after == before
+    assert len(changed) == sum(1 for d, s in sessions
+                               if s.kind in planning.HARD_KINDS and d < start + timedelta(days=3))
+    assert changed and "became Easy run" in changed[0], changed

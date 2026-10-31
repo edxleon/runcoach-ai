@@ -193,6 +193,9 @@ def mcp_config(db: str | None, demo: bool = False) -> dict:
 WRITE_TOOLS = tuple(f"mcp__runspector__{n}" for n in tools.WRITE_TOOLS)
 #: Kept for the tests and docs that name the first one by itself.
 WRITE_TOOL = WRITE_TOOLS[0]
+#: What a card run is denied: the Garmin writes, and the tools that record
+#: the athlete's word about themselves (`tools.UNATTENDED_DENIED`).
+DENIED_TOOLS = tuple(f"mcp__runspector__{n}" for n in tools.UNATTENDED_DENIED)
 
 
 def command(workdir: Path, db: str | None) -> list[str]:
@@ -208,13 +211,14 @@ def command(workdir: Path, db: str | None) -> list[str]:
     cmd = [*base, "--print", "--output-format", "json",
            "--strict-mcp-config", "--mcp-config", str(cfg),
            "--tools", "", "--allowedTools", "mcp__runspector",
-           # The ONE tool that writes to Garmin stays out of reach of an
+           # The tools that write to Garmin stay out of reach of an
            # unattended run: `--allowedTools mcp__runspector` is a prefix allow
-           # and would cover it. A card run may PROPOSE a session; applying it
+           # and would cover them. A card run may PROPOSE a session; applying it
            # is a human's click on the card (or their word in a Claude Code
-           # session, where this flag is not set). Configuration, not a
-           # sentence in coach.md - a prompt is not a permission system.
-           "--disallowedTools", ",".join(WRITE_TOOLS)]
+           # session, where this flag is not set). So does `check_in`: only
+           # the athlete can say they are ill. Configuration, not a sentence
+           # in coach.md - a prompt is not a permission system.
+           "--disallowedTools", ",".join(DENIED_TOOLS)]
     if os.environ.get("RUNSPECTOR_MODEL"):
         cmd += ["--model", os.environ["RUNSPECTOR_MODEL"]]
     return cmd

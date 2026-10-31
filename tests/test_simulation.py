@@ -51,6 +51,29 @@ def test_the_expectations_can_fail():
         assert expected in broken, (expected, broken)
 
 
+def test_the_pain_expectations_can_fail():
+    """The `pain_after_quality` checks fire on a day it hurts and the app said
+    hard, and on a hard day right after the pain ended."""
+    course = sim.simulate(sim.PERSONAS["pain_after_quality"], weeks=16)
+    k = next(i for i, r in enumerate(course.days) if r.hurts and not course.days[i + 1].hurts)
+    course.days[k].decision = "hard"
+    course.days[k + 1].decision = "hard"
+    broken = "\n".join(sim.check(course))
+    assert "the runner said it hurts and the app said hard" in broken, broken
+    assert "days of pain ended, and the app said hard" in broken, broken
+
+
+def test_a_word_the_app_never_lets_run_out_is_caught(monkeypatch):
+    """Review: the rest-streak check once trusted the app's own label for a
+    check-in day, so an app that kept a pain open for 40 days passed. Keyed on
+    the runner's own pain, the streak of rest days without it is caught."""
+    from runspector import logic
+
+    monkeypatch.setitem(logic.CHECK_IN_LAPSE_DAYS, "pain", 40)
+    course = sim.simulate(sim.PERSONAS["pain_after_quality"], weeks=16)
+    assert "fourth rest call in a row" in "\n".join(sim.check(course))
+
+
 def test_the_even_week_expectation_can_fail():
     """The `daily_even` check fires when the coach steps up after seven alike,
     heavy days - checked on its own course with the last Sunday's plan turned

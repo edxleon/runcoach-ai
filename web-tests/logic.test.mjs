@@ -669,3 +669,53 @@ test("sync on return: off at 0, and no new attempt within the threshold of a fai
   assert.equal(syncOnReturn(failed, at(125)), false, "five minutes after a failure");
   assert.equal(syncOnReturn(failed, at(151)), true, "a threshold after it, once more");
 });
+
+test("check-in: a button per kind, a line for each that holds, the easy days after", async () => {
+  const { checkInView, CHECK_IN_KINDS } = await import("../src/runspector/web/static/logic.js");
+  const day = iso => `<${iso}>`;
+  const empty = checkInView(null, "2026-06-10", day);
+  assert.deepEqual(empty.chips.map(c => [c.kind, c.pressed]),
+    CHECK_IN_KINDS.map(k => [k, false]));
+  assert.deepEqual(empty.lines, []);
+  assert.equal(empty.after, "");
+  const v = checkInView({
+    open: [{ kind: "sore", since: "2026-06-10", last_said: "2026-06-10" },
+           { kind: "ill", since: "2026-06-08", last_said: "2026-06-09" }],
+    after: null,
+  }, "2026-06-10", day);
+  assert.deepEqual(v.chips.filter(c => c.pressed).map(c => c.kind), ["ill", "sore"]);
+  assert.deepEqual(v.lines, [
+    { kind: "ill", text: "Ill since <2026-06-08> - no run while it holds", saidToday: false,
+      undoable: false, ending: false },
+    { kind: "sore", text: "Sore legs since today - no hard session while it holds", saidToday: true,
+      undoable: true, ending: false },
+  ]);
+  assert.equal(checkInView({ open: [], after: { kind: "pain", days: 1, until: "2026-06-11" } },
+    "2026-06-10", day).after,
+    "In pain for 1 day: easy days only, the hard sessions come back on <2026-06-11>");
+});
+
+test("check-in toast: easy days only after an illness or a pain", async () => {
+  const { checkInToast } = await import("../src/runspector/web/static/logic.js");
+  assert.match(checkInToast("ill", "over"), /first days back are easy/);
+  assert.doesNotMatch(checkInToast("sore", "over"), /easy/);
+  assert.match(checkInToast("pain", "over tomorrow"), /today still counts; tomorrow is the first day back, and it is easy/);
+  assert.doesNotMatch(checkInToast("stressed", "over tomorrow"), /easy/);
+  assert.match(checkInToast("ill", "taken back"), /Taken back/);
+  assert.match(checkInToast("ill", "new"), /today's call goes by it/);
+});
+
+test("lightAddendum: a day the athlete's word decided is not the light's call", async () => {
+  const { lightAddendum } = await import("../src/runspector/web/static/logic.js");
+  assert.equal(lightAddendum({ decision: "rest", reason: "check-in ill" }), " Today what you said decides: rest.");
+  assert.equal(lightAddendum({ decision: "easy", reason: "after pain" }), " Today what you said decides: easy.");
+  assert.match(lightAddendum({ decision: "rest", reason: "verdict REST" }), /readiness light decides/);
+});
+
+test("check-in: a state said over today shows when it ends, no second 'over'", async () => {
+  const { checkInView } = await import("../src/runspector/web/static/logic.js");
+  const v = checkInView({ open: [{ kind: "ill", since: "2026-06-10", last_said: "2026-06-10",
+                                   over: "2026-06-11" }], after: null }, "2026-06-10", d => `<${d}>`);
+  assert.equal(v.lines[0].text, "Ill since today - over from <2026-06-11>");
+  assert.equal(v.lines[0].ending, true);
+});

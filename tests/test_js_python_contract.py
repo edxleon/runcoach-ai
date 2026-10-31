@@ -90,6 +90,15 @@ def test_the_hard_thresholds_are_the_same_number_in_both_languages(js_name, py_v
         f"session: today' in the signal cell and 'still open' in the coach line.")
 
 
+def test_the_check_in_kinds_are_the_same_in_both_languages():
+    """The Today tab's buttons post these; a kind the page has and the server
+    does not is a button that answers 400."""
+    m = re.search(r"^export const CHECK_IN_KINDS = (\[[^\]]*\]);", JS.read_text(encoding="utf-8"),
+                  re.M)
+    assert m, "CHECK_IN_KINDS is not declared in logic.js in the expected shape"
+    assert json.loads(m.group(1)) == list(logic.CHECK_IN_KINDS)
+
+
 def test_is_hard_agrees_across_a_grid_of_workouts():
     """Not just the constants — the PREDICATE. Equal thresholds with a flipped
     comparison or a missing `is_running` guard would sail past the check above.

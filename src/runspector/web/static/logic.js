@@ -250,6 +250,9 @@ export function lightAddendum(decision) {
   // the two would read as a stutter. The verdict word is enough; the full
   // sentence is on the Today tab.
   const word = (DECISION[e.decision] || e.decision || "").toLowerCase();
+  // A day the athlete's own word decided (`logic.decide_today`'s check-in
+  // step) is not the light's call - the light may well be green.
+  if (/^(check-in|after) /.test(String(e.reason || ""))) return ` Today what you said decides: ${esc(word)}.`;
   return ` Today the readiness light decides: it says ${esc(word)}.`;
 }
 
@@ -480,6 +483,53 @@ export function weightLine(w) {
       `${w.vo2max_effect > 0 ? "+" : ""}${w.vo2max_effect}`;
   }
   return out;
+}
+
+/** What the athlete can say about themselves on the Today tab, in the
+ *  server's order (`logic.CHECK_IN_KINDS`, pinned by the contract test). */
+export const CHECK_IN_KINDS = ["ill", "pain", "sore", "stressed"];
+const CHECK_IN_LABEL = { ill: "Ill", pain: "Pain", sore: "Sore legs", stressed: "Stressed" };
+
+/** The check-in row under today's call, from the server's `check_ins`
+ *  (`logic.check_in_state`): one button per kind, pressed while it holds; a
+ *  line for each that holds, with whether it was already said today; and the
+ *  easy days after an illness or a pain that ended. `fmtDay` formats an ISO
+ *  day for the page. */
+export function checkInView(state, today, fmtDay) {
+  const s = state || {};
+  const open = new Map((s.open || []).map(c => [c.kind, c]));
+  const chips = CHECK_IN_KINDS.map(kind => ({ kind, label: CHECK_IN_LABEL[kind], pressed: open.has(kind) }));
+  const lines = CHECK_IN_KINDS.filter(k => open.has(k)).map(kind => {
+    const c = open.get(kind);
+    const since = c.since === today ? "since today" : `since ${fmtDay(c.since)}`;
+    const effect = kind === "ill" || kind === "pain" ? "no run while it holds" : "no hard session while it holds";
+    // Said over today after it was said today: it still holds today and ends
+    // tomorrow - the line says so instead of offering "over" a second time.
+    const ending = !!c.over;
+    return { kind, text: `${CHECK_IN_LABEL[kind]} ${since} - ${ending ? `over from ${fmtDay(c.over)}` : effect}`,
+             saidToday: c.last_said === today, undoable: c.since === today, ending };
+  });
+  const a = s.after;
+  const after = a
+    ? `${a.kind === "ill" ? "Ill" : "In pain"} for ${a.days} day${a.days === 1 ? "" : "s"}: ` +
+      `easy days only, the hard sessions come back on ${fmtDay(a.until)}`
+    : "";
+  return { chips, lines, after };
+}
+
+/** The toast after a check-in button, from the server's `result`
+ *  (`store.say_check_in` / `end_check_in` / `take_back_check_in`). Easy days
+ *  follow only an illness or a pain, never sore legs or stress. */
+export function checkInToast(kind, result) {
+  const stops = kind === "ill" || kind === "pain";
+  if (result === "over") return stops ? "Noted - it is over. The first days back are easy." : "Noted - it is over.";
+  if (result === "over tomorrow") {
+    return "Noted - it was said today, so today still counts" +
+      (stops ? "; tomorrow is the first day back, and it is easy." : "; tomorrow it is over.");
+  }
+  if (result === "taken back") return "Taken back - as if never said.";
+  if (result === "none") return "Nothing open to change.";
+  return "Noted - today's call goes by it.";
 }
 
 /** Does coming back to the page sync with Garmin, not just re-read? Only

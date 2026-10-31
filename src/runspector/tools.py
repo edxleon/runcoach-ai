@@ -268,7 +268,13 @@ def get_recent_activities(store: Store, period_days: int = 14) -> str:
 def get_training_readiness(store: Store) -> str:
     r = store.get_readiness()
     if r["verdict"] is None:
-        return "No data yet for a readiness verdict (sync pending?)."
+        today = paths.today()
+        said = _check_in_lines(_said(store, today), today)
+        if not said:
+            return "No data yet for a readiness verdict (sync pending?)."
+        # The athlete's word decides the day without the watch's values.
+        return "\n".join(["No data yet for a readiness verdict (sync pending?).", *said, "",
+                          _decision_block(_decide(store, today))])
     s = r["signals"]
     rhr = "-" if s.get("resting_hr") is None else (
         f"{s['resting_hr']} bpm" + (f" (baseline {s['resting_hr_baseline']})"
@@ -311,6 +317,7 @@ def get_training_readiness(store: Store) -> str:
            else "no hard workout in the last 28 days"),
         *_garmin_readiness_lines(s),
         *_goal_lines(),
+        *_check_in_lines(_said(store, today), today),
         "",
         _decision_block(decision, planned_today=planned_today),
     ]) + stale
@@ -332,8 +339,13 @@ def today_text(store: Store) -> tuple[str, bool]:
     snap = snapshot.assemble(store, today=today)
     t, d = snap.get("today") or {}, snap.get("decision_today") or {}
     fresh = t.get("day") == today.isoformat() and d.get("decision") in _CALL
+    # A rest day the athlete called themselves needs no values from the watch.
+    said_rest = d.get("decision") == "rest" and str(d.get("reason", "")).startswith("check-in")
     lines = []
-    if fresh:
+    if said_rest and not fresh:
+        lines.append(f"{today:%a %d %b}: REST - {d.get('sentence')}")
+        fresh = True
+    elif fresh:
         sentence = d.get("sentence")
         lines.append(f"{today:%a %d %b}: {_CALL[d['decision']]}" + (f" - {sentence}" if sentence else ""))
         s = t.get("signals") or {}
@@ -351,6 +363,7 @@ def today_text(store: Store) -> tuple[str, bool]:
         lines.append(f"{today:%a %d %b}: no values for today yet"
                      + (f" - the latest are from {t['day']}" if t.get("day") else "")
                      + ". Sync first: runspector today --sync")
+    lines += [f"  {line}" for line in _check_in_lines(snap.get("check_ins"), today, short=True)]
     todays = store.get_scheduled_workouts(today, today)
     # The readiness tool's swap rule: on an easy day the hard entries give way,
     # on a rest day nothing is run; what stands keeps its easier option.
@@ -359,7 +372,9 @@ def today_text(store: Store) -> tuple[str, bool]:
     for e in todays:
         minutes = store.workout_fallback(e["workout_id"]) if e.get("workout_id") else None
         line = f"  Planned: \"{e.get('title') or '?'}\""
-        if fresh and d.get("decision") == "rest":
+        if fresh and said_rest:
+            line += " - not today: no run while it holds"
+        elif fresh and d.get("decision") == "rest":
             line += " - not today: the light says rest"
         elif e["schedule_id"] in replaced:
             line += " - not on an easy day; instead " + (
@@ -368,6 +383,56 @@ def today_text(store: Store) -> tuple[str, bool]:
             line += f" - if too much today: {minutes} min easy instead"
         lines.append(line)
     return "\n".join(lines), fresh
+
+
+def _said(store: Store, today: date) -> dict | None:
+    from . import snapshot
+
+    return snapshot.check_in_state(store, today)
+
+
+def _check_in_lines(state: dict | None, today: date, *, short: bool = False) -> list[str]:
+    """What the athlete said about themselves and what it does to the day -
+    absent when nothing holds, so every rendered fixture without a check-in
+    stays byte-identical. The note is the athlete's own free text: cleaned
+    and quoted, like a workout name."""
+    from . import garmin, logic
+
+    if not state:
+        return []
+    out = []
+    for c in state.get("open") or []:
+        word = logic.CHECK_IN_WORDS[c["kind"]]
+        since = date.fromisoformat(c["since"])
+        until = date.fromisoformat(c["until"])
+        # The athlete's free text, quoted: a double quote of theirs must not
+        # close the quote and make the rest read like this tool's own words.
+        note = (garmin._clean_text(c.get("note"), 120) or "").replace('"', "'") or None
+        effect = ("no run while it holds" if c["kind"] in logic.STOPS_RUNNING
+                  else "no hard session while it holds")
+        ending = f"over from {until:%a %d %b}" if c.get("over") else None
+        if short:
+            out.append(f"You said: {word} since {since:%a %d %b}"
+                       + (f" (\"{note}\")" if note else "") + f" - {effect}. "
+                       + (f"You said it is {ending}." if ending
+                          else "Over? Say so on the Today tab or to the coach."))
+            continue
+        out.append(f"The athlete's own word: {word} since {since:%a %d %b}, last said "
+                   f"{date.fromisoformat(c['last_said']):%a %d %b} - {effect}; "
+                   + (f"they said it is {ending}" if ending else
+                      f"it holds until they say it is over, or runs out on {until:%a %d %b} "
+                      f"without a new word"))
+        if note:
+            out.append(f"  in their words (free text): \"{note}\"")
+    a = state.get("after")
+    if a:
+        word = logic.CHECK_IN_WORDS[a["kind"]]
+        how = "ran out without a word" if a["ran_out"] else "they said it was over"
+        out.append(f"{'You were' if short else 'The athlete was'} {word} for {a['days']} "
+                   f"day{'s' if a['days'] != 1 else ''} ({how} on "
+                   f"{date.fromisoformat(a['ended']):%a %d %b}) - easy days only, the hard "
+                   f"sessions come back on {date.fromisoformat(a['until']):%a %d %b}")
+    return out
 
 
 def _garmin_readiness_lines(s: dict) -> list[str]:
@@ -436,6 +501,11 @@ def _swap_line(store: Store, plan: list[dict], decision: dict, today: date) -> s
         + (", guessed from its name - not a workout this app made" if e["schedule_id"] in guessed
            else ", uploaded by this app") + ")"
         for e in swap["replace"])
+    if swap["kind"] is None and str(decision.get("reason", "")).startswith("check-in"):
+        # The athlete said they are ill or in pain: there is no run to offer.
+        return (f"\nToday's decision argues against what is scheduled: {which}. The athlete said "
+                f"they are ill or in pain: nothing is run in its place - not the easier option "
+                f"either, and not on request.")
     if swap["kind"] is None:
         return (f"\nToday's decision argues against what is scheduled: {which}. On a rest day it "
                 f"is simply not run - do not propose a replacement unless the athlete asks.")
@@ -836,6 +906,14 @@ def propose_week(store: Store, start_day: str | None = None, days_per_week: int 
 #: other. A write tool that nobody classified would be allowed by the prefix
 #: allow, which is how the second one of these would have slipped through.
 WRITE_TOOLS = ("apply_workout", "undo_workout")
+#: The tools that record the athlete's word about themselves. They change no
+#: Garmin account, but they change the day's decision: an unattended card run
+#: has no athlete in it, so it must never say "ill" or "over" for them - a
+#: low HRV is not a cold, and a run without pain is not "the calf is fine".
+WORD_TOOLS = ("check_in",)
+#: Everything an unattended card run may not call: `web/agent.py` denies these
+#: on the command line, and each refuses inside the server too.
+UNATTENDED_DENIED = WRITE_TOOLS + WORD_TOOLS
 
 
 def _unattended_refusal(what: str) -> str | None:
@@ -890,3 +968,54 @@ def apply_workout(store: Store, proposal_id: str) -> str:
         return (f"Garmin login failed ({type(exc).__name__}) - nothing was written. "
                 f"Ask the athlete to run `runspector login`, then apply again.")
     return plan.describe_result(plan.apply(store, client, proposal_id, today=paths.today()))
+
+
+#: How far back the athlete can date a check-in ("since Monday").
+CHECK_IN_SINCE_MAX_DAYS = 7
+
+
+def check_in(store: Store, kind: str, over: bool = False, note: str | None = None,
+             undo: bool = False, since: str | None = None) -> str:
+    """Record what the athlete said about themselves today - or that it is
+    over, or (`undo`) that today's check-in was recorded by mistake."""
+    from . import garmin, logic
+
+    refusal = _unattended_refusal("record the athlete's word")
+    if refusal:
+        return refusal + " Only the athlete can say they are ill, in pain, sore or stressed."
+    if kind not in logic.CHECK_IN_KINDS:
+        return f"kind must be one of {', '.join(logic.CHECK_IN_KINDS)}, got {kind!r}"
+    if over and undo:
+        return "over or undo, not both: over ends it, undo takes back a check-in said by mistake today"
+    today = paths.today()
+    word = logic.CHECK_IN_WORDS[kind]
+    first = None
+    if since is not None:
+        try:
+            first = date.fromisoformat(since)
+        except ValueError:
+            first = None
+        if first is None or not today - timedelta(days=CHECK_IN_SINCE_MAX_DAYS) <= first <= today:
+            return (f"since must be a day from {today - timedelta(days=CHECK_IN_SINCE_MAX_DAYS)} "
+                    f"to {today}, YYYY-MM-DD, got {since!r} - nothing recorded")
+    if undo:
+        done = store.take_back_check_in(kind, today)
+        said = (f"Taken back: {word} was recorded by mistake today - it leaves nothing behind."
+                if done == "taken back" else
+                f"Nothing to take back for {word}: only a check-in said today can be undone; "
+                f"one that held for a day ends with over.")
+    elif over:
+        done = store.end_check_in(kind, today)
+        said = {"over": f"Noted: {word} is over as of today.",
+                "over tomorrow": f"Noted: {word} is over - it was said today, so today still "
+                                 f"counts and tomorrow is the first day back.",
+                "none": f"Nothing open for {word} - nothing changed."}[done]
+    else:
+        clean = garmin._clean_text(note, 120) if note else None
+        done = store.say_check_in(kind, today, note=clean, since=first)
+        began = f"{first:%a %d %b}" if first and first < today else "today"
+        said = (f"Noted: {word}, said again today." if done == "said again"
+                else f"Noted: {word} since {began}.")
+    d = _decide(store, today)
+    return f"{said}\n" + "\n".join(_check_in_lines(_said(store, today), today)) \
+        + f"\nThe app's decision for today now: {d['decision'].upper()} - \"{d['sentence']}\""

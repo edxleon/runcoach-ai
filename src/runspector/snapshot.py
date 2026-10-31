@@ -145,7 +145,8 @@ def _monday(day: date) -> str:
 
 
 def build_decision(today_block: dict, weeks: list[dict], today: date,
-                   stimulus: dict | None = None, comeback: dict | None = None) -> dict:
+                   stimulus: dict | None = None, comeback: dict | None = None,
+                   check_ins: dict | None = None) -> dict:
     """The ONE sentence for the Today tab (rule: `logic.decide_today`), and
     under it - on a hard day - WHICH hard session (`logic.next_stimulus`).
 
@@ -186,7 +187,7 @@ def build_decision(today_block: dict, weeks: list[dict], today: date,
         hard_min=hard_min, target_min=target_min, quality_min=quality_min,
         quality_s=quality_s,
         week_start=monday if week else None, stimulus=stimulus,
-        comeback_state=comeback, today=today)
+        comeback_state=comeback, today=today, check_ins=check_ins)
 
 
 def build_sleep(series: list[dict]) -> dict:
@@ -541,6 +542,12 @@ def monotony_state(store: Store, end: date) -> dict | None:
     return {**m, "base": base, "end": end.isoformat()}
 
 
+def check_in_state(store: Store, today: date) -> dict | None:
+    """`logic.check_in_state` on this athlete's check-ins - read by the day's
+    decision, the Today tab, the readiness tool and the morning text."""
+    return logic.check_in_state(store.check_ins(today), today)
+
+
 def comeback_state(store: Store, today: date) -> dict | None:
     """`logic.comeback` on this athlete's runs - the one pause state the day's
     decision, the stimulus and the week planner all read."""
@@ -670,6 +677,9 @@ def assemble(store: Store, *, today: date | None = None) -> dict:
                        weights=soft(store.weights, today - timedelta(days=SERIES_DAYS), today,
                                     default=[]))
     cb = soft(comeback_state, store, today)
+    # Not `soft`: an unreadable check-in would turn "you said you are ill" into
+    # a green day without a word - the one failure the athlete cannot see.
+    said = check_in_state(store, today)
     # This app's own quality sessions already on the calendar in the coming
     # days: the stimulus does not name a session that is planned anyway.
     own_kind = {w["workout_id"]: w["kind"] for w in own if w.get("workout_id")}
@@ -689,8 +699,9 @@ def assemble(store: Store, *, today: date | None = None) -> dict:
         "stale_days": (today - latest).days if latest else None,
         "today": today_block,
         "decision_today": build_decision(today_block, weeks, today, stimulus=stimulus,
-                                         comeback=cb),
+                                         comeback=cb, check_ins=said),
         "next_stimulus": stimulus,
+        "check_ins": said,
         "sleep": build_sleep(series_rows),
         "load": {
             "acwr": tl["acwr"], "acwr_status": tl["acwr_status"], "acwr_source": tl["acwr_source"],

@@ -112,14 +112,18 @@ export function classify409(err) {
 
 /** Newest card of one kind (main list, no answers) — and whether it is from
  *  today. `today` is an ISO day (local!), compared against `day`. */
-export function todayCard(cards, today, kind = "train-today") {
+export function todayCard(cards, today, kind = "train-today", saidAt = null) {
   const k = (cards || [])
     .filter(c => c && c.kind === kind && !c.parent)
     .sort((a, b) => String(b.day || "").localeCompare(String(a.day || ""))
                || String(b.generated_at || b.written || "")
                     .localeCompare(String(a.generated_at || a.written || "")));
   if (!k.length) return null;
-  return { card: k[0], current: k[0].day === today };
+  const current = k[0].day === today;
+  // Today's card, made before the athlete said they are ill (or that it is
+  // over): it argues for a call the check-in has since changed.
+  const outdated = current && !!saidAt && String(k[0].snapshot_generated_at || "") < String(saidAt);
+  return { card: k[0], current, outdated };
 }
 
 /** Up to `n` points visible, the rest behind a disclosure. Default 2: with

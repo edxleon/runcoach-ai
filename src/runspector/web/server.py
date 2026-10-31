@@ -25,7 +25,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote, urlparse
 
-from .. import __version__, auth, facts, garmin, onboarding, paths, snapshot, tools
+from .. import __version__, auth, facts, garmin, logic, onboarding, paths, snapshot, tools
 from .. import profile as profile_mod
 from ..store import Store
 from . import agent, jobs
@@ -253,6 +253,8 @@ class App:
             # to the page syncs (the MCP tools' `RUNSPECTOR_AUTOSYNC_MIN`): a page
             # left open overnight showed yesterday until someone pressed ↻.
             "synced_at": self.store.last_synced_at(),
+            # The coach card from before a check-in argues for a call that changed.
+            "check_in_changed_at": self.store.last_check_in_change(),
             "sync_after_min": tools.auto_sync_after_min(),
             # For the footer's "your data is here, delete it to remove all". The
             # home directory is written as `~`: the path is for the reader, and a
@@ -548,8 +550,11 @@ class App:
                 made = str(prev.get("snapshot_generated_at") or "") if prev else ""
                 # The athlete's week and note are inputs of every card, like the
                 # sync: a card made before they changed is not on the current data.
+                # So is what they said about themselves: it changes the day's call.
                 edited = _mtime_utc(paths.profile_path())
-                if prev and synced and made >= synced and (edited is None or made > edited):
+                said = self.store.last_check_in_change()
+                if prev and synced and made >= synced and (edited is None or made > edited) \
+                        and (said is None or made > said):
                     return {"error": f"the card from {prev.get('day')} is already based on the "
                                      f"current data", "code": "card_current", "ref": prev["id"]}, 409
             title, kind, parent = str(tpl.get("title") or template_id), template_id, None
@@ -577,6 +582,27 @@ class App:
         except ValueError as exc:
             return {"error": str(exc)}, 400
         return {"ok": True, "week": self.week()}, 200
+
+    def check_in(self, op: dict) -> tuple[dict, int]:
+        """The Today tab's buttons: `{kind}` says it (again today), `{kind,
+        over: true}` ends it, `{kind, undo: true}` takes back a tap by mistake
+        made today. The rule that reads it is `logic.check_in_state`; the page
+        reloads the state for the new decision."""
+        kind = op.get("kind")
+        if kind not in logic.CHECK_IN_KINDS:
+            return {"error": f"kind must be one of {', '.join(logic.CHECK_IN_KINDS)}"}, 400
+        if not all(op.get(k) is None or isinstance(op.get(k), bool) for k in ("over", "undo")):
+            return {"error": "over and undo are true or false"}, 400
+        if op.get("over") and op.get("undo"):
+            return {"error": "over or undo, not both"}, 400
+        today = paths.today()
+        if op.get("undo"):
+            result = self.store.take_back_check_in(kind, today)
+        elif op.get("over"):
+            result = self.store.end_check_in(kind, today)
+        else:
+            result = self.store.say_check_in(kind, today)
+        return {"ok": True, "result": result}, 200
 
     def garmin_sign_in(self, op: dict, *, local: bool) -> tuple[dict, int]:
         """The page's sign-in dialog: `{email, password}`, then `{code}` when
@@ -916,6 +942,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(*self.app.feedback(op))
         if route == "/api/profile":
             return self._json(*self.app.save_profile(op))
+        if route == "/api/check-in":
+            return self._json(*self.app.check_in(op))
         if route == "/api/garmin/login":
             return self._json(*self.app.garmin_sign_in(op, local=self._peer_is_local()))
         if route == "/api/plan/undo":

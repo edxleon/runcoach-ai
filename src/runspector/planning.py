@@ -1000,6 +1000,49 @@ def fit_week_to_calendar(sessions: list[tuple], calendar: list[dict], *, own_kin
     return out, notes
 
 
+
+def easy_where(sessions: list[tuple], ease, *, zones: dict | None = None,
+               budget: int | None = None) -> tuple[list[tuple], list[str]]:
+    """Every quality session `ease(day, spec)` says yes to becomes its easier
+    option (`easier_minutes`), the same easy run the plan would have offered
+    on the day. Returns the sessions and what changed, one entry each. The
+    long run and the easy runs stay: they are easy running already.
+
+    With `budget`: a small week may sit above its budget only because a
+    quality session cannot be shorter (`BUDGET_SLACK`); once those are easy
+    runs that reason is gone, so the eased runs give the excess back, never
+    below an easy run's floor - or the week after it, a step, came out
+    smaller than this one."""
+    out, changed, eased = [], [], []
+    for day, spec in sessions:
+        if spec.kind in HARD_KINDS and ease(day, spec):
+            minutes = easier_minutes(spec.kind, spec.estimated_seconds // 60)
+            eased.append(len(out))
+            out.append((day, minutes, spec.name))
+        else:
+            out.append((day, None, spec))
+    if budget and eased:
+        total = sum(m if m is not None else s.estimated_seconds // 60 for _, m, s in out)
+        floor = min_minutes("easy")
+        for i in eased:
+            if total <= budget:
+                break
+            day, minutes, name = out[i]
+            cut = min(total - budget, minutes - floor)
+            if cut > 0:
+                out[i] = (day, minutes - cut, name)
+                total -= cut
+    result = []
+    for day, minutes, spec in out:
+        if minutes is None:
+            result.append((day, spec))
+            continue
+        easy = build_session("easy", zones=zones, duration_min=minutes)
+        changed.append(f"{day:%a} {spec} became {easy.name}")
+        result.append((day, easy))
+    return result, changed
+
+
 # ── What the next week may hold ───────────────────────────────────────────────
 
 #: The step a progressive week takes over the athlete's own weeks (zones.md:

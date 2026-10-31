@@ -893,3 +893,254 @@ def test_a_short_day_that_leaves_one_of_the_runners_days_keeps_both_sessions(sto
     week = _planned_minutes(plan.propose_week(store, today=today))
     hard = sorted(d for d, (k, _) in week.items() if k in planning.HARD_KINDS)
     assert len(hard) == 2 and "thu" not in hard, week
+
+
+# ── the athlete's own word ───────────────────────────────────────────────────
+
+def _decision(store, today):
+    return snapshot.assemble(store, today=today)["decision_today"]
+
+
+def test_a_cold_said_before_the_watch_sees_it_is_a_rest_day(store, today):
+    """HRV, sleep and Body Battery are green - the watch reacts to a cold a day
+    or two late. The athlete's word is the first signal there is."""
+    _green(store, today)
+    assert _decision(store, today)["decision"] == "hard"
+    tools.check_in(store, "ill")
+    d = _decision(store, today)
+    assert d["decision"] == "rest" and "ill" in d["sentence"], d
+    assert "stimulus" not in d, d
+    out = tools.get_training_readiness(store)
+    assert "The app's decision for today: REST" in out and "Which hard session" not in out, out
+
+
+def test_a_check_in_made_before_the_morning_sync_still_counts(store, today):
+    """No values for today yet: the readiness light cannot be called, the day
+    can - the athlete said they are ill."""
+    _green(store, today - timedelta(days=1))
+    tools.check_in(store, "ill")
+    assert _decision(store, today)["decision"] == "rest"
+
+
+def test_pain_stops_the_run_and_sore_legs_only_the_hard_session(store, today):
+    _green(store, today)
+    tools.check_in(store, "sore")
+    d = _decision(store, today)
+    assert d["decision"] == "easy" and "sore" in d["sentence"], d
+    tools.check_in(store, "pain", note="left calf")
+    assert _decision(store, today)["decision"] == "rest"
+
+
+def test_stress_said_by_the_athlete_takes_the_hard_session(store, today):
+    _green(store, today)
+    tools.check_in(store, "stressed")
+    d = _decision(store, today)
+    assert d["decision"] == "easy" and "stress" in d["sentence"], d
+
+
+def test_after_a_cold_as_many_easy_days_as_it_lasted(store, today):
+    """Ill Sunday to Tuesday, over on Wednesday: Wednesday, Thursday and Friday
+    are easy, Saturday may be hard again."""
+    store.say_check_in("ill", today - timedelta(days=3))
+    store.say_check_in("ill", today - timedelta(days=1))
+    tools.check_in(store, "ill", over=True)
+    for back in range(5):
+        _green(store, today + timedelta(days=back))
+    for ahead, want in ((0, "easy"), (1, "easy"), (2, "easy"), (3, "hard")):
+        d = _decision(store, today + timedelta(days=ahead))
+        assert d["decision"] == want, (ahead, d)
+    assert "3 days" in _decision(store, today)["sentence"], _decision(store, today)
+
+
+def test_a_cold_nobody_ends_runs_out_and_the_days_after_are_still_easy(store, today):
+    """Said once, four days ago, never again: it held three days, then ran out -
+    and the three days it held still cost three easy days."""
+    store.say_check_in("ill", today - timedelta(days=4))
+    _green(store, today)
+    d = _decision(store, today)
+    assert d["decision"] == "easy" and "ill" in d["sentence"], d
+    _green(store, today + timedelta(days=2))
+    assert _decision(store, today + timedelta(days=2))["decision"] == "hard"
+
+
+def test_saying_it_again_keeps_it_open(store, today):
+    store.say_check_in("pain", today - timedelta(days=6))
+    store.say_check_in("pain", today - timedelta(days=4))
+    store.say_check_in("pain", today - timedelta(days=2))
+    _green(store, today)
+    d = _decision(store, today)
+    assert d["decision"] == "rest", d
+
+
+def test_a_check_in_taken_back_the_same_day_leaves_nothing_behind(store, today):
+    """A tap by mistake, undone the same day, leaves no easy days behind."""
+    _green(store, today)
+    tools.check_in(store, "ill")
+    assert tools.check_in(store, "ill", undo=True).startswith("Taken back:")
+    assert _decision(store, today)["decision"] == "hard"
+
+
+def test_the_morning_text_says_what_the_athlete_said(store, today):
+    _green(store, today)
+    tools.check_in(store, "pain", note="left calf")
+    text, fresh = tools.today_text(store)
+    assert fresh and text.splitlines()[0].startswith(f"{today:%a %d %b}: REST"), text
+    assert "pain" in text and "left calf" in text, text
+
+
+def test_a_week_planned_while_it_hurts_puts_no_hard_session_on_the_first_days(store, today):
+    """Sunday, the calf has hurt since Friday: the week is not a step up, and
+    no hard session lands before the earliest day the day rule could allow one
+    - had the athlete said "over" on Monday, three easy days after three days
+    of pain - so the watch never shows intervals the app will call off."""
+    _weeks(store, today, [200, 200, 200, 200])
+    sunday = today + timedelta(days=(6 - today.weekday()) % 7)
+    store.say_check_in("pain", sunday - timedelta(days=2), note="calf")
+    store.say_check_in("pain", sunday)
+    p = plan.propose_week(store, today=sunday, days_per_week=4, long_run_day="sun")
+    monday = sunday + timedelta(days=1)
+    hard_from = monday + timedelta(days=3)          # over Mon at the earliest: Mon-Wed easy
+    early = {d: k for d, k in _planned_kinds(p).items()
+             if k in planning.HARD_KINDS and d < hard_from}
+    assert not early, (early, p["preview"])
+    assert any(k in planning.HARD_KINDS for k in _planned_kinds(p).values()), p["preview"]
+    lines = p["preview"]
+    assert "you said you are in pain" in lines and "no step up" in lines, lines
+    assert "easy until" in lines, lines
+
+
+def test_a_week_planned_after_the_pain_ended_keeps_its_easy_days(store, today):
+    _weeks(store, today, [200, 200, 200, 200])
+    sunday = today + timedelta(days=(6 - today.weekday()) % 7)
+    store.say_check_in("ill", sunday - timedelta(days=4))
+    store.say_check_in("ill", sunday - timedelta(days=2))
+    assert store.end_check_in("ill", sunday) == "over"      # ill Wed-Sat: easy Sun-Wed
+    week = _planned_kinds(plan.propose_week(store, today=sunday, days_per_week=4,
+                                            long_run_day="sun"))
+    early = {d: k for d, k in week.items()
+             if k in planning.HARD_KINDS and d < sunday + timedelta(days=4)}
+    assert not early, week
+
+
+def _planned_kinds(proposal: dict) -> dict:
+    """Day -> kind of a proposal's sessions."""
+    return {date.fromisoformat(it["day"]): it["spec"]["kind"] for it in proposal["items"]}
+
+
+def test_a_sick_athlete_never_gets_a_bigger_week_than_a_healthy_one(store):
+    """Review: "ill" said for the first time on the Sunday of a full week
+    dropped the due down week, and the hold made the week 200 min instead of
+    140 - with a line claiming the week just run was lighter."""
+    sunday = planning.CADENCE_EPOCH + timedelta(weeks=3) - timedelta(days=1)   # down week next
+    assert planning.down_week_due(sunday + timedelta(days=1))[0]
+    _weeks(store, sunday + timedelta(days=1), [200, 200, 200, 200])
+    healthy, _, mode = plan._week_plan(store, sunday)
+    assert mode == "down", mode
+    store.say_check_in("ill", sunday)
+    sick, lines, _ = plan._week_plan(store, sunday)
+    assert sick <= healthy, (sick, healthy, lines)
+    assert not any("already lighter" in ln for ln in lines), lines
+
+
+def test_no_session_is_proposed_for_a_day_the_athlete_is_ill(store, today):
+    """Review: the gate refused only hard kinds, and its own text pointed the
+    coach to "an easy run" on a day the decision says no run at all."""
+    store.say_check_in("ill", today)
+    for kind in ("easy", "long", "vo2max"):
+        try:
+            plan.propose(store, kind, duration_min=40 if kind == "easy" else 75, today=today)
+        except ValueError as exc:
+            assert "easy run" not in str(exc), exc
+            continue
+        raise AssertionError(f"a {kind} session was filed for a day the athlete is ill")
+
+
+def test_a_pain_that_went_away_the_same_day_still_leaves_an_easy_morning(store, today):
+    """Review: "over" on the day it was said deleted the row - a calf that
+    hurt in the morning and was fine by the evening left no easy day behind."""
+    store.say_check_in("pain", today)
+    store.end_check_in("pain", today)
+    tomorrow = today + timedelta(days=1)
+    _green(store, tomorrow)
+    d = _decision(store, tomorrow)
+    assert d["decision"] == "easy" and "pain" in d["sentence"], d
+
+
+_CHECK_INS = {
+    "ill said today": lambda s, d: s.say_check_in("ill", d),
+    "pain one day, over yesterday": lambda s, d: (s.say_check_in("pain", d - timedelta(days=2)),
+                                                  s.end_check_in("pain", d - timedelta(days=1))),
+    "pain Tue, over Wed": lambda s, d: (s.say_check_in("pain", d - timedelta(days=5)),
+                                        s.end_check_in("pain", d - timedelta(days=4))),
+    "ill four days, over three days ago": lambda s, d: (
+        s.say_check_in("ill", d - timedelta(days=7)), s.say_check_in("ill", d - timedelta(days=5)),
+        s.end_check_in("ill", d - timedelta(days=3))),
+    "ill still open since Thursday": lambda s, d: (s.say_check_in("ill", d - timedelta(days=3)),
+                                                   s.say_check_in("ill", d - timedelta(days=1))),
+    "sore today": lambda s, d: s.say_check_in("sore", d),
+    "stressed since Friday": lambda s, d: s.say_check_in("stressed", d - timedelta(days=2)),
+}
+
+
+def test_a_check_in_never_makes_a_week_bigger(tmp_path):
+    """Round 2 closed the class, not the case: whatever the athlete said, the
+    week planned on the same history is never bigger than without it - in a
+    down week, a step, a held week or one after a lighter one."""
+    from runspector.store import Store
+
+    base = planning.CADENCE_EPOCH + timedelta(weeks=3) - timedelta(days=1)   # down week next
+    sundays = [base, base + timedelta(weeks=1)]
+    histories = [[200, 200, 200, 200], [200, 200, 200, 150], [120, 140, 160, 180], [300, 80, 300, 300]]
+    i = 0
+    for sunday in sundays:
+        for weeks in histories:
+            for name, said in _CHECK_INS.items():
+                i += 1
+                store = Store(tmp_path / f"w{i}.db")
+                _weeks(store, sunday + timedelta(days=1), weeks)
+                without, _, _ = plan._week_plan(store, sunday)
+                said(store, sunday)
+                with_, lines, _ = plan._week_plan(store, sunday)
+                assert with_ <= without, (name, weeks, sunday, without, with_, lines)
+
+
+def test_a_week_from_today_holds_no_run_today_while_the_athlete_is_ill(store, today):
+    """Round 2: a week starting today, planned while ill, filed an easy run for
+    today - the day the decision rests."""
+    monday = today - timedelta(days=today.weekday()) + timedelta(weeks=1)
+    _weeks(store, monday, [200, 200, 200, 200])
+    store.say_check_in("ill", monday)
+    p = plan.propose_week(store, start=monday, today=monday, days_per_week=5, long_run_day="sun")
+    days = _planned_kinds(p)
+    assert monday not in days, (days, p["preview"])
+    assert "no run today" in p["preview"], p["preview"]
+
+
+def test_a_cold_that_ran_out_and_is_said_again_is_one_illness(store, today):
+    """Fresh reader: "ill" on Monday, nothing until it ran out on Thursday,
+    "ill" again on Thursday, "over" on Saturday - the second tap began a new
+    illness, and two easy days followed six days ill."""
+    monday = today - timedelta(days=today.weekday()) + timedelta(weeks=1)
+    store.say_check_in("ill", monday)
+    assert store.say_check_in("ill", monday + timedelta(days=3)) == "said again"
+    assert store.end_check_in("ill", monday + timedelta(days=5)) == "over"
+    for ahead in range(5, 11):
+        _green(store, monday + timedelta(days=ahead))
+    calls = {ahead: _decision(store, monday + timedelta(days=ahead))["decision"]
+             for ahead in range(5, 11)}
+    # Ill Mon-Fri (5 days): Sat to Wed easy, Thursday may be hard again.
+    assert calls == {5: "easy", 6: "easy", 7: "easy", 8: "easy", 9: "easy", 10: "hard"}, calls
+
+
+def test_a_check_in_dated_back_into_an_ended_one_can_still_be_ended(store, today):
+    """Fresh reader: Wed "ill", Thu "over", Fri the coach records "ill since
+    Monday", Sat "over" - the Monday row could not be found to end, and the
+    weekend stayed REST."""
+    monday = today - timedelta(days=today.weekday()) + timedelta(weeks=1)
+    store.say_check_in("ill", monday + timedelta(days=2))
+    store.end_check_in("ill", monday + timedelta(days=3))
+    store.say_check_in("ill", monday + timedelta(days=4), since=monday)
+    assert store.end_check_in("ill", monday + timedelta(days=5)) == "over"
+    _green(store, monday + timedelta(days=5))
+    assert _decision(store, monday + timedelta(days=5))["decision"] == "easy"
+    assert len(store.check_ins(monday + timedelta(days=5))) == 1

@@ -21,7 +21,7 @@ import {
 } from "./ui.js";
 import { mountApp } from "./chassis.js";
 import {
-  addDays, axisX, bandSplit, barLabel, barScale, carryForward, chartPoints, chartScale, dataAge as ageOf, groupRunsByWeek, hardSessionToday as hardSessionOf, hasNoData, lastHardLabel, setupSteps, signInHere, coachReassurance as reassuranceFor, intensityHits, intensitySeries, isFirstRun, showSyncFailure, isRunning, isStrength, lightAddendum as lightAddendumOf, loadFocusPhrase, loadFocusRows, monotonyLine, garminReadinessLine, weightLine, syncOnReturn, NO_DATE, shortTitle, stepMarks, stepPath, todayIso, volumeAverageKm, volumeComparison, weekdayShort, weekIncomplete, weekLabel, weeksBetween, weekStart, zoneTimeParts,
+  addDays, axisX, bandSplit, barLabel, barScale, carryForward, chartPoints, chartScale, dataAge as ageOf, groupRunsByWeek, hardSessionToday as hardSessionOf, hasNoData, lastHardLabel, setupSteps, signInHere, coachReassurance as reassuranceFor, intensityHits, intensitySeries, isFirstRun, showSyncFailure, isRunning, isStrength, lightAddendum as lightAddendumOf, loadFocusPhrase, loadFocusRows, monotonyLine, garminReadinessLine, weightLine, syncOnReturn, checkInView, checkInToast, NO_DATE, shortTitle, stepMarks, stepPath, todayIso, volumeAverageKm, volumeComparison, weekdayShort, weekIncomplete, weekLabel, weeksBetween, weekStart, zoneTimeParts,
 } from "./logic.js";
 import { mountCards, mountJobs, jobPoller, todayCard, handle409,
          setCardContext } from "./cards.js";
@@ -128,6 +128,7 @@ function renderVerdict() {
               : `<div class="empty-note">No reasons in the data.</div>`}
     ${garminReadinessLine(t.signals) ? `<div class="note">${esc(garminReadinessLine(t.signals))}</div>` : ""}
     ${decisionHtml()}
+    ${checkInHtml()}
     ${todayCardHtml()}
     ${vo2LineHtml()}
     ${goal ? `<div class="goal-line">Goal: ${esc(String(goal))}</div>` : ""}`;
@@ -166,6 +167,46 @@ function decisionHtml() {
     <li><span><b>${esc(e.sentence || "")}</b>${esc(standing)}</span></li>
     ${stimulusHtml(e.stimulus)}
   </ul>`;
+}
+
+/* The athlete's own word: ill, pain, sore legs, stressed. The watch sees a
+   cold only once HRV reacts and never sees a sore calf - a tap here changes
+   today's call in code (`logic.check_in_state`), and the call above says so.
+   A pressed button says it again today; "It's over" ends it, and "Said by
+   mistake" takes back one tapped today. Shown also on a day without today's
+   values: the word does not need the watch. */
+function checkInHtml() {
+  const v = checkInView(D().check_ins, appToday(), fmtDay);
+  const busy = checkInBusy ? " disabled" : "";
+  return `<div class="check-in">
+    <div class="check-in-head"><span class="k">How are you?</span>
+      <div class="seg" role="group" aria-label="How are you?">${v.chips.map(c =>
+        `<button type="button" class="chip" data-check-in="${c.kind}" aria-pressed="${c.pressed}"${busy}>${
+          esc(c.label)}</button>`).join("")}</div></div>
+    ${v.lines.map(l => `<div class="goal-line">${esc(l.text)}${l.saidToday ? "" : " · not said today"}
+      ${l.ending ? "" : `<button type="button" class="linkish" data-check-in-over="${l.kind}"${busy}>It's over</button>`}${
+      l.undoable && !l.ending ? `<button type="button" class="linkish" data-check-in-undo="${l.kind}"${busy}>Said by mistake</button>` : ""}</div>`).join("")}
+    ${v.after ? `<div class="goal-line">${esc(v.after)}</div>` : ""}
+  </div>`;
+}
+
+let checkInBusy = false;
+
+async function sendCheckIn(kind, how) {
+  if (checkInBusy) return;
+  checkInBusy = true;
+  renderVerdict();
+  try {
+    const r = await apiPost("/api/check-in", how ? { kind, [how]: true } : { kind });
+    toast(checkInToast(kind, r.result));
+    await refresh().catch(() => {});
+  } catch (e) {
+    toast(e?.status === 400 && e.data?.error ? e.data.error : "Could not save - try again.",
+          { warn: true });
+  } finally {
+    checkInBusy = false;
+    renderVerdict();
+  }
 }
 
 /* WHICH hard session, on a hard day - the server's `next_stimulus`, read and
@@ -211,9 +252,16 @@ function vo2LineHtml() {
    the newest card is not from today, it says so — reading yesterday's card as
    today's is the same mistake as with the verdict itself. */
 function todayCardHtml() {
-  const h = todayCard(D().cards, appToday());
+  const h = todayCard(D().cards, appToday(), "train-today", D().check_in_changed_at);
   if (!h) return "";
   const c = h.card;
+  if (h.outdated) {
+    return `<div class="today-card">
+      <span class="k">Coach today · out of date</span>
+      <span>This card was written before what you said about yourself - the call above goes by
+        it. Ask again for a card on it.</span>
+      <a href="#coach">To the Coach tab →</a></div>`;
+  }
   if (!h.current) {
     return `<div class="today-card">
       <span class="k">Coach</span>
@@ -1537,6 +1585,15 @@ document.addEventListener("input", ev => {
 
 document.addEventListener("click", ev => {
   if (ev.target.closest("button[data-signin]")) { openSignin(); return; }
+  const said = ev.target.closest("button[data-check-in], button[data-check-in-over], "
+    + "button[data-check-in-undo]");
+  if (said) {
+    const ds = said.dataset;
+    if (ds.checkInOver) sendCheckIn(ds.checkInOver, "over");
+    else if (ds.checkInUndo) sendCheckIn(ds.checkInUndo, "undo");
+    else sendCheckIn(ds.checkIn, null);
+    return;
+  }
   if (ev.target.closest("button[data-signin-cancel]")) { signinDialog().close(); return; }
   const weekBtn = ev.target.closest("button[data-week-edit], button[data-week-cancel], "
     + "button[data-week-pick], button[data-week-reset], button[data-week-save], button[data-note-save]");

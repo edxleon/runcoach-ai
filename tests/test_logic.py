@@ -608,3 +608,147 @@ def test_identical_days_are_the_most_monotonous_week_not_an_error():
 @pytest.mark.parametrize("loads", [[], [50] * 6, [50] * 8, [0] * 7])
 def test_no_monotony_without_seven_days_or_without_any_load(loads):
     assert logic_mod.monotony(loads) is None
+
+
+# ── the athlete's own word ───────────────────────────────────────────────────
+
+def _ci(kind, since, last=None, over=None, note=None):
+    return {"kind": kind, "since": since, "last_said": last or since, "over": over, "note": note}
+
+
+def test_a_check_in_holds_its_lapse_days_from_the_last_word():
+    from runspector.logic import CHECK_IN_LAPSE_DAYS, check_in_state
+
+    d0 = date(2026, 6, 1)
+    for kind, lapse in CHECK_IN_LAPSE_DAYS.items():
+        rows = [_ci(kind, "2026-06-01")]
+        assert check_in_state(rows, d0 + timedelta(days=lapse - 1))["open"][0]["kind"] == kind
+        later = check_in_state(rows, d0 + timedelta(days=lapse))
+        assert later is None or not later["open"], (kind, later)
+
+
+def test_after_ill_or_pain_as_many_easy_days_as_it_held_at_most_a_week():
+    from runspector.logic import CHECK_IN_AFTER_MAX_DAYS, check_in_state
+
+    # Ill 1 June, over 4 June: three days ill, three easy days (4, 5, 6 June).
+    rows = [_ci("ill", "2026-06-01", "2026-06-03", over="2026-06-04")]
+    s = check_in_state(rows, date(2026, 6, 4))
+    assert not s["open"] and s["after"]["days"] == 3 and s["after"]["until"] == "2026-06-07"
+    assert s["after"]["ran_out"] is False
+    assert check_in_state(rows, date(2026, 6, 6))["after"] is not None
+    assert check_in_state(rows, date(2026, 6, 7)) is None
+    # Three weeks of pain: a week of easy days, no more.
+    rows = [_ci("pain", "2026-06-01", "2026-06-20", over="2026-06-22")]
+    s = check_in_state(rows, date(2026, 6, 22))
+    assert s["after"]["days"] == 21
+    assert s["after"]["until"] == (date(2026, 6, 22)
+                                   + timedelta(days=CHECK_IN_AFTER_MAX_DAYS)).isoformat()
+
+
+def test_sore_and_stressed_leave_no_easy_days_behind():
+    from runspector.logic import check_in_state
+
+    rows = [_ci("sore", "2026-06-01", over="2026-06-03"),
+            _ci("stressed", "2026-06-01", over="2026-06-03")]
+    assert check_in_state(rows, date(2026, 6, 3)) is None
+
+
+def test_a_check_in_said_for_a_later_day_or_of_an_unknown_kind_is_ignored():
+    from runspector.logic import check_in_state
+
+    assert check_in_state([_ci("ill", "2026-06-05")], date(2026, 6, 4)) is None
+    assert check_in_state([_ci("tired", "2026-06-04")], date(2026, 6, 4)) is None
+
+
+def test_the_open_states_come_newest_first_and_the_latest_after_wins():
+    from runspector.logic import check_in_state
+
+    rows = [_ci("stressed", "2026-06-01", "2026-06-04"), _ci("sore", "2026-06-03"),
+            _ci("ill", "2026-05-27", "2026-05-29", over="2026-06-01"),  # 5 days: easy to 5 June
+            _ci("pain", "2026-06-01", over="2026-06-03")]      # 2 days: easy to 4 June
+    s = check_in_state(rows, date(2026, 6, 4))
+    assert [c["kind"] for c in s["open"]] == ["sore", "stressed"]
+    assert s["after"]["kind"] == "ill" and s["after"]["until"] == "2026-06-06"
+
+
+def test_an_open_ill_rests_a_day_whatever_the_light_and_without_a_verdict():
+    from runspector.logic import check_in_state, decide_today
+
+    today = date(2026, 6, 4)
+    said = check_in_state([_ci("ill", "2026-06-03")], today)
+    for verdict in ("GO", "EASY", "REST", None):
+        d = decide_today(verdict, days_since_hard=None, hard_min=0, target_min=0,
+                         stimulus={"kind": "vo2max", "reason": "r"}, today=today,
+                         check_ins=said)
+        assert d["decision"] == "rest" and d["reason"] == "check-in ill", (verdict, d)
+        assert "stimulus" not in d and "since Wed 03 Jun" in d["sentence"], d
+
+
+def test_sore_or_the_days_after_only_take_a_hard_session_away():
+    from runspector.logic import check_in_state, decide_today
+
+    today = date(2026, 6, 4)
+    for rows, reason in (([_ci("sore", "2026-06-04")], "check-in sore"),
+                         ([_ci("ill", "2026-06-01", over="2026-06-03")], "after ill")):
+        said = check_in_state(rows, today)
+        hard = decide_today("GO", days_since_hard=None, hard_min=0, target_min=0,
+                            stimulus={"kind": "vo2max", "reason": "r"}, today=today,
+                            check_ins=said)
+        assert hard["decision"] == "easy" and hard["reason"] == reason, hard
+        assert "stimulus" not in hard
+        # A rest day stays a rest day; an unknown day stays unknown.
+        assert decide_today("REST", days_since_hard=None, hard_min=0, target_min=0,
+                            today=today, check_ins=said)["decision"] == "rest"
+        assert decide_today(None, days_since_hard=None, hard_min=0, target_min=0,
+                            today=today, check_ins=said)["decision"] == "unknown"
+
+
+def test_the_earliest_hard_day_after_the_athletes_word():
+    from runspector.logic import check_in_hard_from, check_in_state, check_in_words
+
+    today = date(2026, 6, 7)                                   # a Sunday
+    assert check_in_hard_from(None, today) is None
+    # Pain since Friday, still there: "over" on Monday at the earliest, then
+    # as many easy days as Fri-Sun.
+    s = check_in_state([_ci("pain", "2026-06-05", "2026-06-07")], today)
+    assert check_in_hard_from(s, today) == date(2026, 6, 11)
+    assert check_in_words(s, today) == "you said you are in pain (since Fri 05 Jun)"
+    # Sore since today: until it runs out.
+    s = check_in_state([_ci("sore", "2026-06-07")], today)
+    assert check_in_hard_from(s, today) == date(2026, 6, 9)
+    # Ended: the end of its easy days.
+    s = check_in_state([_ci("ill", "2026-06-03", "2026-06-05", over="2026-06-07")], today)
+    assert check_in_hard_from(s, today) == date(2026, 6, 11)
+    assert check_in_words(s, today) == "you were ill for 4 days until Sun 07 Jun"
+
+
+def test_check_in_blocks_is_the_one_gate():
+    from runspector.logic import NO_RUN_TODAY, check_in_blocks, check_in_state
+
+    today = date(2026, 6, 7)
+    ill = check_in_state([_ci("ill", "2026-06-06", "2026-06-07")], today)
+    assert check_in_blocks(ill, today, today, hard=False) == NO_RUN_TODAY
+    assert check_in_blocks(ill, today, today + timedelta(days=1), hard=False) is None
+    # Ill Sat and Sun, over on Monday at the earliest: Mon and Tue easy.
+    assert check_in_blocks(ill, today, today + timedelta(days=1), hard=True) == \
+        "no hard session before Wed 10 Jun"
+    assert check_in_blocks(ill, today, date(2026, 6, 10), hard=True) is None
+    sore = check_in_state([_ci("sore", "2026-06-07")], today)
+    assert check_in_blocks(sore, today, today, hard=False) is None
+    assert check_in_blocks(None, today, today, hard=True) is None
+
+
+def test_when_a_word_said_again_continues_the_episode():
+    from runspector.logic import check_in_continues as cont
+
+    d = date
+    # Ill said on 1 Jun only: ran out on 4 Jun, three easy days to 7 Jun.
+    assert cont("ill", "2026-06-01", "2026-06-01", None, d(2026, 6, 3), d(2026, 6, 3))   # holds
+    assert cont("ill", "2026-06-01", "2026-06-01", None, d(2026, 6, 4), d(2026, 6, 4))   # ran out
+    assert cont("ill", "2026-06-01", "2026-06-01", None, d(2026, 6, 6), d(2026, 6, 6))   # easy days
+    assert not cont("ill", "2026-06-01", "2026-06-01", None, d(2026, 6, 7), d(2026, 6, 7))
+    # Dated back into it, long after: the same episode.
+    assert cont("ill", "2026-06-01", "2026-06-01", None, d(2026, 6, 9), d(2026, 6, 2))
+    # Sore legs leave no easy days: only the day it ran out still continues it.
+    assert cont("sore", "2026-06-01", "2026-06-01", None, d(2026, 6, 3), d(2026, 6, 3))
+    assert not cont("sore", "2026-06-01", "2026-06-01", None, d(2026, 6, 4), d(2026, 6, 4))

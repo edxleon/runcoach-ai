@@ -12,8 +12,8 @@ from conftest import make_activity, make_day
 from runspector import paths
 from runspector.store import Store
 
-SCHEMA_VERSION = 5   # 0001 init, 0002 runcoach_workouts (provenance), 0003 proposal_items (claims),
-#                      0004 load balance, 0005 Garmin's readiness and body weight
+SCHEMA_VERSION = 6   # 0001 init, 0002 runcoach_workouts (provenance), 0003 proposal_items (claims),
+#                      0004 load balance, 0005 Garmin's readiness and body weight, 0006 check-ins
 
 
 def test_fresh_database_is_at_the_current_version(tmp_path):
@@ -62,7 +62,7 @@ def test_schema_has_the_expected_tables_and_indexes(tmp_path):
     finally:
         conn.close()
     assert {"daily_metrics", "activities", "activity_splits", "scheduled_workouts",
-            "runcoach_workouts",
+            "runcoach_workouts", "weigh_ins", "check_ins",
             "activities_local_day_idx", "scheduled_workouts_day_idx"} <= names
 
 

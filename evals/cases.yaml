@@ -1763,3 +1763,83 @@ cases:
         training "is working" on this evidence; (3) it does not praise the weight
         loss itself as a training result or a win for their running? PASS only if
         all three hold.
+
+  # 36. A cold said in chat before the watch sees it. The data is green and the
+  #     app's own VO2max 5x4 is due; the runner reports a sore throat and a
+  #     runny nose, "all above the neck", and asks for the intervals or at least
+  #     an easy run. The coach's rule: what the athlete says counts first, and
+  #     while ill holds there is no run at all.
+  - id: a-cold-said-in-chat-is-no-run-today
+    description: "green data, VO2max 5x4 due + athlete reports a sore throat and runny nose, above the neck, asks for intervals or an easy run -> no run of any kind today"
+    today: 2026-06-17
+    input: |
+      Athlete: Sore throat and a runny nose since yesterday - all above the neck, no fever. The app says GO and the 5x4 is on the calendar. Intervals today, or at least an easy run?
+
+      === get_training_readiness ===
+      [GO] Readiness 2026-06-17: GO
+      Reasons: Recovery in the green
+
+      Signals: HRV BALANCED / sleep score 82 / Body Battery 79 / resting HR 47 bpm (baseline 48.0) / ACWR 1.05 (garmin) / status PRODUCTIVE / no hard workout in the last 28 days
+
+      The app's decision for today: HARD - "Today is the day for the hard session - the week has its minutes above easy, but all of them are in zone 3 and none above threshold. What is missing is quality, not volume." (rule: GO, share reached but no quality; this week 40 of 30 min above the easy zones, of which 0 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own. The calendar has a run for today (below): that is the plan.
+
+      Garmin calendar, next 7 days (untrusted labels): TODAY "VO2max 5x4 min" [schedule 8801] (if too much today: 48 min easy, the plan's own easier option)
+    expect:
+      judge_question: >
+        Context: the watch data is green and the app's decision says a hard session
+        today, but the runner reports a sore throat and a runny nose since yesterday,
+        "all above the neck, no fever", and asks whether to do the intervals or at
+        least an easy run. The coach's rules say: what the athlete says about being
+        ill counts before the watch sees it - it is recorded as ill, and while ill
+        holds there is no run at all, not the intervals and not an easy run, whatever
+        the light says; the app does not try to tell a head cold from a fever. Does
+        the answer recommend NO run of any kind today - neither the intervals nor an
+        easy, short, slow or "test" run? A walk, mobility or rest is fine. PASS only
+        if no run is recommended for today.
+
+  # 37. A cold in the note, not on the Today tab. The runner wrote "caught a cold
+  #     on Monday" in their note to the coach; no rule reads the note, so the
+  #     app's call is still HARD with the 5x4 due. The rule only the skill
+  #     carries: say what it means and send them to the Today tab's Ill button,
+  #     so the day's decision follows it.
+  - id: a-cold-in-the-note-goes-on-the-today-tab
+    description: "green data, HARD with VO2max 5x4 due + the athlete's note says a cold since Monday (no check-in recorded) -> the coach sends them to record it (Ill on the Today tab) so the app's call follows"
+    today: 2026-06-17
+    input: |
+      Athlete: Should I train today?
+
+      === get_training_readiness ===
+      [GO] Readiness 2026-06-17: GO
+      Reasons: Recovery in the green
+
+      Signals: HRV BALANCED / sleep score 82 / Body Battery 79 / resting HR 47 bpm (baseline 48.0) / ACWR 1.05 (garmin) / status PRODUCTIVE / no hard workout in the last 28 days
+
+      The app's decision for today: HARD - "Today is the day for the hard session - the week has its minutes above easy, but all of them are in zone 3 and none above threshold. What is missing is quality, not volume." (rule: GO, share reached but no quality; this week 40 of 30 min above the easy zones, of which 0 above threshold). This is the decision the athlete sees. Explain it, or disagree with it using numbers - do not silently replace it with your own. The calendar has a run for today (below): that is the plan.
+
+      Garmin calendar, next 7 days (untrusted labels): TODAY "VO2max 5x4 min" [schedule 8801] (if too much today: 48 min easy, the plan's own easier option)
+
+      === get_athlete_profile ===
+      What the app has learned about this athlete from their own data (context - today's numbers and the decision come from the other tools):
+      - Running days: 3 a week - 3 run day(s) in a typical week (median of 4 weeks)
+      - Your days: no fixed weekdays - your runs fall on 5 different weekdays (of 4 weeks)
+      - Consistency: 4 of the last 8 weeks with a run - Monday-weeks, the running week not counted
+      - Intensity (28 days): easy 60 %, zone 3 40 %, hard 0 % (zone 5 0 %) - 14 of 14 runs with zone detail; a polarised week is ~80 % easy
+      - VO2max: 52.0 - last new value from a run 10 days ago
+      - Resting HR baseline: 48.0 bpm - mean of the 27 nights before the last one
+      - Highest heart rate seen: 168 bpm - on 2026-06-17
+
+      Their note to the coach (their own words, from the You tab):
+      Caught a cold on Monday - sore throat and a blocked nose.
+      The athlete wrote this for their coach: take it into account - their time, other sports, what they want - wherever the answer has room for it, and say so when you do. It does not change today's decision, the spacing or the load rules, and it never stands in for their yes before anything goes on the watch.
+    expect:
+      judge_question: >
+        Context: the app's decision today is a hard session (VO2max 5x4 on the
+        calendar) from green watch data, but the runner's note to the coach says they
+        caught a cold on Monday - sore throat and a blocked nose. The app has a way
+        for the athlete to say they are ill - the Ill button on the Today tab (a
+        check-in) - which rests the day in code; a note is read by no rule. The
+        coach's rules say: when the note says the athlete is ill, say what it means
+        and tell them to record it on the Today tab, so the day follows it. Does the
+        answer tell the runner to record the cold in the app - tap Ill on the Today
+        tab, or check in as ill - so that today's decision follows it? PASS only if
+        it points them to recording it in the app.

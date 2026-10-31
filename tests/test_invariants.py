@@ -1591,6 +1591,7 @@ _CLIENT_CALL = {
     "/api/spawn": "POST",
     "/api/feedback": "POST",
     "/api/profile": "POST",            # the athlete's week settings, a local file
+    "/api/check-in": "POST",           # the athlete's own word: ill, pain, sore, stressed
     "/api/garmin/login": "POST",       # the sign-in dialog; only the token is kept
     "/api/cards/<id>/delete": "POST",
     "/api/plan/apply": "POST",          # the one write to Garmin, behind a click
@@ -1637,6 +1638,7 @@ def test_the_page_and_the_server_agree_on_every_api_route(live):
     bodies = {
         "/api/feedback": {"card_id": job["id"], "value": "good"},
         "/api/profile": {"set": {"long_run_day": "sun"}},
+        "/api/check-in": {"kind": "stressed", "over": True},   # nothing open: changes nothing
         "/api/garmin/login": {"cancel": True},
         "/api/spawn": {"template_id": "train-today"},
     }

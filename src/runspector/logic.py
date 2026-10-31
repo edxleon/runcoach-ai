@@ -131,6 +131,7 @@ def decide_today(
     quality_min: int | None = None, quality_s: int | None = None,
     week_start: str | None = None, stimulus: dict | None = None,
     comeback_state: dict | None = None, today: date | None = None,
+    check_ins: dict | None = None,
 ) -> dict:
     """`_decide_today`, plus WHICH hard session when the day is hard.
 
@@ -138,10 +139,19 @@ def decide_today(
     branch only, as a recommendation under the decision, so every surface
     that reads the decision dict - the Today tab, the readiness tool, the
     coach - names the same session. The decision itself is untouched: the
-    light and the week's share decide hard/easy/rest, the stimulus never does."""
+    light and the week's share decide hard/easy/rest, the stimulus never does.
+
+    `check_ins` is `check_in_state`'s answer: what the athlete said about
+    themselves. Its own step HERE, after the light, and not a signal inside
+    `readiness_verdict` - the athlete says it in the morning, often before
+    the watch has synced a value, and a day without today's values has no
+    verdict to put a flag on. So an open `ill` or `pain` rests the day even
+    when the light cannot be called."""
     out = _decide_today(verdict, days_since_hard=days_since_hard, hard_min=hard_min,
                         target_min=target_min, quality_min=quality_min, quality_s=quality_s,
                         week_start=week_start)
+    if check_ins and today is not None and _apply_check_ins(out, check_ins, today):
+        return out
     # After a pause the first runs back are easy, whatever the light and the
     # week's share say: "below its hard share" after three weeks off is a week
     # of nothing, not a reason for intervals. The same threshold that makes
@@ -153,6 +163,193 @@ def decide_today(
     if stimulus and out["decision"] == "hard":
         out["stimulus"] = {"kind": stimulus.get("kind"), "reason": stimulus.get("reason")}
     return out
+
+
+# ── The athlete's own word ───────────────────────────────────────────────────
+
+#: What the athlete can say about themselves - the Today tab's buttons, the
+#: `check_in` tool. The watch sees an illness only once HRV reacts and never
+#: sees a sore calf; these are the athlete's word for both.
+CHECK_IN_KINDS = ("ill", "pain", "sore", "stressed")
+#: The two that stop the run: the day is REST while one is open, whatever the
+#: light says. Running through a cold or a pain is the mistake a coach exists
+#: to prevent; the app does not try to tell a head cold from a fever.
+STOPS_RUNNING = ("ill", "pain")
+#: How long a check-in holds without a new word, counted from the last day it
+#: was said. A cold or a pain said once is most likely still there the next
+#: two mornings; a sore leg (muscle soreness peaks 24-72 h after the session
+#: and fades within days) gets two. Past that the app cannot know, and an
+#: open state nobody confirms would keep a well athlete off their feet - so it
+#: runs out, and for `ill` and `pain` the easy days below follow as if the
+#: athlete had said it was over.
+CHECK_IN_LAPSE_DAYS = {"ill": 3, "pain": 3, "sore": 2, "stressed": 3}
+#: After `ill` or `pain`: as many days without a hard session as it was open
+#: (the practitioners' "one easy day for every day sick"), at most a week -
+#: past that the pause itself makes the return week (`comeback`).
+CHECK_IN_AFTER_MAX_DAYS = 7
+#: The words for each kind in a sentence: "you said you are ill".
+CHECK_IN_WORDS = {"ill": "ill", "pain": "in pain", "sore": "sore", "stressed": "stressed"}
+
+
+def _day(value) -> date:
+    return value if isinstance(value, date) else date.fromisoformat(str(value))
+
+
+def check_in_end(kind: str, last_said, over=None) -> date:
+    """The first day a check-in no longer holds: the day the athlete said it
+    was over, or the day it runs out without a new word."""
+    return _day(over) if over else _day(last_said) + timedelta(days=CHECK_IN_LAPSE_DAYS[kind])
+
+
+def check_in_continues(kind: str, since, last_said, over, day: date, first: date) -> bool:
+    """Does `kind` said on `day` (beginning `first`) continue this episode
+    rather than start a new one? Yes while it holds, when the new beginning
+    reaches back into it, on the day it ran out or was ended - and for `ill`
+    and `pain` while its easy days are still running. A cold that ran out
+    without a word and is said again is the same cold: as a new one its days
+    before were dropped, and too few easy days followed six days ill."""
+    end = check_in_end(kind, last_said, over)
+    if first < end or day <= end:
+        return True
+    if kind not in STOPS_RUNNING:
+        return False
+    days = max(1, (end - _day(since)).days)
+    return day < end + timedelta(days=min(days, CHECK_IN_AFTER_MAX_DAYS))
+
+
+def check_in_state(rows: list[dict], today: date) -> dict | None:
+    """What the athlete's check-ins mean today: `open` (each kind that holds
+    today, newest first) and `after` (the easy days behind an `ill` or `pain`
+    that ended), or `None` when nothing applies.
+
+    `rows`: dicts with `kind`, `since`, `last_said`, `over` (None while open)
+    and `note`. A row that has not started yet (said for a later day) is
+    ignored."""
+    open_: dict[str, dict] = {}
+    after: dict | None = None
+    for r in rows:
+        kind = r.get("kind")
+        if kind not in CHECK_IN_KINDS:
+            continue
+        since, last = _day(r["since"]), _day(r["last_said"])
+        if since > today:
+            continue
+        end = check_in_end(kind, last, r.get("over"))
+        if since <= today < end:
+            item = {"kind": kind, "since": since.isoformat(), "last_said": last.isoformat(),
+                    "note": r.get("note"), "until": end.isoformat(),
+                    "over": _day(r["over"]).isoformat() if r.get("over") else None}
+            if kind not in open_ or open_[kind]["since"] < item["since"]:
+                open_[kind] = item
+        elif kind in STOPS_RUNNING and end <= today:
+            days = max(1, (end - since).days)
+            until = end + timedelta(days=min(days, CHECK_IN_AFTER_MAX_DAYS))
+            if today < until and (after is None or after["until"] < until.isoformat()):
+                after = {"kind": kind, "since": since.isoformat(), "ended": end.isoformat(),
+                         "days": days, "until": until.isoformat(), "ran_out": not r.get("over")}
+    if not open_ and after is None:
+        return None
+    return {"open": sorted(open_.values(), key=lambda c: c["since"], reverse=True),
+            "after": after}
+
+
+def check_in_hard_from(state: dict | None, today: date) -> date | None:
+    """The first day the athlete's word allows a hard session again, as far as
+    `today` can see: after an `ill` or `pain` that ended, the end of its easy
+    days; for one that still holds, the end of the easy days had the athlete
+    said it was over tomorrow - the earliest the day rule could allow one; for
+    `sore` and `stressed`, the day they run out. `None` when nothing holds a
+    hard session back. The week planner reads it, so a week planned now never
+    gives the watch a session the day's decision is bound to call off."""
+    if not state:
+        return None
+    days = []
+    if state.get("after"):
+        days.append(_day(state["after"]["until"]))
+    tomorrow = today + timedelta(days=1)
+    for c in state.get("open") or []:
+        if c["kind"] in STOPS_RUNNING:
+            held = max(1, (tomorrow - _day(c["since"])).days)
+            days.append(tomorrow + timedelta(days=min(held, CHECK_IN_AFTER_MAX_DAYS)))
+        else:
+            days.append(_day(c["until"]))
+    return max(days) if days else None
+
+
+#: `check_in_blocks`' answer when nothing may be run on that day at all.
+NO_RUN_TODAY = "no run today"
+
+
+def check_in_blocks(state: dict | None, today: date, day: date, *, hard: bool) -> str | None:
+    """Why the athlete's word allows no session (`hard` or not) on `day`, as
+    `today` sees it, or `None` when it allows one. THE gate: a single
+    proposal and the week planner both ask it, so neither can file what the
+    other refuses. Ill or in pain today: no run today at all. A hard session
+    before `check_in_hard_from`: none."""
+    if not state:
+        return None
+    if day == today and any(c["kind"] in STOPS_RUNNING for c in state.get("open") or []):
+        return NO_RUN_TODAY
+    first = check_in_hard_from(state, today)
+    if hard and first is not None and day < first:
+        return f"no hard session before {first:%a %d %b}"
+    return None
+
+
+def check_in_words(state: dict | None, today: date) -> str | None:
+    """What holds a hard session back, as the planner's lines say it: "you
+    said you are in pain (since Fri 12 Jun)", "you were ill for 4 days"."""
+    if not state:
+        return None
+    opened = state.get("open") or []
+    stop = next((c for c in opened if c["kind"] in STOPS_RUNNING), None)
+    if stop:
+        return f"you said you are {CHECK_IN_WORDS[stop['kind']]}{_since_words(stop, today)}"
+    a = state.get("after")
+    if a:
+        return (f"you were {CHECK_IN_WORDS[a['kind']]} for {a['days']} "
+                f"day{'s' if a['days'] != 1 else ''} until {_day(a['ended']):%a %d %b}")
+    if opened:
+        return f"you said you are {CHECK_IN_WORDS[opened[0]['kind']]}{_since_words(opened[0], today)}"
+    return None
+
+
+def _since_words(item: dict, today: date) -> str:
+    since = _day(item["since"])
+    return "" if since >= today else f" (since {since:%a %d %b})"
+
+
+def _apply_check_ins(out: dict, state: dict, today: date) -> bool:
+    """`decide_today`'s step for the athlete's word, in place. True when it
+    decided the day outright (an open `ill` or `pain`): nothing after it may
+    turn that back. The others only take a hard session away, never add one."""
+    opened = state.get("open") or []
+    stop = next((c for c in opened if c["kind"] in STOPS_RUNNING), None)
+    if stop:
+        said = "you are ill" if stop["kind"] == "ill" else "something hurts"
+        out.update(decision="rest", reason=f"check-in {stop['kind']}",
+                   sentence=(f"Rest today - you said {said}{_since_words(stop, today)}. No run "
+                             f"until it is over, and the first days back are easy."))
+        return True
+    if out["decision"] != "hard":
+        return False
+    soft = next((c for c in opened if c["kind"] not in STOPS_RUNNING), None)
+    if soft:
+        why = ("your legs are sore" if soft["kind"] == "sore" else "you are stressed")
+        tail = ("the hard session waits until they are not" if soft["kind"] == "sore"
+                else "stress slows recovery, so the hard session waits")
+        out.update(decision="easy", reason=f"check-in {soft['kind']}",
+                   sentence=f"Easy today - you said {why}{_since_words(soft, today)}; {tail}.")
+        return False
+    after = state.get("after")
+    if after:
+        was = "ill" if after["kind"] == "ill" else "in pain"
+        out.update(decision="easy", reason=f"after {after['kind']}",
+                   sentence=(f"Easy today - you were {was} for {after['days']} "
+                             f"day{'s' if after['days'] != 1 else ''}; as many easy days follow "
+                             f"before the hard sessions come back, from "
+                             f"{_day(after['until']):%a %d %b}."))
+    return False
 
 
 def _decide_today(

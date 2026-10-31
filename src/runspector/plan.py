@@ -440,6 +440,15 @@ def propose(store: Store, kind: str, *, distance_km: float | None = None,
         kind, distance_km=distance_km, duration_min=duration_min, zones=zones, name=name,
         today=anchor))
     target = day or anchor
+    # The athlete's word holds sessions back in code, not only in the coach's
+    # prompt: the day rule would call these off anyway (`logic.check_in_blocks`,
+    # the gate the week planner asks too).
+    said = snapshot.check_in_state(store, anchor)
+    blocked = logic.check_in_blocks(said, anchor, target, hard=kind in planning.HARD_KINDS)
+    if blocked:
+        raise ValueError(f"{blocked}: {logic.check_in_words(said, anchor)}"
+                         + (" - nothing is filed while it holds"
+                            if blocked == logic.NO_RUN_TODAY else ""))
     return _file([_item(target, spec)],
                  replaces=_calendar_entries(store, list(replaces or []), today=anchor),
                  assumptions=spacing_notes(store, target, kind, today=anchor), zones=zones)
@@ -515,6 +524,26 @@ def propose_week(store: Store, *, start: date | None = None, days_per_week: int 
                                           day_caps=known.short_days if mode != "return" else None)
     if any(n.startswith("kept to your short days") for n in notes) and known.evidence.get("short"):
         notes.append(known.evidence["short"])
+    # What the athlete's word allows, asked of the same gate a single proposal
+    # asks (`logic.check_in_blocks`): no run today while ill or in pain, no
+    # hard session before the earliest day it may come back. A week planned now
+    # gives the watch nothing the day's decision would call off. (One applied
+    # from an older proposal is the day rule's to swap.)
+    said = snapshot.check_in_state(store, anchor)
+
+    def blocked(day, spec):
+        return logic.check_in_blocks(said, anchor, day, hard=spec.kind in planning.HARD_KINDS)
+
+    gone = [f"{d:%a} {s.name}" for d, s in sessions if blocked(d, s) == logic.NO_RUN_TODAY]
+    if gone:
+        sessions = [(d, s) for d, s in sessions if blocked(d, s) != logic.NO_RUN_TODAY]
+        notes.append(f"no run today: {logic.check_in_words(said, anchor)} - {'; '.join(gone)} "
+                     f"not planned")
+    sessions, eased = planning.easy_where(sessions, lambda d, s: blocked(d, s) is not None,
+                                          zones=zones, budget=budget)
+    if eased:
+        notes.append(f"easy until {logic.check_in_hard_from(said, anchor):%a %d %b}: "
+                     f"{logic.check_in_words(said, anchor)} - {'; '.join(eased)}")
     if cap_line and any(n.startswith("sessions capped") for n in notes):
         notes = [cap_line if n.startswith("sessions capped") else n for n in notes]
     # Fitted to the calendar, never stacked on it: the athlete's plan wins.
@@ -698,6 +727,13 @@ def _week_plan(store: Store, today: date, start: date | None = None, *,
     f_mono, mono_line = planning.monotony_brake(snapshot.monotony_state(store, today))
     if mono_line:
         rules.append((f_mono, mono_line, "hold"))
+    # The athlete's word: ill or in pain, now or just behind them - no step up.
+    said = snapshot.check_in_state(store, today)
+    stopped = said and (said.get("after") or any(
+        c["kind"] in logic.STOPS_RUNNING for c in said.get("open") or []))
+    if stopped:
+        rules.append((planning.WEEK_HOLD, f"hold: {logic.check_in_words(said, today)} - no step "
+                                          f"up the week of it", "hold"))
     due, line = planning.down_week_due(monday)
     if due and not rebuilding:
         rules.append((planning.WEEK_DOWN, line, "down"))

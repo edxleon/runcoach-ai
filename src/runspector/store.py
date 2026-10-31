@@ -22,9 +22,12 @@ from pathlib import Path
 
 from . import paths
 from .logic import (
+    CHECK_IN_KINDS,
     HARD_AEROBIC_TE,
     LONG_RUN_MIN_SECONDS,
     QUALITY_ANAEROBIC_TE,
+    check_in_continues,
+    check_in_end,
     interval_facts,
     readiness_verdict,
 )
@@ -277,6 +280,109 @@ class Store:
             rows = conn.execute("SELECT day, weight_kg FROM weigh_ins WHERE day BETWEEN ? AND ? "
                                 "ORDER BY day", (_v(start), _v(end))).fetchall()
         return [(_d(r["day"]), float(r["weight_kg"])) for r in rows]
+
+    # ── The athlete's own word ──────────────────────────────
+
+    def check_ins(self, today: date, days: int = 30) -> list[dict]:
+        """The check-ins that can still matter today: said or ended in the last
+        `days` days (one holds at most a few days past its last word, and its
+        easy days at most a week past its end). Taken-back ones are not read."""
+        cut = _v(today - timedelta(days=days))
+        with self._conn() as conn:
+            return conn.execute(
+                "SELECT kind, since, last_said, over, note FROM check_ins "
+                "WHERE taken_back = 0 AND COALESCE(over, last_said) >= ? AND since <= ? "
+                "ORDER BY since, id", (cut, _v(today))).fetchall()
+
+    def last_check_in_change(self) -> str | None:
+        """UTC time of the latest check-in change, taken-back ones included - an
+        input of every coach card, like the sync."""
+        with self._conn() as conn:
+            row = conn.execute("SELECT MAX(changed_at) AS c FROM check_ins").fetchone()
+        return row["c"] if row else None
+
+    def _episodes(self, conn, kind: str, day: date) -> list[dict]:
+        """The rows of `kind` begun by `day`, newest first."""
+        return conn.execute("SELECT id, since, last_said, over, note FROM check_ins "
+                            "WHERE kind = ? AND taken_back = 0 AND since <= ? "
+                            "ORDER BY since DESC, id DESC", (kind, _v(day))).fetchall()
+
+    def _open_check_in(self, conn, kind: str, day: date) -> dict | None:
+        """The row of `kind` that holds on `day`, if one does - any of them, not
+        only the newest: a word dated back can begin before an older row."""
+        return next((r for r in self._episodes(conn, kind, day)
+                     if day < check_in_end(kind, r["last_said"], r["over"])), None)
+
+    def _continued(self, conn, kind: str, day: date, first: date) -> dict | None:
+        """The episode `kind` said on `day`, beginning `first`, continues
+        (`logic.check_in_continues`), if any."""
+        return next((r for r in self._episodes(conn, kind, day)
+                     if check_in_continues(kind, r["since"], r["last_said"], r["over"], day, first)),
+                    None)
+
+    def say_check_in(self, kind: str, day: date, note: str | None = None,
+                     since: date | None = None) -> str:
+        """The athlete says `kind` on `day`: it holds again from today (`said
+        again`), or starts (`new`). Saying it again also undoes an "over" -
+        one said for tomorrow, or one said today and then taken back by
+        saying the kind again: the episode keeps its first day, so its easy
+        days afterwards are not cut short; so does saying it again after it
+        ran out while its easy days still run (`logic.check_in_continues`).
+        A note replaces the one before;
+        without one the old note stays. `since` is the day it began when the
+        athlete says so ("since yesterday"); an episode only reaches further
+        back with it, never forward. Validation is the caller's."""
+        if kind not in CHECK_IN_KINDS:
+            raise ValueError(f"unknown check-in: {kind}")
+        now = _now()
+        with self._conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")     # the page and the MCP server are two processes
+            first = min(since or day, day)
+            r = self._open_check_in(conn, kind, day) or self._continued(conn, kind, day, first)
+            first = _v(first)
+            if r is not None:
+                conn.execute("UPDATE check_ins SET last_said = MAX(last_said, ?), over = NULL, "
+                             "since = MIN(since, ?), note = COALESCE(?, note), changed_at = ? "
+                             "WHERE id = ?", (_v(day), first, note, now, r["id"]))
+                return "said again"
+            conn.execute("INSERT INTO check_ins (kind, since, last_said, note, created_at, "
+                         "changed_at) VALUES (?, ?, ?, ?, ?, ?)",
+                         (kind, first, _v(day), note, now, now))
+            return "new"
+
+    def end_check_in(self, kind: str, day: date) -> str:
+        """The athlete says `kind` is over on `day`: `over` - it no longer
+        holds from today - or `over tomorrow` when it was said only today: it
+        held today, so today keeps it and tomorrow is the first day back. A
+        pain gone by the evening is still a pain that morning. `none` when
+        nothing of that kind holds."""
+        if kind not in CHECK_IN_KINDS:
+            raise ValueError(f"unknown check-in: {kind}")
+        with self._conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            r = self._open_check_in(conn, kind, day)
+            if r is None:
+                return "none"
+            same_day = _d(r["since"]) >= day
+            over = day + timedelta(days=1) if same_day else day
+            conn.execute("UPDATE check_ins SET over = ?, changed_at = ? WHERE id = ?",
+                         (_v(over), _now(), r["id"]))
+            return "over tomorrow" if same_day else "over"
+
+    def take_back_check_in(self, kind: str, day: date) -> str:
+        """A tap by mistake: the check-in of `kind` said on `day` is undone as if
+        never said (`taken back`). Only on the day it started - after that it
+        has held for a day, and only "over" can end it. `none` otherwise."""
+        if kind not in CHECK_IN_KINDS:
+            raise ValueError(f"unknown check-in: {kind}")
+        with self._conn() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            r = self._open_check_in(conn, kind, day)
+            if r is None or _d(r["since"]) != day:
+                return "none"
+            conn.execute("UPDATE check_ins SET taken_back = 1, changed_at = ? WHERE id = ?",
+                         (_now(), r["id"]))
+            return "taken back"
 
     def update_daily_fields(self, day: date, fields: dict) -> int:
         """Set profile columns on an EXISTING day row. Never INSERT (a profile

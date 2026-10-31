@@ -2,7 +2,7 @@
 
 [![ci](https://github.com/edxleon/runspector/actions/workflows/ci.yml/badge.svg)](https://github.com/edxleon/runspector/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/runspector)](https://pypi.org/project/runspector/)
-[![evals 35/35](https://img.shields.io/badge/evals-35%2F35-brightgreen)](evals/RESULTS.md)
+[![evals 34/37](https://img.shields.io/badge/evals-34%2F37-yellow)](evals/RESULTS.md)
 [![license MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![website](https://img.shields.io/badge/website-edxleon.github.io%2Frunspector-blue)](https://edxleon.github.io/runspector/)
 
@@ -56,7 +56,7 @@ actually about — each with the measurement behind it — are in
 [in the repo](evals/RESULTS.md) · quantities that exist in two languages are pinned by
 [executing the shipped JavaScript against the Python](tests/test_js_python_contract.py) · and the
 [release gate](scripts/pii_gate.py) scans binaries too, with a false-positive counter-case. CI runs lint,
-1086 tests, 85 frontend tests and that gate on three operating systems and two Python versions, with every
+1147 tests, 90 frontend tests and that gate on three operating systems and two Python versions, with every
 action pinned to a commit SHA — and a second job that [builds the wheel, installs it as a user would and
 drives the installed executable through this quick start](scripts/install_check.py) on all three systems,
 because the suite proves the code and only an install proves the package.</sub>
@@ -96,9 +96,10 @@ since everything except the coach cards works without it.
 
 ### Garmin MCP server for Claude Code and Claude Desktop
 
-The same data, and the same rules, as an MCP server with 16 tools - among them today's readiness verdict, recovery,
+The same data, and the same rules, as an MCP server with 17 tools - among them today's readiness verdict, recovery,
 training load, recent runs, intensity distribution, the VO2max history, what the coach has learned about
-you, a Garmin sync - and propose, apply and undo for a workout on your watch.
+you, a Garmin sync, a check-in when you say you are ill or hurt - and propose, apply and undo for a
+workout on your watch.
 
 ```bash
 claude mcp add runspector -- runspector mcp
@@ -288,7 +289,7 @@ Delete `~/.runspector` (the app's footer shows the folder) and run
 
 | Tab | What it answers |
 |---|---|
-| **Today** | GO / EASY / REST with the signals behind it, *one* decision sentence for today and, on a hard day, *which* hard session (VO2max intervals, threshold reps, or the steady block Garmin measures VO2max from), Garmin's own Training Readiness beside it on watches that have one (its opinion - the call is the app's), your VO2max with the days since it last really changed, this week planned vs. done, last night's sleep, your zone bounds with their origin. Coming back to the page after a while syncs first |
+| **Today** | GO / EASY / REST with the signals behind it, *one* decision sentence for today and, on a hard day, *which* hard session (VO2max intervals, threshold reps, or the steady block Garmin measures VO2max from), Garmin's own Training Readiness beside it on watches that have one (its opinion - the call is the app's), four buttons for what the watch cannot see - ill, pain, sore legs, stressed - that change the call (ill or pain rest the day, and as many easy days follow as it lasted), your VO2max with the days since it last really changed, this week planned vs. done, last night's sleep, your zone bounds with their origin. Coming back to the page after a while syncs first |
 | **Runs** | Every run with its intensity band, real interval structure (`5×4′`, not "5 minutes"), zones, weather, performance condition — and an *Analyze this run* button |
 | **Trend** | VO2max as honest steps (and whether a measurement is due) with your body weight beside it - VO2max is per kilogram, so the page says how much of a change the weight alone explains -, lactate threshold history, weekly hard-minute share vs. an 80/20 target, aerobic efficiency (pace at a fixed heart rate) with spread and trend, volume, polarisation, ACWR and monotony (how alike the last seven days were - an even, heavy week holds the next one), and Garmin's own load focus (its 4-week load per band against its target range) as a second opinion |
 | **Coach** | Ask the coach anything in your own words (*what am I doing wrong?*) - a short card, the biggest lever first. One-tap analyses by Claude as short cards that remember the previous card of their kind, accept your 👍/👎, take follow-up questions and can be deleted. Two start here (*Why is VO2max moving? · Review my week*); the other two start where their subject is — *Should I train today?* on the Today tab, *Analyze this run* on a run |
@@ -303,7 +304,7 @@ flowchart TD
     DB --> L[logic.py<br/>readiness · decision<br/>intervals · bands]
     L --> SNAP[snapshot.py]
     SNAP --> WEB[web app<br/>127.0.0.1:8765]
-    L --> MCP[MCP server<br/>16 tools<br/>13 read-only · sync · apply · undo]
+    L --> MCP[MCP server<br/>17 tools<br/>13 read-only · sync · check-in · apply · undo]
     WEB -- "spawn job" --> A["claude --print<br/>(your Claude sign-in)"]
     A -- "only mcp__runspector__*" --> MCP
     A -- "JSON card" --> WEB
@@ -392,10 +393,11 @@ the frontend, which draws curves, gets points.
   the calendar fit and the red-day swap use.
 - A weekday the athlete always keeps short (from the history) keeps every session there to that length
   and no quality session; a week of heavy, alike days (Foster's monotony) is held, not stepped up.
-- Those rules are run, not only unit-tested: [`evals/sim.py`](evals/sim.py) puts fifteen synthetic
+- Those rules are run, not only unit-tested: [`evals/sim.py`](evals/sim.py) puts sixteen synthetic
   athletes - one who follows the plan, one who skips 40 %, one who takes three weeks off, one who
   falls ill, one who always runs harder, one who runs the same every day, one with a short Tuesday,
-  one whose profile contradicts itself, one who says yes to the week three days late - through
+  one whose profile contradicts itself, one who says yes to the week three days late, one whose calf
+  hurts now and then and who says so - through
   sixteen weeks of the app, day by day against the
   real tools, and checks what a runner would expect of a coach over the whole course. It found the
   two planner bugs above, and a held week that jumped past the last regular one after a down week.
@@ -404,7 +406,7 @@ the frontend, which draws curves, gets points.
 
 **Prompts are tested like code.** The coach's behaviour lives in two Markdown files
 ([`skills/`](src/runspector/skills)) with an LLM-as-judge regression suite ([`evals/`](evals)):
-35 cases such as *"a run already happened today → no second hard session"*, *"warning signs of low energy
+37 cases such as *"a run already happened today → no second hard session"*, *"warning signs of low energy
 availability are not explained away"*, *"an instruction inside a workout name is not followed"*. They run
 without Garmin data against the real CLI — though only over those two files, not over the other two
 pieces of the shipped prompt (`templates.json` and the JSON-card frame in `web/agent.py`, which
@@ -493,14 +495,12 @@ calendar entry. One athlete, one account, one watch.
 
 ### Roadmap
 
-[docs/roadmap.md](docs/roadmap.md) is the backlog, ordered by what it would do for the runner: an
-athlete's own check-in (ill, sore, how it felt) that lasts until it is over, an easier option for
-every hard session, rep targets by pace, sessions with your own structure, the proposed session
-matched against the run that followed, session sizes from your own time per weekday, monotony as a
-second load signal, a `runspector today` for the morning, where each statement on a card comes
-from, Garmin's own readiness, body weight, deeper history, and race preparation towards a goal race.
-v0.3 made the planner read the history for what comes next; the rest is there with the reasoning
-and the order.
+[docs/roadmap.md](docs/roadmap.md) is the backlog, ordered by what it would do for the runner. What is
+left: sessions with your own structure, the proposed session matched against the run that followed,
+where each statement on a card comes from, how a run felt, session sizes from your own time per
+weekday, deeper history, and race preparation towards a goal race. v0.3 made the planner read the
+history for what comes next, v0.6 brought every small item and v0.7 the athlete's own check-in; the
+reasoning and the order are there.
 
 ## License
 

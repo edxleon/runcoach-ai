@@ -931,3 +931,84 @@ def test_the_daily_load_sums_every_sport_per_local_day(store):
     store.upsert_activity(make_activity(9_100_003, TODAY, load=None))
     loads = store.daily_load(day, TODAY)
     assert loads == {day: 120.0, TODAY: 0.0}
+
+
+# ── the athlete's own word ───────────────────────────────────────────────────
+
+def test_saying_a_check_in_again_keeps_one_state_and_its_first_day(store, today):
+    assert store.say_check_in("pain", today - timedelta(days=2), note="left calf") == "new"
+    assert store.say_check_in("pain", today) == "said again"
+    rows = store.check_ins(today)
+    assert len(rows) == 1 and rows[0]["since"] == (today - timedelta(days=2)).isoformat()
+    assert rows[0]["last_said"] == today.isoformat() and rows[0]["note"] == "left calf"
+    store.say_check_in("pain", today, note="right calf")
+    assert store.check_ins(today)[0]["note"] == "right calf"
+
+
+def test_a_check_in_said_after_it_ran_out_starts_a_new_one(store, today):
+    store.say_check_in("sore", today - timedelta(days=5))
+    assert store.say_check_in("sore", today) == "new"
+    assert [r["since"] for r in store.check_ins(today)] == [
+        (today - timedelta(days=5)).isoformat(), today.isoformat()]
+
+
+def test_ending_a_check_in(store, today):
+    assert store.end_check_in("ill", today) == "none"
+    store.say_check_in("ill", today - timedelta(days=2))
+    assert store.end_check_in("ill", today) == "over"
+    assert store.check_ins(today)[0]["over"] == today.isoformat()
+    assert store.end_check_in("ill", today) == "none"         # nothing holds any more
+    # Said and ended the same day: it held today, tomorrow is the first day back.
+    store.say_check_in("stressed", today)
+    assert store.end_check_in("stressed", today) == "over tomorrow"
+    assert store.check_ins(today)[-1]["over"] == (today + timedelta(days=1)).isoformat()
+
+
+def test_taking_back_a_check_in_said_by_mistake(store, today):
+    store.say_check_in("ill", today - timedelta(days=1))
+    assert store.take_back_check_in("ill", today) == "none"   # it held a day: only over ends it
+    before = store.last_check_in_change()
+    store.say_check_in("pain", today)
+    assert store.take_back_check_in("pain", today) == "taken back"
+    assert [r["kind"] for r in store.check_ins(today)] == ["ill"]
+    assert store.last_check_in_change() >= before             # still a change for the cards
+    assert store.take_back_check_in("pain", today) == "none"
+
+
+def test_a_check_in_that_ran_out_cannot_be_ended(store, today):
+    store.say_check_in("ill", today - timedelta(days=5))
+    assert store.end_check_in("ill", today) == "none"
+
+
+def test_an_unknown_check_in_kind_is_refused(store, today):
+    with pytest.raises(ValueError):
+        store.say_check_in("tired", today)
+    with pytest.raises(ValueError):
+        store.end_check_in("tired", today)
+
+
+def test_old_check_ins_are_not_read(store, today):
+    store.say_check_in("ill", today - timedelta(days=40))
+    store.say_check_in("pain", today - timedelta(days=12))
+    assert store.end_check_in("pain", today - timedelta(days=10)) == "over"
+    assert [r["kind"] for r in store.check_ins(today)] == ["pain"]
+
+
+def test_an_over_said_by_mistake_is_undone_by_saying_it_again(store, today):
+    """Review: ill for days, "over" tapped by mistake, "ill" tapped again the
+    same day - a new row began today and the days before were lost, so the
+    easy days after it came back short."""
+    store.say_check_in("ill", today - timedelta(days=4))
+    store.say_check_in("ill", today - timedelta(days=2))
+    assert store.end_check_in("ill", today) == "over"
+    assert store.say_check_in("ill", today) == "said again"
+    rows = store.check_ins(today)
+    assert len(rows) == 1 and rows[0]["since"] == (today - timedelta(days=4)).isoformat(), rows
+    assert rows[0]["over"] is None and rows[0]["last_said"] == today.isoformat()
+
+
+def test_saying_it_again_after_an_over_tomorrow_keeps_it_open(store, today):
+    store.say_check_in("pain", today)
+    assert store.end_check_in("pain", today) == "over tomorrow"
+    assert store.say_check_in("pain", today) == "said again"
+    assert store.check_ins(today)[0]["over"] is None

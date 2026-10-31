@@ -34,6 +34,13 @@
                       position: absolute; left: 0; top: 0;
                       width: 14px; text-align: center; }
 .goal-line { font-size: 12px; color: var(--muted); }
+/* The athlete's own word under today's call: a label and four buttons that
+   wrap on a phone, and one line per state that holds. */
+.check-in { display: grid; gap: 6px; }
+.check-in-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.check-in-head .k { font-size: 12px; color: var(--muted); }
+.check-in .seg .chip { padding: 6px 12px; }
+.check-in .linkish { margin-left: 6px; }
 .about { text-align: center; opacity: .7; }
 
 /* ── Bars (sleep phases, intensity bands) ──

@@ -16,7 +16,7 @@ from runspector.store import Store
 
 TOP_LEVEL_KEYS = {
     "schema", "generated_at", "data_through", "stale_days", "stale_after_days",
-    "today", "decision_today", "next_stimulus",
+    "today", "decision_today", "next_stimulus", "check_ins",
     "sleep", "load", "series", "weeks", "runs", "intensity", "vo2max", "zones", "plan",
     "aerobic", "predictions", "targets", "profile", "degraded", "counts"}
 

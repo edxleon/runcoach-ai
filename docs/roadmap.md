@@ -7,14 +7,15 @@ of what each item does for a runner who uses it every day - not in the order of 
 two (2, 14) and ordered the rest by what each does for the runner.
 
 The first item has since shipped (v0.3, "what comes next": the planner reads the history for a
-brake, a down week, a measurement, a return week and the next stimulus, in code), and v0.6 shipped
-every item of small effort: 3, 4, 7, 8, 9, 11 and 12, each marked below with what it does and what
-it left open. They stay here because the reasoning behind the order is the point of this file.
+brake, a down week, a measurement, a return week and the next stimulus, in code), v0.6 shipped
+every item of small effort: 3, 4, 7, 8, 9, 11 and 12, and v0.7 the next one by benefit, 2. Each is
+marked below with what it does and what it left open. They stay here because the reasoning behind
+the order is the point of this file.
 
 | # | Gap | For the runner | Effort |
 |---|---|---|---|
 | 1 | Progression without a plan: a brake, a down week when due, a measurement when due, the next stimulus, a return week - *shipped in v0.3* | very high | medium |
-| 2 | A way back from the athlete: ill, sore, stressed, how it felt - with a state that lasts until it is over | high | medium |
+| 2 | A way back from the athlete: ill, sore, stressed, how it felt - with a state that lasts until it is over - *shipped in v0.7, except how it felt* | high | medium |
 | 3 | An easier option for every hard session in the plan, computed by the rules - *shipped in v0.6* | high | small |
 | 4 | Rep targets by pace, not heart rate, once the pace is real - *shipped in v0.6* | high (anyone without a chest strap) | small |
 | 5 | A session with your own structure, in your own words | high | medium |
@@ -36,6 +37,8 @@ rarely fires. Of the trust items, where a statement comes from (10) touches ever
 comes before Garmin's own number (11). Deeper history (13) helps on install day only.
 
 ## 2. A way back from the athlete
+
+*Shipped in v0.7:* four buttons under today's call (ill, pain, sore legs, stressed) and the `check_in` tool, which a card run cannot call. A check-in holds until the athlete says it is over, or runs out after 3 days without a new word (sore legs: 2). Ill or pain rest the day whatever the light says, also before the morning's sync, and once over, as many easy days follow as it held (at most 7). Sore or stressed take the hard session but not the run. The week planner holds the week and puts no hard session before the earliest day the day rule could allow one; a single hard proposal on such a day is refused. Still open: *how it felt*. Newer Garmin watches ask for perceived effort and feel after the run (Self Evaluation), so it belongs in the sync before the app asks a second time.
 
 "Heavy legs", "a cold", "a rough week at work", "that was on a treadmill", a perceived effort:
 none of it can be recorded. What is said in chat is gone with the chat; a card remembers only
@@ -197,8 +200,18 @@ block stays code; the question is the only place the conversation shapes it.
 - Menstrual-cycle data, which Garmin has, appears nowhere.
 - Every proposal creates a new Garmin workout and nothing deletes one; after months the library
   is full of "VO2max 4x4 min".
-- No return-to-run after a symptom - deliberate, but the athlete is on their own afterwards.
+- After ill or pain the app keeps as many days easy as it held, and that is all: no return schedule beyond it, deliberately.
+- After a few days off - pain, a cold - the light reads the lower load as ACWR < 0.8 ("stimulus missing")
+  and keeps every day easy until the ratio recovers, two to three weeks of easy running for the synthetic
+  runner with a sore calf. Whether that flag should dampen a day at all after a break the app itself
+  prescribed is open; it needs the evidence on undertraining read again first.
+- The weeks after an illness or a pain are sized from a median that holds the weeks it took out, so they
+  climb back slowly (the synthetic runner: 265 min before, ~150 seven weeks later). A pause of ten days
+  or more already rebuilds towards the level before it; a check-in of a few days could do the same.
+- Near the shortest useful sessions a week planned as a step can come out a few minutes smaller than
+  the one before it - a measurement week's steady block is shorter than the threshold session it
+  replaces, or the same budget fills one day fewer - because the step floor compares budgets, not the
+  sessions built from them, and a small week may sit up to 15 % above its budget.
 - The evals run on a different model and in `--safe-mode`; a green suite is not the shipped coach.
-- The simulator has no runner who reports pain the day after a quality session - that needs item 2.
-  (One whose settings contradict themselves and one who says yes to the week three days late run
-  since v0.6.)
+- The simulator's runners since v0.6: one whose settings contradict themselves, one who says yes to
+  the week three days late; since v0.7 one whose calf hurts after one quality session in seven.

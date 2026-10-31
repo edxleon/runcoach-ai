@@ -271,10 +271,11 @@ def _render_garmin_high(store) -> str:
         "doing my intervals today, Garmin is the one that measures me.", 1)
 
 
-def _render_tired_with_plan(store) -> str:
+def _vo2max_today(store) -> None:
+    """The app's own VO2max 5x4 on today's calendar, with its easier option."""
     import json as _json
 
-    from runspector import planning, tools
+    from runspector import planning
     from runspector.models import ScheduledWorkout
 
     spec = planning.with_fallback(planning.build_session("vo2max", duration_min=58, zones={}))
@@ -284,6 +285,12 @@ def _render_tired_with_plan(store) -> str:
     store.replace_scheduled_workouts([ScheduledWorkout(8801, TODAY, workout_id=990001,
                                                        title=spec.name, sport="running")],
                                      TODAY - timedelta(days=7), TODAY + timedelta(days=14))
+
+
+def _render_tired_with_plan(store) -> str:
+    from runspector import tools
+
+    _vo2max_today(store)
     return "\n".join([
         "Athlete: Terrible night and my legs are dead. The 5x4 today is not happening. Should I "
         "do a short 3x3 instead, or just jog 20 minutes?",
@@ -317,6 +324,29 @@ def _render_weight_vo2max(store) -> str:
 
 
 #: case id -> renderer over the grey-zone athlete (`fixture_input`).
+def _render_cold_in_chat(store) -> str:
+    from runspector import tools
+
+    _vo2max_today(store)
+    return "\n".join([
+        "Athlete: Sore throat and a runny nose since yesterday - all above the neck, no fever. The "
+        "app says GO and the 5x4 is on the calendar. Intervals today, or at least an easy run?",
+        "", "=== get_training_readiness ===", tools.get_training_readiness(store),
+    ]).rstrip() + "\n"
+
+
+def _render_cold_in_the_note(store) -> str:
+    from runspector import profile, tools
+
+    _vo2max_today(store)
+    profile.save({"note": "Caught a cold on Monday - sore throat and a blocked nose."})
+    return "\n".join([
+        "Athlete: Should I train today?",
+        "", "=== get_training_readiness ===", tools.get_training_readiness(store),
+        "", "=== get_athlete_profile ===", tools.get_athlete_profile(store),
+    ]).rstrip() + "\n"
+
+
 SEEDED_CASES = {
     "garmin-says-high-app-says-easy": lambda: fixture_input(
         today_extra={"garmin_readiness": 88, "garmin_readiness_level": "HIGH"},
@@ -325,6 +355,9 @@ SEEDED_CASES = {
         renderer=_render_tired_with_plan),
     "vo2max-up-weight-down-is-partly-weight": lambda: fixture_input(
         renderer=_render_weight_vo2max),
+    "a-cold-said-in-chat-is-no-run-today": lambda: fixture_input(renderer=_render_cold_in_chat),
+    "a-cold-in-the-note-goes-on-the-today-tab": lambda: fixture_input(
+        renderer=_render_cold_in_the_note),
 }
 
 
