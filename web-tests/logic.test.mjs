@@ -719,3 +719,19 @@ test("check-in: a state said over today shows when it ends, no second 'over'", a
   assert.equal(v.lines[0].text, "Ill since today - over from <2026-06-11>");
   assert.equal(v.lines[0].ending, true);
 });
+
+test("check-in: a button tapped today is a switch - the view says it can be taken back", async () => {
+  const { checkInView } = await import("../src/runspector/web/static/logic.js");
+  const day = d => `<${d}>`;
+  const v = checkInView({ open: [
+    { kind: "ill", since: "2026-06-10", last_said: "2026-06-10", over: "2026-06-11" },
+    { kind: "pain", since: "2026-06-08", last_said: "2026-06-10", over: null },
+  ], after: null }, "2026-06-10", day);
+  const chip = k => v.chips.find(c => c.kind === k);
+  // Tapped today, even after "It's over": a second tap or "Said by mistake" takes it back.
+  assert.equal(chip("ill").undoable, true);
+  assert.equal(v.lines.find(l => l.kind === "ill").undoable, true);
+  // Said on an earlier day: a tap says it again, nothing to take back.
+  assert.equal(chip("pain").undoable, false);
+  assert.equal(chip("sore").undoable, false);
+});

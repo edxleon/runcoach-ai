@@ -498,7 +498,10 @@ const CHECK_IN_LABEL = { ill: "Ill", pain: "Pain", sore: "Sore legs", stressed: 
 export function checkInView(state, today, fmtDay) {
   const s = state || {};
   const open = new Map((s.open || []).map(c => [c.kind, c]));
-  const chips = CHECK_IN_KINDS.map(kind => ({ kind, label: CHECK_IN_LABEL[kind], pressed: open.has(kind) }));
+  // A button tapped today is a switch: a second tap takes it back (`undoable`).
+  // One said on an earlier day is a state with a history; a tap says it again.
+  const chips = CHECK_IN_KINDS.map(kind => ({ kind, label: CHECK_IN_LABEL[kind], pressed: open.has(kind),
+                                              undoable: open.has(kind) && open.get(kind).since === today }));
   const lines = CHECK_IN_KINDS.filter(k => open.has(k)).map(kind => {
     const c = open.get(kind);
     const since = c.since === today ? "since today" : `since ${fmtDay(c.since)}`;

@@ -1012,3 +1012,12 @@ def test_saying_it_again_after_an_over_tomorrow_keeps_it_open(store, today):
     assert store.end_check_in("pain", today) == "over tomorrow"
     assert store.say_check_in("pain", today) == "said again"
     assert store.check_ins(today)[0]["over"] is None
+
+
+def test_a_tap_by_mistake_can_be_taken_back_even_after_it_was_said_over(store, today):
+    """Live use: Ill tapped by mistake, then "It's over" - which keeps today
+    and ends tomorrow - and no way left to undo the tap."""
+    store.say_check_in("ill", today)
+    assert store.end_check_in("ill", today) == "over tomorrow"
+    assert store.take_back_check_in("ill", today) == "taken back"
+    assert store.check_ins(today) == []

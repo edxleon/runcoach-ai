@@ -172,20 +172,22 @@ function decisionHtml() {
 /* The athlete's own word: ill, pain, sore legs, stressed. The watch sees a
    cold only once HRV reacts and never sees a sore calf - a tap here changes
    today's call in code (`logic.check_in_state`), and the call above says so.
-   A pressed button says it again today; "It's over" ends it, and "Said by
-   mistake" takes back one tapped today. Shown also on a day without today's
-   values: the word does not need the watch. */
+   A button tapped today is a switch: tapped again, or "Said by mistake", it
+   is taken back as if never said - also after "It's over", which on the same
+   day keeps today and ends tomorrow. One said on an earlier day: a tap says it
+   again, "It's over" ends it. Shown also on a day without today's values: the
+   word does not need the watch. */
 function checkInHtml() {
   const v = checkInView(D().check_ins, appToday(), fmtDay);
   const busy = checkInBusy ? " disabled" : "";
   return `<div class="check-in">
     <div class="check-in-head"><span class="k">How are you?</span>
       <div class="seg" role="group" aria-label="How are you?">${v.chips.map(c =>
-        `<button type="button" class="chip" data-check-in="${c.kind}" aria-pressed="${c.pressed}"${busy}>${
-          esc(c.label)}</button>`).join("")}</div></div>
+        `<button type="button" class="chip" data-check-in="${c.kind}" aria-pressed="${c.pressed}"${
+          c.undoable ? ' data-check-in-toggle=""' : ""}${busy}>${esc(c.label)}</button>`).join("")}</div></div>
     ${v.lines.map(l => `<div class="goal-line">${esc(l.text)}${l.saidToday ? "" : " · not said today"}
       ${l.ending ? "" : `<button type="button" class="linkish" data-check-in-over="${l.kind}"${busy}>It's over</button>`}${
-      l.undoable && !l.ending ? `<button type="button" class="linkish" data-check-in-undo="${l.kind}"${busy}>Said by mistake</button>` : ""}</div>`).join("")}
+      l.undoable ? `<button type="button" class="linkish" data-check-in-undo="${l.kind}"${busy}>Said by mistake</button>` : ""}</div>`).join("")}
     ${v.after ? `<div class="goal-line">${esc(v.after)}</div>` : ""}
   </div>`;
 }
@@ -1591,6 +1593,7 @@ document.addEventListener("click", ev => {
     const ds = said.dataset;
     if (ds.checkInOver) sendCheckIn(ds.checkInOver, "over");
     else if (ds.checkInUndo) sendCheckIn(ds.checkInUndo, "undo");
+    else if ("checkInToggle" in ds) sendCheckIn(ds.checkIn, "undo");
     else sendCheckIn(ds.checkIn, null);
     return;
   }
